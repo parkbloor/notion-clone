@@ -1,65 +1,58 @@
-import Image from "next/image";
+// =============================================
+// src/app/page.tsx
+// 역할: 앱의 진입점 — 사이드바와 에디터를 화면에 배치
+// Python으로 치면: if __name__ == "__main__": main()
+// =============================================
+
+'use client'
+
+import { usePageStore } from '@/store/pageStore'
+import Sidebar from '@/components/editor/Sidebar'
+import PageEditor from '@/components/editor/PageEditor'
 
 export default function Home() {
+
+  // -----------------------------------------------
+  // 현재 선택된 페이지 ID를 스토어에서 가져옴
+  // -----------------------------------------------
+  const { currentPageId, pages, setCurrentPage } = usePageStore()
+
+  // -----------------------------------------------
+  // 앱 첫 진입 시 자동으로 첫 번째 페이지 선택
+  // Python으로 치면:
+  //   if current_page is None:
+  //       current_page = pages[0]
+  // -----------------------------------------------
+  if (!currentPageId && pages.length > 0) {
+    setCurrentPage(pages[0].id)
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    // -----------------------------------------------
+    // 전체 레이아웃 컨테이너
+    // flex: 사이드바와 에디터를 가로로 나란히 배치
+    // h-screen: 화면 전체 높이
+    // -----------------------------------------------
+    <div className="flex h-screen bg-white">
+
+      {/* 왼쪽 사이드바 */}
+      <Sidebar />
+
+      {/* 오른쪽 에디터 영역 */}
+      {/* flex-1: 사이드바 빼고 남은 공간 전부 차지 */}
+      {/* overflow-y-auto: 내용이 길어지면 스크롤 */}
+      <main className="flex-1 overflow-y-auto">
+        {currentPageId ? (
+          // 페이지가 선택되어 있으면 에디터 렌더링
+          <PageEditor pageId={currentPageId} />
+        ) : (
+          // 선택된 페이지가 없으면 안내 문구 표시
+          <div className="flex items-center justify-center h-full text-gray-400">
+            <p>왼쪽에서 페이지를 선택하세요</p>
+          </div>
+        )}
       </main>
+
     </div>
-  );
+  )
 }
