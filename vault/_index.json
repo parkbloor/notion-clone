@@ -1,0 +1,30 @@
+{
+  "pageOrder": [
+    "f6e50297-47bc-408a-9cec-ba7b83d371ad",
+    "f564acf0-3380-4edb-a7db-adae8124c674"
+  ],
+  "currentPageId": "0b69b9cc-1c1b-4b4e-b138-ffe473b72fc4",
+  "folderMap": {
+    "f6e50297-47bc-408a-9cec-ba7b83d371ad": "처음_만드는_제목_20260219-2345_f6e50297",
+    "f564acf0-3380-4edb-a7db-adae8124c674": "두번째_만드는_제목_20260220-0350_f564acf0"
+  },
+  "categories": [
+    {
+      "id": "d2ea89fc-6385-4f5a-bafe-7cb258848b53",
+      "name": "테스트",
+      "folderName": "테스트"
+    },
+    {
+      "id": "2de0bedf-ae3f-47b9-9036-f01f17b01a95",
+      "name": "호ㅓㅗㅎ",
+      "folderName": "호ㅓㅗㅎ"
+    }
+  ],
+  "categoryMap": {
+    "f564acf0-3380-4edb-a7db-adae8124c674": "d2ea89fc-6385-4f5a-bafe-7cb258848b53"
+  },
+  "categoryOrder": [
+    "2de0bedf-ae3f-47b9-9036-f01f17b01a95",
+    "d2ea89fc-6385-4f5a-bafe-7cb258848b53"
+  ]
+}

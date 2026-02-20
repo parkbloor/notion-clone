@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "concurrently --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev\" \"python -m uvicorn backend.main:app --reload --port 8000\"",
+    "dev:next": "next dev",
+    "dev:api": "python -m uvicorn backend.main:app --reload --port 8000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -49,6 +51,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
+    "concurrently": "^9.2.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "shadcn": "^3.8.5",

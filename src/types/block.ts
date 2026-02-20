@@ -85,6 +85,23 @@ export function createBlock(type: BlockType = 'paragraph'): Block {
 
 
 // -----------------------------------------------
+// 카테고리 하나의 구조
+// vault 안의 실제 폴더와 1:1 대응
+// Python으로 치면:
+//   @dataclass
+//   class Category:
+//       id: str
+//       name: str
+//       folder_name: str
+// -----------------------------------------------
+export interface Category {
+  id: string           // 카테고리 고유 ID (UUID)
+  name: string         // 사용자가 보는 이름 (예: "업무")
+  folderName: string   // vault 안의 실제 폴더명 (예: "업무")
+}
+
+
+// -----------------------------------------------
 // 새 페이지 생성 헬퍼 함수
 // 역할: Page 객체를 기본값으로 만들어주는 공장 함수
 // -----------------------------------------------

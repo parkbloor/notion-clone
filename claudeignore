@@ -1,0 +1,46 @@
+# 패키지 및 의존성 (가장 큰 용량 차지)
+node_modules/
+
+# Next.js 빌드 산출물
+.next/
+out/
+dist/
+build/
+
+# 버전 관리
+.git/
+.gitignore
+
+# 패키지 잠금 파일 (내용이 길고 Claude가 볼 필요 없음)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 환경 변수 (보안)
+.env
+.env.local
+.env.development
+.env.production
+
+# 로그
+*.log
+npm-debug.log*
+
+# 캐시
+.cache/
+.turbo/
+.eslintcache
+
+# 에디터 설정
+.vscode/
+.idea/
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# 타입 자동 생성 파일
+*.d.ts
+
+# public 폴더 (이미지, 폰트 등 정적 파일)
+public/

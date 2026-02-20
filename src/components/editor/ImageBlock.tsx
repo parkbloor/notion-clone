@@ -9,6 +9,7 @@
 import { useRef, useState } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { api } from '@/lib/api'
 
 interface ImageBlockProps {
   block: Block
@@ -47,6 +48,9 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
   // 리사이즈 중에만 사용하는 임시 너비 (매 mousemove마다 업데이트)
   // Python으로 치면: local_width: int | None = None
   const [localWidth, setLocalWidth] = useState<number | undefined>(undefined)
+  // 서버 업로드 진행 중 여부 — true이면 스피너 표시
+  // Python으로 치면: is_uploading = False
+  const [isUploading, setIsUploading] = useState(false)
 
   // content에서 src와 저장된 너비 파싱
   const { src, width: savedWidth } = parseContent(block.content)
@@ -71,18 +75,31 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
   }
 
   // -----------------------------------------------
-  // 파일 → base64 data URL 변환 후 저장
-  // Python으로 치면: def load_file(file): reader.readAsDataURL(file)
+  // 파일 → 서버 업로드 후 URL 저장
+  // 서버가 꺼져 있으면 base64 data URL로 fallback
+  // Python으로 치면:
+  //   async def load_file(file):
+  //       try: url = await api.upload(file); save(url)
+  //       except: url = to_base64(file); save(url)
   // -----------------------------------------------
-  function loadFile(file: File) {
+  async function loadFile(file: File) {
     if (!file.type.startsWith('image/')) return
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string
-      // 이미지 교체 시 기존 너비 유지
-      saveContent(dataUrl, savedWidth)
+    setIsUploading(true)
+    try {
+      // 서버에 실제 파일로 저장 → URL만 반환받아 블록에 저장
+      const url = await api.uploadImage(pageId, file)
+      saveContent(url, savedWidth)
+    } catch {
+      // 서버 꺼져 있을 때 — base64로 임시 저장 (Graceful degradation)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string
+        saveContent(dataUrl, savedWidth)
+      }
+      reader.readAsDataURL(file)
+    } finally {
+      setIsUploading(false)
     }
-    reader.readAsDataURL(file)
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -166,9 +183,20 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
       >
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-        <span className="text-3xl select-none">🖼️</span>
-        <p className="text-sm text-gray-400">클릭하거나 이미지를 드래그하여 업로드</p>
-        <p className="text-xs text-gray-300">PNG, JPG, GIF, WebP 지원</p>
+        {isUploading ? (
+          // 업로드 진행 중 스피너
+          // Python으로 치면: show_spinner()
+          <>
+            <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-blue-400">업로드 중...</p>
+          </>
+        ) : (
+          <>
+            <span className="text-3xl select-none">🖼️</span>
+            <p className="text-sm text-gray-400">클릭하거나 이미지를 드래그하여 업로드</p>
+            <p className="text-xs text-gray-300">PNG, JPG, GIF, WebP 지원</p>
+          </>
+        )}
       </div>
     )
   }

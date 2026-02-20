@@ -8,6 +8,7 @@
 
 import { useRef, useState } from 'react'
 import { usePageStore } from '@/store/pageStore'
+import { api } from '@/lib/api'
 import Editor from './Editor'
 import EmojiPicker from './EmojiPicker'
 
@@ -48,18 +49,29 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   const coverInputRef = useRef<HTMLInputElement>(null)
 
   // -----------------------------------------------
-  // 커버 이미지 파일 선택 → base64 변환 → 저장
-  // Python으로 치면: def on_cover_change(file): reader.readAsDataURL(file)
+  // 커버 이미지 파일 선택 → 서버 업로드 후 URL 저장
+  // 서버가 꺼져 있으면 base64 data URL로 fallback
+  // Python으로 치면:
+  //   async def on_cover_change(file):
+  //       try: url = await api.upload(file); update_cover(url)
+  //       except: url = to_base64(file); update_cover(url)
   // -----------------------------------------------
-  function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      updatePageCover(pageId, ev.target?.result as string)
-    }
-    reader.readAsDataURL(file)
     e.target.value = ''
+    try {
+      // 서버에 실제 파일로 저장 → URL만 반환받아 커버에 저장
+      const url = await api.uploadImage(pageId, file)
+      updatePageCover(pageId, url)
+    } catch {
+      // 서버 꺼져 있을 때 — base64로 임시 저장 (Graceful degradation)
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        updatePageCover(pageId, ev.target?.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
   }
 
   // -----------------------------------------------

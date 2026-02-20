@@ -1,0 +1,24 @@
+{
+  "id": "f6e50297-47bc-408a-9cec-ba7b83d371ad",
+  "title": "처음 만드는 제목",
+  "icon": "📝",
+  "cover": null,
+  "blocks": [
+    {
+      "id": "cf95e9cd-08dc-4f3c-a8d2-0a55d19e0f5d",
+      "type": "image",
+      "content": "{\"src\":\"http://localhost:8000/static/처음_만드는_제목_20260219-2345_f6e50297/images/0eb0eac3-8813-4a78-bed7-1fc4a6b6bb5a.jpg\",\"width\":241}",
+      "createdAt": "2026-02-19T23:45:43.931Z",
+      "updatedAt": "2026-02-20T03:27:42.552Z"
+    },
+    {
+      "id": "eb8a0518-2c79-4aa4-b9fd-0fdfd4328839",
+      "type": "paragraph",
+      "content": "",
+      "createdAt": "2026-02-20T03:49:49.858Z",
+      "updatedAt": "2026-02-20T03:49:49.858Z"
+    }
+  ],
+  "createdAt": "2026-02-19T23:45:43.931Z",
+  "updatedAt": "2026-02-20T03:49:29.022Z"
+}
