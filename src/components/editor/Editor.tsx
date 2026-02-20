@@ -33,6 +33,7 @@ import BubbleMenuBar from './BubbleMenuBar'
 import ImageBlock from './ImageBlock'
 import TableToolbar from './TableToolbar'
 import BlockMenu from './BlockMenu'
+import ToggleBlock from './ToggleBlock'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -149,7 +150,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       // Python으로 치면: extensions.append(CustomCodeBlock)
       CustomCodeBlock,
     ],
-    content: block.content || '',
+    // 이미지·토글 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
+    // JSON content를 HTML로 파싱하는 오류 방지
+    // Python으로 치면: content = '' if type in ('image', 'toggle') else block.content
+    content: (block.type === 'image' || block.type === 'toggle') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -262,15 +266,20 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (type === 'image') {
       updateBlock(pageId, block.id, '')
     }
+    // 토글 타입으로 전환 시 content를 JSON 포맷으로 초기화
+    // Python으로 치면: if type == 'toggle': block.content = json.dumps({...})
+    if (type === 'toggle') {
+      updateBlock(pageId, block.id, JSON.stringify({ header: '', body: '' }))
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
 
   function applyBlockType(editor: TiptapEditor, type: BlockType) {
     if (!editor) return
-    // 이미지 블록은 Tiptap으로 관리하지 않으므로 조기 반환
-    // Python으로 치면: if type == 'image': return
-    if (type === 'image') return
+    // 이미지·토글 블록은 Tiptap으로 관리하지 않으므로 조기 반환
+    // Python으로 치면: if type in ('image', 'toggle'): return
+    if (type === 'image' || type === 'toggle') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -325,6 +334,38 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         </div>
         <div className="flex-1">
           <ImageBlock block={block} pageId={pageId} />
+        </div>
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 토글 블록: ToggleBlock 컴포넌트로 렌더링
+  // 드래그 핸들은 이미지 블록과 동일하게 제공
+  // Python으로 치면: if block.type == 'toggle': return render(ToggleBlock)
+  // -----------------------------------------------
+  if (block.type === 'toggle') {
+    return (
+      <div
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <ToggleBlock block={block} pageId={pageId} isLast={isLast} />
         </div>
       </div>
     )

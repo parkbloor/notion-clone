@@ -14,6 +14,7 @@ const COMMANDS = [
     group: '기본 블록',
     items: [
       { icon: '📝', name: '텍스트', description: '일반 텍스트를 작성합니다', type: 'paragraph' as BlockType },
+      { icon: '▶', name: '토글', description: '클릭으로 내용 접고 펼치기', type: 'toggle' as BlockType },
       { icon: '🔠', name: '제목 1', description: '가장 큰 제목', type: 'heading1' as BlockType },
       { icon: '🔡', name: '제목 2', description: '중간 크기 제목', type: 'heading2' as BlockType },
       { icon: '🔤', name: '제목 3', description: '작은 제목', type: 'heading3' as BlockType },

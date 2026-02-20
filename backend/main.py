@@ -69,6 +69,9 @@ class PageModel(BaseModel):
     title: str
     icon: str
     cover: Optional[str] = None
+    # 커버 이미지 Y 위치 (0~100, 기본 50 = 가운데)
+    # Python으로 치면: cover_position: Optional[int] = 50
+    coverPosition: Optional[int] = 50
     blocks: list[BlockModel]
     createdAt: str
     updatedAt: str
@@ -350,6 +353,7 @@ def create_page(body: CreatePageBody):
         "title": body.title,
         "icon": body.icon,
         "cover": None,
+        "coverPosition": 50,
         "blocks": [{
             "id": block_id,
             "type": "paragraph",

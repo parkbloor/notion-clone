@@ -6,11 +6,12 @@
 
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
 import PageList from '@/components/editor/PageList'
 import PageEditor from '@/components/editor/PageEditor'
+import ShortcutModal from '@/components/editor/ShortcutModal'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
 // Python으로 치면: from dnd import DndContext, arrayMove
@@ -25,6 +26,10 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 
 export default function Home() {
+
+  // 단축키 안내 모달 열림 여부
+  // Python으로 치면: self.shortcut_modal_open = False
+  const [shortcutOpen, setShortcutOpen] = useState(false)
 
   // -----------------------------------------------
   // 스토어에서 필요한 상태와 액션 가져오기
@@ -117,7 +122,7 @@ export default function Home() {
       onDragEnd={handleDragEnd}
     >
       {/* 전체 레이아웃: 3패널 가로 배치 */}
-      <div className="flex h-screen bg-white overflow-hidden">
+      <div className="flex h-screen bg-white overflow-hidden relative">
 
         {/* ── 1패널: 카테고리(폴더) 사이드바 ─────── */}
         <CategorySidebar />
@@ -139,6 +144,22 @@ export default function Home() {
             </div>
           )}
         </main>
+
+        {/* ── ? 단축키 안내 버튼 (우측 하단 고정) ──────
+            fixed 대신 absolute 사용 — overflow:hidden인 부모 안에 있어야 함
+            Python으로 치면: self.help_btn = QPushButton('?'); self.help_btn.move(right, bottom) */}
+        <button
+          type="button"
+          onClick={() => setShortcutOpen(true)}
+          className="absolute bottom-5 right-5 w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 hover:text-gray-800 text-sm font-bold flex items-center justify-center shadow-sm transition-colors z-40"
+          title="단축키 안내 (?)">
+          ?
+        </button>
+
+        {/* ── 단축키 안내 모달 ───────────────────────── */}
+        {shortcutOpen && (
+          <ShortcutModal onClose={() => setShortcutOpen(false)} />
+        )}
 
       </div>
     </DndContext>

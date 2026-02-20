@@ -60,7 +60,14 @@ export interface Page {
   id: string           // 페이지 고유 ID
   title: string        // 페이지 제목
   icon: string         // 페이지 아이콘 이모지 (예: "📝")
-  cover?: string       // 커버 이미지 (base64 data URL 또는 undefined)
+  cover?: string       // 커버 값 — URL / "gradient:..." / "color:..." / undefined
+  coverPosition?: number // 커버 이미지 Y 위치 (0~100, 기본 50 = 가운데)
+  // 태그 목록 (예: ["업무", "중요"]) — 선택 사항, 없으면 빈 배열로 취급
+  // Python으로 치면: tags: list[str] = field(default_factory=list)
+  tags?: string[]
+  // 즐겨찾기 여부 — true이면 목록 상단에 고정
+  // Python으로 치면: starred: bool = False
+  starred?: boolean
   blocks: Block[]      // 이 페이지에 속한 블록 목록
   createdAt: Date      // 생성 시각
   updatedAt: Date      // 마지막 수정 시각

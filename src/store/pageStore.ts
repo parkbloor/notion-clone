@@ -79,6 +79,22 @@ interface PageStore {
   deletePage: (pageId: string) => void
   updatePageIcon: (pageId: string, icon: string) => void
   updatePageCover: (pageId: string, cover: string | undefined) => void
+  // 커버 이미지 Y 위치 변경 (0~100, 드래그로 조정)
+  // Python으로 치면: def update_cover_position(self, page_id, position): ...
+  updatePageCoverPosition: (pageId: string, position: number) => void
+
+  // ── 태그 액션 ─────────────────────────────────
+  // Python으로 치면: def add_tag(self, page_id, tag): page.tags.append(tag)
+  addTagToPage: (pageId: string, tag: string) => void
+  // Python으로 치면: def remove_tag(self, page_id, tag): page.tags.remove(tag)
+  removeTagFromPage: (pageId: string, tag: string) => void
+
+  // ── 즐겨찾기 / 복제 액션 ─────────────────────
+  // Python으로 치면: def toggle_star(self, page_id): page.starred = not page.starred
+  togglePageStar: (pageId: string) => void
+  // 페이지와 모든 블록을 복제, 원본 바로 아래에 삽입
+  // Python으로 치면: def duplicate_page(self, page_id): pages.insert(idx+1, copy(page))
+  duplicatePage: (pageId: string) => void
 
   // ── 블록 액션 ─────────────────────────────────
   addBlock: (pageId: string, afterBlockId?: string) => void
@@ -240,6 +256,99 @@ export const usePageStore = create<PageStore>()(
         if (page) { page.cover = cover; page.updatedAt = new Date() }
       })
       scheduleSave(pageId, get, set)
+    },
+
+    // 커버 이미지 Y 위치 변경 (0~100, 드래그 조정 완료 시 호출)
+    // Python으로 치면: def update_cover_position(self, page_id, position): ...
+    updatePageCoverPosition: (pageId, position) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page) { page.coverPosition = position; page.updatedAt = new Date() }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+
+    // ── 태그 액션 ──────────────────────────────
+
+    // 태그 추가 — 중복 태그는 무시, 빈 문자열 무시
+    // Python으로 치면: def add_tag(self, page_id, tag): if tag and tag not in page.tags: page.tags.append(tag)
+    addTagToPage: (pageId, tag) => {
+      const trimmed = tag.trim()
+      if (!trimmed) return
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        if (!page.tags) page.tags = []
+        // 중복 방지
+        if (!page.tags.includes(trimmed)) {
+          page.tags.push(trimmed)
+          page.updatedAt = new Date()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 태그 삭제
+    // Python으로 치면: def remove_tag(self, page_id, tag): page.tags.remove(tag)
+    removeTagFromPage: (pageId, tag) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page && page.tags) {
+          page.tags = page.tags.filter(t => t !== tag)
+          page.updatedAt = new Date()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+
+    // ── 즐겨찾기 / 복제 액션 ──────────────────
+
+    // 즐겨찾기 토글 — starred: true/false 반전
+    // Python으로 치면: def toggle_star(self, page_id): page.starred = not page.starred
+    togglePageStar: (pageId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page) {
+          page.starred = !page.starred
+          page.updatedAt = new Date()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 페이지 복제 — 원본 바로 다음에 삽입, 현재 페이지로 전환
+    // Python으로 치면: def duplicate_page(self, page_id): pages.insert(idx+1, copy(page))
+    duplicatePage: (pageId) => {
+      // 새 페이지 ID를 먼저 생성 (set 밖에서 scheduleSave에 전달하기 위해)
+      const newId = crypto.randomUUID()
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const duplicate: Page = {
+          ...page,
+          id: newId,
+          title: page.title + ' (복사본)',
+          // 블록도 새 ID로 복사
+          blocks: page.blocks.map(b => ({
+            ...b,
+            id: crypto.randomUUID(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })),
+          starred: false, // 복사본은 즐겨찾기 해제
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+        const index = state.pages.findIndex(p => p.id === pageId)
+        state.pages.splice(index + 1, 0, duplicate)
+        state.currentPageId = newId
+        // 원본과 동일한 카테고리에 배치
+        const catId = state.categoryMap[pageId]
+        if (catId !== undefined) state.categoryMap[newId] = catId
+      })
+      scheduleSave(newId, get, set)
     },
 
 
