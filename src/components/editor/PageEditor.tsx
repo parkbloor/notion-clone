@@ -9,9 +9,190 @@
 import { useRef, useState, useEffect } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
+import { Block, Page } from '@/types/block'
 import Editor from './Editor'
 import EmojiPicker from './EmojiPicker'
 import CoverPicker from './CoverPicker'
+
+// =============================================
+// 마크다운 내보내기 헬퍼 함수들
+// Python으로 치면: def block_to_markdown(block): ...
+// =============================================
+
+// -----------------------------------------------
+// HTML 태그 제거 → 순수 텍스트 추출
+// Python으로 치면: import html; html.unescape(re.sub(r'<[^>]+>', '', s))
+// -----------------------------------------------
+function stripHtml(html: string): string {
+  if (typeof document === 'undefined') return html.replace(/<[^>]+>/g, '')
+  const div = document.createElement('div')
+  div.innerHTML = html
+  return div.textContent ?? ''
+}
+
+// -----------------------------------------------
+// HTML 인라인 서식 → 마크다운 서식 변환
+// <strong> → **bold**, <em> → *italic*, <del> → ~~strikethrough~~
+// Python으로 치면: def html_to_md_inline(s): return re.sub(r'<strong>(.*?)</strong>', r'**\1**', s)
+// -----------------------------------------------
+function htmlToMdInline(html: string): string {
+  return html
+    .replace(/<strong>([\s\S]*?)<\/strong>/g, '**$1**')
+    .replace(/<em>([\s\S]*?)<\/em>/g, '*$1*')
+    .replace(/<s>([\s\S]*?)<\/s>/g, '~~$1~~')
+    .replace(/<del>([\s\S]*?)<\/del>/g, '~~$1~~')
+    .replace(/<code>([\s\S]*?)<\/code>/g, '`$1`')
+    .replace(/<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g, '[$2]($1)')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+}
+
+// -----------------------------------------------
+// 블록 하나 → 마크다운 문자열
+// Python으로 치면: def block_to_md(block: Block) -> str: ...
+// -----------------------------------------------
+function blockToMarkdown(block: Block): string {
+  const c = block.content
+
+  switch (block.type) {
+    case 'paragraph':
+      return htmlToMdInline(c).trim()
+
+    case 'heading1': return `# ${stripHtml(c)}`
+    case 'heading2': return `## ${stripHtml(c)}`
+    case 'heading3': return `### ${stripHtml(c)}`
+
+    case 'bulletList': {
+      // <ul><li><p>항목</p></li>...</ul> 구조
+      // Python으로 치면: items = [li.text for li in ul.find_all('li')]
+      const div = document.createElement('div')
+      div.innerHTML = c
+      const items = div.querySelectorAll('li')
+      return Array.from(items)
+        .map(li => `- ${li.textContent?.trim() ?? ''}`)
+        .join('\n')
+    }
+
+    case 'orderedList': {
+      const div = document.createElement('div')
+      div.innerHTML = c
+      const items = div.querySelectorAll('li')
+      return Array.from(items)
+        .map((li, i) => `${i + 1}. ${li.textContent?.trim() ?? ''}`)
+        .join('\n')
+    }
+
+    case 'taskList': {
+      const div = document.createElement('div')
+      div.innerHTML = c
+      const items = div.querySelectorAll('li')
+      return Array.from(items).map(li => {
+        // data-checked 속성으로 체크 여부 확인
+        const checked = li.getAttribute('data-checked') === 'true'
+        return `- [${checked ? 'x' : ' '}] ${li.textContent?.trim() ?? ''}`
+      }).join('\n')
+    }
+
+    case 'toggle': {
+      // toggle content = JSON { header: '<p>...</p>', body: '<p>...</p>' }
+      // Python으로 치면: parsed = json.loads(c); header, body = parsed['header'], parsed['body']
+      try {
+        const parsed = JSON.parse(c) as { header?: string; body?: string }
+        const header = stripHtml(parsed.header ?? '').trim()
+        const body = stripHtml(parsed.body ?? '').trim()
+        return body
+          ? `**${header}**\n${body.split('\n').map(l => `  ${l}`).join('\n')}`
+          : `**${header}**`
+      } catch { return stripHtml(c) }
+    }
+
+    case 'code': {
+      // Tiptap code block content는 <pre><code>...</code></pre>
+      const div = document.createElement('div')
+      div.innerHTML = c
+      const code = div.textContent ?? c
+      return `\`\`\`\n${code}\n\`\`\``
+    }
+
+    case 'image':
+      // content = 이미지 URL 문자열
+      return `![이미지](${c})`
+
+    case 'divider':
+      return '---'
+
+    case 'table': {
+      // 기본 HTML 테이블 → 마크다운 표
+      // Python으로 치면: rows = [[cell.text for cell in row] for row in table.find_all('tr')]
+      const div = document.createElement('div')
+      div.innerHTML = c
+      const rows = div.querySelectorAll('tr')
+      const mdRows = Array.from(rows).map(row => {
+        const cells = row.querySelectorAll('th, td')
+        return '| ' + Array.from(cells).map(cell => cell.textContent?.trim() ?? '').join(' | ') + ' |'
+      })
+      // 첫 번째 행(헤더) 다음에 구분선 삽입
+      if (mdRows.length > 0) {
+        const sepCols = rows[0].querySelectorAll('th, td').length
+        const sep = '| ' + Array(sepCols).fill('---').join(' | ') + ' |'
+        mdRows.splice(1, 0, sep)
+      }
+      return mdRows.join('\n')
+    }
+
+    case 'kanban': {
+      // kanban content = JSON { columns: [{ title, cards: [{id, text}] }] }
+      // Python으로 치면: '\n\n'.join(f'**[{col.title}]**\n' + '\n'.join(f'  - {c.text}' for c in col.cards) for col in columns)
+      try {
+        const parsed = JSON.parse(c) as { columns: Array<{ title: string; cards: Array<{ text: string }> }> }
+        return parsed.columns.map(col => {
+          const cards = col.cards.map(card => `  - ${card.text}`).join('\n')
+          return `**[${col.title}]**\n${cards || '  (비어 있음)'}`
+        }).join('\n\n')
+      } catch { return '' }
+    }
+
+    case 'admonition': {
+      // admonition content = JSON { variant: 'tip'|'info'|'warning'|'danger', text: '<p>...</p>' }
+      // Python으로 치면: f'> {icon} **{variant.upper()}**\n> {text}'
+      try {
+        const parsed = JSON.parse(c) as { variant: string; text: string }
+        const icons: Record<string, string> = { tip: '💡', info: 'ℹ️', warning: '⚠️', danger: '❌' }
+        const icon = icons[parsed.variant] ?? '💡'
+        const text = stripHtml(parsed.text ?? '').trim()
+        return `> ${icon} **${parsed.variant.toUpperCase()}**\n> ${text}`
+      } catch { return '' }
+    }
+
+    default:
+      return stripHtml(c).trim()
+  }
+}
+
+// -----------------------------------------------
+// 페이지 전체 → 마크다운 문자열 생성
+// Python으로 치면: def page_to_markdown(page: Page) -> str: ...
+// -----------------------------------------------
+function pageToMarkdown(page: Page): string {
+  const lines: string[] = []
+  // 제목
+  lines.push(`# ${page.title || '제목 없음'}`)
+  lines.push('')
+  // 태그
+  if ((page.tags ?? []).length > 0) {
+    lines.push(`태그: ${page.tags!.map(t => `#${t}`).join(' ')}`)
+    lines.push('')
+  }
+  // 블록 순서대로 변환
+  for (const block of page.blocks) {
+    const md = blockToMarkdown(block)
+    if (md.trim()) lines.push(md)
+  }
+  return lines.join('\n')
+}
 
 // ── dnd-kit 임포트 ────────────────────────────
 import {
@@ -52,6 +233,62 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   const [coverPickerOpen, setCoverPickerOpen] = useState(false)
   // 커버 이미지 위치 조정 모드 여부 (드래그로 Y 위치 변경)
   const [isAdjustingCover, setIsAdjustingCover] = useState(false)
+  // 내보내기 드롭다운 열림 여부
+  // Python으로 치면: self.export_menu_open = False
+  const [exportOpen, setExportOpen] = useState(false)
+  // 내보내기 메뉴 DOM 참조 (외부 클릭 감지용)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  // -----------------------------------------------
+  // 내보내기 드롭다운 외부 클릭 시 닫기
+  // Python으로 치면: document.on('click', lambda e: close_if_outside(e))
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [])
+
+  // -----------------------------------------------
+  // Markdown 내보내기 — 블록 순서대로 변환 후 .md 파일 다운로드
+  // Python으로 치면: def export_markdown(): write_file(f'{title}.md', page_to_md(page))
+  // -----------------------------------------------
+  function handleExportMarkdown() {
+    if (!page) return
+    const md = pageToMarkdown(page)
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${page.title || '제목없음'}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+    setExportOpen(false)
+  }
+
+  // -----------------------------------------------
+  // PDF 내보내기 — window.print() 브라우저 인쇄 다이얼로그
+  // 인쇄 전: body에 'is-printing' 클래스 추가 → CSS에서 레이아웃 재정의
+  // 인쇄 후: afterprint 이벤트로 클래스 자동 제거
+  // Python으로 치면: def export_pdf(): body.class_list.add('is-printing'); print(); body.class_list.remove(...)
+  // -----------------------------------------------
+  function handleExportPdf() {
+    setExportOpen(false)
+    setTimeout(() => {
+      // 인쇄 완료(또는 취소) 후 클래스 제거
+      function onAfterPrint() {
+        document.body.classList.remove('is-printing')
+        window.removeEventListener('afterprint', onAfterPrint)
+      }
+      window.addEventListener('afterprint', onAfterPrint)
+      document.body.classList.add('is-printing')
+      window.print()
+    }, 50)
+  }
 
   // ── 태그 UI 상태 ─────────────────────────────
   // 태그 인풋 표시 여부
@@ -211,7 +448,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         // isAdjustingCover: cursor-grab 으로 변경
         <div
           ref={coverAreaRef}
-          className={`relative w-full h-52 group/cover select-none ${isAdjustingCover ? 'cursor-grab active:cursor-grabbing' : ''}`}
+          className={`cover-area relative w-full h-52 overflow-hidden group/cover select-none ${isAdjustingCover ? 'cursor-grab active:cursor-grabbing' : ''}`}
           onMouseDown={handleCoverMouseDown}
         >
           {isBgCover(page.cover) ? (
@@ -287,7 +524,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           → 두 경우 모두 동일한 위치에 CoverPicker가 뜸
           Python으로 치면: self.picker_anchor = QWidget(); # 항상 동일 위치
       ── */}
-      <div className="h-12 group/nocov relative">
+      <div className="h-12 group/nocov relative print-hide">
         <div className="absolute bottom-1 left-16">
           <div className="relative inline-block">
             {/* 커버 없을 때만 "+ 커버 추가" 버튼 표시 */}
@@ -323,7 +560,55 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       />
 
       {/* ── 본문 영역 (최대 너비 제한) ───────────── */}
-      <div className="max-w-3xl mx-auto px-16 pb-24">
+      <div className="content-body max-w-3xl mx-auto px-16 pb-24">
+
+        {/* ── 내보내기 버튼 (우측 상단) ─────────────
+            드롭다운: Markdown(.md) / PDF(인쇄)
+            Python으로 치면: export_btn = QPushButton('내보내기') */}
+        <div className="flex justify-end pt-4 pb-1 print-hide">
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              type="button"
+              onClick={() => setExportOpen(prev => !prev)}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+              title="이 페이지 내보내기"
+            >
+              <span>⬇</span>
+              <span>내보내기</span>
+            </button>
+
+            {/* 드롭다운 메뉴 */}
+            {/* Python으로 치면: if export_open: render_dropdown() */}
+            {exportOpen && (
+              <div className="absolute right-0 top-8 z-50 w-48 bg-white border border-gray-200 rounded-xl shadow-lg py-1.5 print-hide">
+                {/* Markdown 내보내기 */}
+                <button
+                  type="button"
+                  onClick={handleExportMarkdown}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span>📄</span>
+                  <div>
+                    <div className="font-medium text-xs">Markdown 저장</div>
+                    <div className="text-xs text-gray-400">.md 파일 다운로드</div>
+                  </div>
+                </button>
+                {/* PDF 내보내기 */}
+                <button
+                  type="button"
+                  onClick={handleExportPdf}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span>🖨️</span>
+                  <div>
+                    <div className="font-medium text-xs">PDF로 저장</div>
+                    <div className="text-xs text-gray-400">브라우저 인쇄 다이얼로그</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* ── 페이지 아이콘 ────────────────────────
             클릭하면 이모지 피커 팝업 표시
@@ -419,6 +704,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
 
         {/* ── 블록 목록 렌더링 ─────────────────────── */}
         <DndContext
+          id="dnd-blocks"
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}

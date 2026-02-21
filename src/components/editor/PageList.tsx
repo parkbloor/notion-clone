@@ -8,7 +8,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { usePageStore } from '@/store/pageStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import { Page } from '@/types/block'
+import CalendarWidget from './CalendarWidget'
 
 // dnd-kit: 페이지 목록 정렬 + 카테고리로 드래그앤드롭
 // useSortable: 목록 내 순서 변경 + 크로스 패널 드래그 모두 지원
@@ -348,8 +350,14 @@ function PageItem({ page, isSelected, currentCategoryId, onSelect, searchQuery, 
 
 // -----------------------------------------------
 // PageList — 메인 컴포넌트
+// onOpenSettings: 설정 모달을 여는 콜백 (page.tsx에서 전달)
+// Python으로 치면: class PageList(Widget): def __init__(self, on_open_settings): ...
 // -----------------------------------------------
-export default function PageList() {
+interface PageListProps {
+  onOpenSettings?: () => void
+}
+
+export default function PageList({ onOpenSettings }: PageListProps) {
 
   const {
     pages,
@@ -359,7 +367,22 @@ export default function PageList() {
     categories,
     setCurrentPage,
     addPage,
+    recentPageIds,
+    pushRecentPage,
   } = usePageStore()
+
+  // 플러그인 설정 — recentFiles ON일 때만 최근 파일 섹션 표시
+  // Python으로 치면: show_recent = settings.plugins['recentFiles']
+  const { plugins } = useSettingsStore()
+
+  // -----------------------------------------------
+  // 클라이언트 마운트 여부 — SSR hydration 오류 방지
+  // localStorage 기반 데이터(최근 파일)는 SSR에서 빈 배열이므로
+  // 마운트 후에만 렌더링하여 서버/클라이언트 불일치를 막음
+  // Python으로 치면: self.mounted = False; def on_mount(self): self.mounted = True
+  // -----------------------------------------------
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   // 검색어 상태
   // Python으로 치면: search_query = ''
@@ -368,6 +391,10 @@ export default function PageList() {
   // 활성 태그 필터 (null = 필터 없음)
   // Python으로 치면: active_tag_filter: str | None = None
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null)
+
+  // 캘린더에서 선택된 날짜 필터 ('YYYY-MM-DD' 또는 null)
+  // Python으로 치면: selected_date: str | None = None
+  const [selectedDate, setSelectedDate] = useState<string | null>(null)
 
   // 검색 입력창 DOM 참조 (포커스 제어용)
   // Python으로 치면: search_input_ref = None
@@ -404,10 +431,22 @@ export default function PageList() {
     if (activeTagFilter) {
       base = base.filter(p => (p.tags ?? []).includes(activeTagFilter))
     }
-    // 검색·태그 필터가 없을 때만 즐겨찾기 상단 정렬
+    // 캘린더 날짜 필터 — 선택된 날짜에 생성된 페이지만 표시
+    // createdAt이 Date 객체이거나 ISO 문자열일 수 있으므로 두 경우 모두 처리
+    // Python으로 치면: if selected_date: base = [p for p in base if str(p.createdAt)[:10] == selected_date]
+    if (selectedDate) {
+      base = base.filter(p => {
+        if (!p.createdAt) return false
+        const dateStr = p.createdAt instanceof Date
+          ? `${p.createdAt.getFullYear()}-${String(p.createdAt.getMonth()+1).padStart(2,'0')}-${String(p.createdAt.getDate()).padStart(2,'0')}`
+          : String(p.createdAt).slice(0, 10)
+        return dateStr === selectedDate
+      })
+    }
+    // 검색·태그·날짜 필터가 없을 때만 즐겨찾기 상단 정렬
     // 검색 중에는 관련도 순서 유지 (정렬 안 함)
-    // Python으로 치면: if not query and not tag: base.sort(key=lambda p: not p.starred)
-    if (!searchQuery.trim() && !activeTagFilter) {
+    // Python으로 치면: if not query and not tag and not date: base.sort(key=lambda p: not p.starred)
+    if (!searchQuery.trim() && !activeTagFilter && !selectedDate) {
       base = [...base.filter(p => p.starred), ...base.filter(p => !p.starred)]
     }
     return base
@@ -441,7 +480,11 @@ export default function PageList() {
         <h1 className="text-sm font-semibold text-gray-700 truncate">
           {/* 검색 중이면 "검색 결과" 표시 */}
           {/* Python으로 치면: header = '검색 결과' if search_query else cat_name */}
-          {searchQuery.trim() ? `검색 결과 (${filteredPages.length})` : currentCategoryName}
+          {searchQuery.trim()
+            ? `검색 결과 (${filteredPages.length})`
+            : selectedDate
+            ? `${selectedDate} (${filteredPages.length})`
+            : currentCategoryName}
         </h1>
       </div>
 
@@ -478,6 +521,18 @@ export default function PageList() {
           )}
         </div>
       </div>
+
+      {/* ── 캘린더 위젯 (플러그인 ON일 때만 표시) ─────────
+          검색바 바로 아래에 접이식으로 배치
+          pages 전체를 넘겨 createdAt 기반으로 날짜별 점 표시
+          Python으로 치면: if plugins.calendar: render(CalendarWidget) */}
+      {plugins.calendar && (
+        <CalendarWidget
+          pages={pages}
+          selectedDate={selectedDate}
+          onSelectDate={setSelectedDate}
+        />
+      )}
 
       {/* ── 태그 필터 바 (태그가 하나라도 있을 때만 표시) ───
           각 태그를 클릭 가능한 칩으로 표시
@@ -536,7 +591,7 @@ export default function PageList() {
                 page={page}
                 isSelected={currentPageId === page.id}
                 currentCategoryId={currentCategoryId}
-                onSelect={() => setCurrentPage(page.id)}
+                onSelect={() => { setCurrentPage(page.id); pushRecentPage(page.id) }}
                 searchQuery={searchQuery.trim() || undefined}
                 snippet={snippet || undefined}
                 categoryName={catName}
@@ -546,14 +601,61 @@ export default function PageList() {
         </SortableContext>
       </nav>
 
-      {/* ── 하단: 새 메모 버튼 ───────────────────── */}
-      <div className="px-2 py-3 border-t border-gray-200">
+      {/* ── 최근 파일 섹션 (플러그인 ON + 기록 있을 때만 표시) ─── */}
+      {/* mounted 체크: localStorage는 SSR에서 빈 배열 → hydration 불일치 방지 */}
+      {/* Python으로 치면: if mounted and plugins.recentFiles and recent_page_ids: render_recent() */}
+      {mounted && plugins.recentFiles && recentPageIds.length > 0 && (
+        <div className="border-t border-gray-200 px-2 py-2 shrink-0">
+
+          {/* 섹션 헤더 */}
+          <div className="flex items-center gap-1 px-2 mb-1">
+            <span className="text-xs text-gray-400">🕓</span>
+            <span className="text-xs font-medium text-gray-400">최근 파일</span>
+          </div>
+
+          {/* 최근 열어본 페이지 목록 (최대 5개) */}
+          {/* Python으로 치면: for page_id in recent_ids[:5]: render_item(page_id) */}
+          {recentPageIds.slice(0, 5).map(pageId => {
+            const page = pages.find(p => p.id === pageId)
+            // 삭제된 페이지는 건너뜀
+            if (!page) return null
+            const isSelected = currentPageId === pageId
+            return (
+              <button
+                key={pageId}
+                type="button"
+                onClick={() => { setCurrentPage(pageId); pushRecentPage(pageId) }}
+                className={isSelected
+                  ? "w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm text-left bg-gray-200 text-gray-900"
+                  : "w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm text-left text-gray-500 hover:bg-gray-100 transition-colors"}
+              >
+                <span className="text-sm shrink-0">{page.icon}</span>
+                <span className="truncate text-xs">{page.title || '제목 없음'}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── 하단: 새 메모 버튼 + 설정 버튼 ─────────── */}
+      <div className="px-2 py-3 border-t border-gray-200 flex items-center gap-1">
+        {/* 새 메모 버튼 */}
         <button
           onClick={handleAddPage}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-gray-500 hover:bg-gray-100 transition-colors"
+          className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-gray-500 hover:bg-gray-100 transition-colors"
         >
           <span className="text-lg leading-none">+</span>
           <span>새 메모</span>
+        </button>
+        {/* ⚙️ 설정 버튼 — 클릭 시 설정 모달 열기 */}
+        {/* Python으로 치면: settings_btn = QPushButton('⚙'); settings_btn.clicked.connect(on_open_settings) */}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="w-8 h-8 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors text-base shrink-0"
+          title="설정 열기"
+        >
+          ⚙️
         </button>
       </div>
 

@@ -23,6 +23,8 @@ export type BlockType =
   | 'image'          // 이미지
   | 'table'          // 테이블
   | 'divider'        // 구분선
+  | 'kanban'         // 칸반 보드
+  | 'admonition'    // 콜아웃 (팁/정보/경고/위험)
 
 
 // -----------------------------------------------

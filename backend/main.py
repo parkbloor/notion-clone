@@ -9,18 +9,51 @@
 #   vault/{catFolder}/{pageFolder}/  ← 카테고리 있는 페이지
 # ==============================================
 
+import io
 import json
+import logging
 import re
 import uuid
 import shutil
+import zipfile
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+
+# -----------------------------------------------
+# 메모리 로그 핸들러 — 최근 100개 로그 항목 보관
+# Python으로 치면: class MemoryLogHandler(logging.Handler): ...
+# -----------------------------------------------
+class MemoryLogHandler(logging.Handler):
+    """마지막 100개 로그를 deque에 저장하는 핸들러"""
+    def __init__(self, maxlen: int = 100):
+        super().__init__()
+        self.records: deque = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append({
+            "level":   record.levelname,
+            "time":    datetime.fromtimestamp(record.created).isoformat(),
+            "logger":  record.name,
+            "message": self.format(record),
+        })
+
+# 전역 메모리 핸들러 인스턴스
+_mem_handler = MemoryLogHandler(maxlen=100)
+_mem_handler.setFormatter(logging.Formatter("%(message)s"))
+
+# 루트 로거에 핸들러 등록
+logging.getLogger().addHandler(_mem_handler)
+logging.getLogger("uvicorn.access").addHandler(_mem_handler)
+logging.getLogger("uvicorn.error").addHandler(_mem_handler)
 
 # ── FastAPI 앱 생성 ────────────────────────────
 # Python으로 치면: app = Flask(__name__)
@@ -72,6 +105,12 @@ class PageModel(BaseModel):
     # 커버 이미지 Y 위치 (0~100, 기본 50 = 가운데)
     # Python으로 치면: cover_position: Optional[int] = 50
     coverPosition: Optional[int] = 50
+    # 태그 목록 — 새로고침 후에도 유지되도록 content.json에 저장
+    # Python으로 치면: tags: list[str] = field(default_factory=list)
+    tags: Optional[list[str]] = []
+    # 즐겨찾기 여부 — True이면 목록 상단에 고정
+    # Python으로 치면: starred: bool = False
+    starred: Optional[bool] = False
     blocks: list[BlockModel]
     createdAt: str
     updatedAt: str
@@ -354,6 +393,10 @@ def create_page(body: CreatePageBody):
         "icon": body.icon,
         "cover": None,
         "coverPosition": 50,
+        # 새 페이지 기본값 — 태그 없음, 즐겨찾기 해제
+        # Python으로 치면: tags=[], starred=False
+        "tags": [],
+        "starred": False,
         "blocks": [{
             "id": block_id,
             "type": "paragraph",
@@ -757,3 +800,252 @@ def reorder_categories(body: CategoryReorderBody):
     index["categoryOrder"] = body.order
     save_index(index)
     return {"ok": True}
+
+
+# ==============================================
+# 내보내기 / 가져오기 / 설정 / 디버그 엔드포인트
+# Python으로 치면: @app.route('/api/export/json', methods=['GET'])
+# ==============================================
+
+@app.get("/api/export/json")
+def export_json():
+    """
+    전체 vault를 단일 JSON 파일로 내려받기
+    Python으로 치면: return send_file(json_bytes, as_attachment=True)
+    """
+    # _index.json 로드
+    index = load_index()
+    pages_data = []
+
+    # 모든 페이지 content.json 수집
+    # Python으로 치면: for folder in vault.iterdir(): pages.append(load(folder))
+    for page_id in index.get("pageOrder", []):
+        page_folder = next(
+            (p for p in index.get("pages", []) if p.get("id") == page_id),
+            None
+        )
+        if not page_folder:
+            continue
+        folder_name = page_folder.get("folder", "")
+        cat_id = index.get("categoryMap", {}).get(page_id)
+        cat_folder = None
+        if cat_id:
+            cat_folder = next(
+                (c.get("folder") for c in index.get("categories", []) if c.get("id") == cat_id),
+                None
+            )
+
+        if cat_folder:
+            content_path = VAULT_DIR / cat_folder / folder_name / "content.json"
+        else:
+            content_path = VAULT_DIR / folder_name / "content.json"
+
+        if content_path.exists():
+            pages_data.append(json.loads(content_path.read_text(encoding="utf-8")))
+
+    export_obj = {
+        "exportedAt": datetime.now().isoformat(),
+        "version": "2.0",
+        "index": index,
+        "pages": pages_data,
+    }
+
+    json_bytes = json.dumps(export_obj, ensure_ascii=False, indent=2).encode("utf-8")
+    filename = f"notion-clone-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+
+    return StreamingResponse(
+        io.BytesIO(json_bytes),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/export/markdown")
+def export_markdown():
+    """
+    전체 vault를 마크다운 ZIP으로 내려받기
+    Python으로 치면: zipfile.write(md_content); return send_file(zip)
+    """
+    index = load_index()
+    zip_buffer = io.BytesIO()
+
+    def blocks_to_markdown(blocks: list) -> str:
+        """블록 배열 → 마크다운 텍스트 변환"""
+        lines = []
+        for block in blocks:
+            btype = block.get("type", "paragraph")
+            content = block.get("content", "")
+
+            if btype == "heading1":
+                lines.append(f"# {content}")
+            elif btype == "heading2":
+                lines.append(f"## {content}")
+            elif btype == "heading3":
+                lines.append(f"### {content}")
+            elif btype == "bulletList":
+                lines.append(f"- {content}")
+            elif btype == "orderedList":
+                lines.append(f"1. {content}")
+            elif btype == "taskList":
+                checked = "x" if block.get("checked") else " "
+                lines.append(f"- [{checked}] {content}")
+            elif btype == "quote":
+                lines.append(f"> {content}")
+            elif btype == "code":
+                lines.append(f"```\n{content}\n```")
+            elif btype == "divider":
+                lines.append("---")
+            elif btype == "kanban":
+                lines.append("[칸반 보드]")
+            else:
+                lines.append(content)
+            lines.append("")  # 빈 줄 구분
+        return "\n".join(lines)
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for page_meta in index.get("pages", []):
+            page_id = page_meta.get("id", "")
+            folder_name = page_meta.get("folder", "")
+            cat_id = index.get("categoryMap", {}).get(page_id)
+            cat_folder = None
+            if cat_id:
+                cat_folder = next(
+                    (c.get("folder") for c in index.get("categories", []) if c.get("id") == cat_id),
+                    None
+                )
+
+            if cat_folder:
+                content_path = VAULT_DIR / cat_folder / folder_name / "content.json"
+                zip_path = f"{cat_folder}/{folder_name}.md"
+            else:
+                content_path = VAULT_DIR / folder_name / "content.json"
+                zip_path = f"{folder_name}.md"
+
+            if not content_path.exists():
+                continue
+
+            page_data = json.loads(content_path.read_text(encoding="utf-8"))
+            title = page_data.get("title", "제목 없음")
+            blocks = page_data.get("blocks", [])
+
+            md_lines = [f"# {title}", ""]
+            md_lines.append(blocks_to_markdown(blocks))
+            md_content = "\n".join(md_lines)
+            zf.writestr(zip_path, md_content.encode("utf-8"))
+
+    zip_buffer.seek(0)
+    filename = f"notion-clone-markdown-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class ImportBody(BaseModel):
+    """JSON 백업 가져오기 요청 바디"""
+    data: dict
+
+
+@app.post("/api/import")
+def import_json(body: ImportBody):
+    """
+    JSON 백업에서 vault 복구
+    Python으로 치면: shutil.rmtree(vault); restore(backup_data)
+
+    주의: 기존 vault를 완전히 덮어씀
+    """
+    data = body.data
+    new_index = data.get("index", {})
+    pages_list = data.get("pages", [])
+
+    # 기존 vault 백업 (rollback 가능하도록)
+    # Python으로 치면: shutil.copytree(vault, vault_bak)
+    backup_dir = VAULT_DIR.parent / f"vault_bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if VAULT_DIR.exists():
+        shutil.copytree(str(VAULT_DIR), str(backup_dir))
+
+    try:
+        # vault 초기화 (이미지 제외)
+        for item in VAULT_DIR.iterdir():
+            if item.name == "_index.json":
+                continue
+            if item.is_dir():
+                shutil.rmtree(str(item))
+
+        # index 저장
+        save_index(new_index)
+
+        # 각 페이지 content.json 복구
+        for page_data in pages_list:
+            folder_name = page_data.get("folder", "")
+            page_id = page_data.get("id", "")
+            cat_id = new_index.get("categoryMap", {}).get(page_id)
+            cat_folder = None
+            if cat_id:
+                cat_folder = next(
+                    (c.get("folder") for c in new_index.get("categories", []) if c.get("id") == cat_id),
+                    None
+                )
+
+            if cat_folder:
+                target_dir = VAULT_DIR / cat_folder / folder_name
+            else:
+                target_dir = VAULT_DIR / folder_name
+
+            target_dir.mkdir(parents=True, exist_ok=True)
+            content_path = target_dir / "content.json"
+            content_path.write_text(
+                json.dumps(page_data, ensure_ascii=False, indent=2),
+                encoding="utf-8"
+            )
+
+        # 임시 백업 삭제 (성공 시)
+        if backup_dir.exists():
+            shutil.rmtree(str(backup_dir))
+
+        return {"ok": True, "imported": len(pages_list)}
+
+    except Exception as exc:
+        # 실패 시 백업에서 롤백
+        if backup_dir.exists():
+            shutil.rmtree(str(VAULT_DIR))
+            shutil.copytree(str(backup_dir), str(VAULT_DIR))
+            shutil.rmtree(str(backup_dir))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/api/settings/vault-path")
+def get_vault_path():
+    """
+    현재 vault 경로와 통계 반환
+    Python으로 치면: return {'path': str(VAULT_DIR), 'pages': len(pages), ...}
+    """
+    index = load_index()
+    page_count = len(index.get("pages", []))
+    category_count = len(index.get("categories", []))
+
+    # vault 전체 디스크 사용량 계산 (bytes)
+    # Python으로 치면: total = sum(f.stat().st_size for f in vault.rglob('*'))
+    total_size = 0
+    if VAULT_DIR.exists():
+        for f in VAULT_DIR.rglob("*"):
+            if f.is_file():
+                total_size += f.stat().st_size
+
+    return {
+        "path":       str(VAULT_DIR.resolve()),
+        "pages":      page_count,
+        "categories": category_count,
+        "sizeBytes":  total_size,
+    }
+
+
+@app.get("/api/debug/logs")
+def get_debug_logs():
+    """
+    메모리에 보관 중인 최근 로그 반환 (최대 100개)
+    Python으로 치면: return list(_mem_handler.records)
+    """
+    return {"logs": list(_mem_handler.records)}

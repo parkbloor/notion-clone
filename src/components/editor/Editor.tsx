@@ -25,8 +25,8 @@ import { TableCell } from '@tiptap/extension-table-cell'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { createLowlight, common } from 'lowlight'
 import CodeBlockView from './CodeBlockView'
-import { useState, useEffect, useCallback } from 'react'
-import { Block, BlockType } from '@/types/block'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Block, BlockType, Page } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import SlashCommand from './SlashCommand'
 import BubbleMenuBar from './BubbleMenuBar'
@@ -34,6 +34,9 @@ import ImageBlock from './ImageBlock'
 import TableToolbar from './TableToolbar'
 import BlockMenu from './BlockMenu'
 import ToggleBlock from './ToggleBlock'
+import MentionPopup from './MentionPopup'
+import KanbanBlock from './KanbanBlock'
+import AdmonitionBlock from './AdmonitionBlock'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -73,7 +76,7 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3>> = {
 
 export default function Editor({ block, pageId, isLast }: EditorProps) {
 
-  const { updateBlock, addBlock, deleteBlock, updateBlockType } = usePageStore()
+  const { updateBlock, addBlock, deleteBlock, updateBlockType, pages, setCurrentPage } = usePageStore()
 
   // -----------------------------------------------
   // useSortable: 이 블록을 dnd-kit의 드래그 가능한 아이템으로 등록
@@ -101,6 +104,20 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     searchQuery: '',
   })
 
+  // ── @ 멘션 상태 ──────────────────────────────
+  // from: 문서 내 @ 문자 위치 (deleteRange 시작점으로 사용)
+  // Python으로 치면: self.mention_state = {'is_open': False, 'query': '', 'from': 0, 'position': {...}}
+  const [mentionMenu, setMentionMenu] = useState({
+    isOpen: false,
+    query: '',
+    from: 0,
+    position: { x: 0, y: 0 },
+  })
+  // stale closure 방지용 ref — useEditor 콜백 내에서 최신 상태를 읽기 위해 사용
+  // Python으로 치면: self._mention_ref = self.mention_state
+  const mentionMenuRef = useRef(mentionMenu)
+  useEffect(() => { mentionMenuRef.current = mentionMenu }, [mentionMenu])
+
   const checkSlash = useCallback((editor: TiptapEditor) => {
     const { state } = editor
     const { from } = state.selection
@@ -116,6 +133,33 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       })
     } else {
       setSlashMenu(prev => ({ ...prev, isOpen: false }))
+    }
+  }, [])
+
+  // -----------------------------------------------
+  // @ 멘션 감지 함수
+  // cursor 앞 텍스트에서 @단어 패턴을 찾아 팝업 열기
+  // Python으로 치면: def check_mention(editor): re.search(r'@[\w가-힣]*$', text_before)
+  // -----------------------------------------------
+  const checkMention = useCallback((editor: TiptapEditor) => {
+    const { state } = editor
+    const { from } = state.selection
+    const textBefore = state.doc.textBetween(Math.max(0, from - 30), from, '\n')
+    // @한글/영문/숫자 패턴 (슬래시 메뉴와 충돌하지 않도록 @ 앞에 / 없어야 함)
+    const mentionMatch = textBefore.match(/@([\w가-힣]*)$/)
+
+    if (mentionMatch) {
+      const query = mentionMatch[1]
+      const atPos = from - query.length - 1  // @ 문자의 문서 내 위치
+      const coords = editor.view.coordsAtPos(from)
+      setMentionMenu({
+        isOpen: true,
+        query,
+        from: atPos,
+        position: { x: coords.left, y: coords.bottom },
+      })
+    } else {
+      setMentionMenu(prev => ({ ...prev, isOpen: false }))
     }
   }, [])
 
@@ -153,7 +197,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     // 이미지·토글 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
     // Python으로 치면: content = '' if type in ('image', 'toggle') else block.content
-    content: (block.type === 'image' || block.type === 'toggle') ? '' : (block.content || ''),
+    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -161,13 +205,23 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     onUpdate: ({ editor }) => {
       updateBlock(pageId, block.id, editor.getHTML())
       checkSlash(editor)
+      checkMention(editor)
     },
-    onSelectionUpdate: ({ editor }) => { checkSlash(editor) },
+    onSelectionUpdate: ({ editor }) => {
+      checkSlash(editor)
+      checkMention(editor)
+    },
     editorProps: {
       handleKeyDown: (view, event) => {
         // 슬래시 메뉴가 열려있으면 방향키/Enter/Escape를 메뉴에 넘기고 에디터 동작 차단
         if (slashMenu.isOpen && ['Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(event.key)) {
           event.preventDefault()
+          return true
+        }
+        // 멘션 팝업이 열려있으면 방향키/Enter/Escape를 팝업에 넘기고 에디터 동작 차단
+        // MentionPopup이 capture 단계로 먼저 처리하므로 여기선 에디터만 차단
+        // Python으로 치면: if mention_open and key in NAV_KEYS: return True
+        if (mentionMenuRef.current.isOpen && ['Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(event.key)) {
           return true
         }
 
@@ -271,15 +325,53 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (type === 'toggle') {
       updateBlock(pageId, block.id, JSON.stringify({ header: '', body: '' }))
     }
+    // 칸반 타입으로 전환 시 기본 3열 JSON으로 초기화
+    // Python으로 치면: if type == 'kanban': block.content = json.dumps({'columns': [...]})
+    if (type === 'kanban') {
+      updateBlock(pageId, block.id, JSON.stringify({
+        columns: [
+          { id: crypto.randomUUID(), title: '할 일',  color: '#f1f5f9', cards: [] },
+          { id: crypto.randomUUID(), title: '진행 중', color: '#dbeafe', cards: [] },
+          { id: crypto.randomUUID(), title: '완료',   color: '#dcfce7', cards: [] },
+        ],
+      }))
+    }
+    // 콜아웃 타입으로 전환 시 기본 팁 JSON으로 초기화
+    // Python으로 치면: if type == 'admonition': block.content = json.dumps({'variant':'tip','text':''})
+    if (type === 'admonition') {
+      updateBlock(pageId, block.id, JSON.stringify({ variant: 'tip', text: '' }))
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
+  }
+
+  // -----------------------------------------------
+  // @ 멘션 페이지 선택 처리
+  // @query 텍스트를 삭제하고 클릭 가능한 페이지 링크를 삽입
+  // Python으로 치면: def handle_mention_select(page): delete_at_query(); insert_link(page)
+  // -----------------------------------------------
+  function handleMentionSelect(page: Page) {
+    if (!editor) return
+    const cursorPos = editor.state.selection.from
+    editor.chain()
+      .focus()
+      // @query 범위 삭제 (@ 위치부터 현재 커서까지)
+      .deleteRange({ from: mentionMenu.from, to: cursorPos })
+      // 페이지 링크 삽입: 아이콘 + 제목 텍스트에 link mark 적용
+      .insertContent({
+        type: 'text',
+        text: `${page.icon} ${page.title || '제목 없음'}`,
+        marks: [{ type: 'link', attrs: { href: `#page-${page.id}` } }],
+      })
+      .run()
+    setMentionMenu(prev => ({ ...prev, isOpen: false }))
   }
 
   function applyBlockType(editor: TiptapEditor, type: BlockType) {
     if (!editor) return
     // 이미지·토글 블록은 Tiptap으로 관리하지 않으므로 조기 반환
     // Python으로 치면: if type in ('image', 'toggle'): return
-    if (type === 'image' || type === 'toggle') return
+    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -371,6 +463,79 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     )
   }
 
+  // -----------------------------------------------
+  // 칸반 블록: KanbanBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열로 열/카드 데이터 보관
+  // Python으로 치면: if block.type == 'kanban': return render(KanbanBlock)
+  // -----------------------------------------------
+  if (block.type === 'kanban') {
+    return (
+      <div
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <KanbanBlock
+            blockId={block.id}
+            pageId={pageId}
+            content={block.content}
+            onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 콜아웃 블록: AdmonitionBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { variant: 'tip'|'info'|'warning'|'danger', text: string }
+  // Python으로 치면: if block.type == 'admonition': return render(AdmonitionBlock)
+  // -----------------------------------------------
+  if (block.type === 'admonition') {
+    return (
+      <div
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <AdmonitionBlock
+            blockId={block.id}
+            content={block.content}
+            onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
+          />
+        </div>
+      </div>
+    )
+  }
+
   return (
     // -----------------------------------------------
     // setNodeRef  : dnd-kit이 이 DOM 요소를 드래그 아이템으로 추적
@@ -407,7 +572,21 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
 
       {/* 테이블 블록: 커서가 테이블 안에 있을 때 툴바 표시 */}
       {/* Python으로 치면: if editor.is_active('table'): render(TableToolbar) */}
-      <div className="flex-1">
+      {/* 페이지 멘션 링크 클릭 처리 — href="#page-{id}" 형식의 링크를 내부 이동으로 처리 */}
+      {/* Python으로 치면: if link.href.startswith('#page-'): navigate(link.href[6:]) */}
+      <div
+        className="flex-1"
+        onClick={(e) => {
+          const link = (e.target as HTMLElement).closest('a')
+          if (link) {
+            const href = link.getAttribute('href') ?? ''
+            if (href.startsWith('#page-')) {
+              e.preventDefault()
+              setCurrentPage(href.slice(6))
+            }
+          }
+        }}
+      >
         {editor && editor.isActive('table') && (
           <TableToolbar editor={editor} pageId={pageId} blockId={block.id} />
         )}
@@ -421,6 +600,16 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           onSelect={handleSlashSelect}
           onClose={() => setSlashMenu(prev => ({ ...prev, isOpen: false }))}
           searchQuery={slashMenu.searchQuery}
+        />
+      )}
+      {/* @ 멘션 팝업 — 멘션 활성 시 페이지 목록 표시 */}
+      {mentionMenu.isOpen && (
+        <MentionPopup
+          query={mentionMenu.query}
+          pages={pages}
+          position={mentionMenu.position}
+          onSelect={handleMentionSelect}
+          onClose={() => setMentionMenu(prev => ({ ...prev, isOpen: false }))}
         />
       )}
     </div>

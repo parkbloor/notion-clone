@@ -69,6 +69,14 @@ interface PageStore {
   // 현재 선택된 카테고리 ID (null = 전체보기)
   currentCategoryId: string | null
 
+  // ── 최근 파일 ─────────────────────────────────
+  // 최근 열어본 페이지 ID 목록 (최대 10개, localStorage 동기화)
+  // Python으로 치면: recent_page_ids: list[str] = []
+  recentPageIds: string[]
+  // 페이지 열 때 최근 목록 맨 앞에 추가 (중복 제거, 최대 10개 유지)
+  // Python으로 치면: def push_recent_page(self, page_id): ...
+  pushRecentPage: (pageId: string) => void
+
   // ── 서버 연동 ─────────────────────────────────
   loadFromServer: () => Promise<void>
 
@@ -136,6 +144,15 @@ export const usePageStore = create<PageStore>()(
     categoryMap: {},
     categoryOrder: [],
     currentCategoryId: null,  // null = 전체보기
+
+    // 최근 파일 목록 — localStorage에서 복원 (서버 사이드에선 빈 배열)
+    // Python으로 치면: self.recent_page_ids = json.load(local_storage) or []
+    recentPageIds: (() => {
+      if (typeof window === 'undefined') return []
+      try {
+        return JSON.parse(localStorage.getItem('notion-clone-recent') ?? '[]') as string[]
+      } catch { return [] }
+    })(),
 
 
     // -----------------------------------------------
@@ -211,6 +228,22 @@ export const usePageStore = create<PageStore>()(
     setCurrentPage: (id) => {
       set((state) => { state.currentPageId = id })
       api.setCurrentPage(id).catch(() => {})
+    },
+
+    // 최근 파일 목록 업데이트
+    // 맨 앞에 추가, 중복 제거, 최대 10개 유지, localStorage 동기화
+    // Python으로 치면:
+    //   def push_recent_page(self, page_id):
+    //       ids = [page_id] + [i for i in self.recent if i != page_id]
+    //       self.recent = ids[:10]; local_storage.save(ids)
+    pushRecentPage: (pageId) => {
+      set((state) => {
+        const filtered = state.recentPageIds.filter(id => id !== pageId)
+        state.recentPageIds = [pageId, ...filtered].slice(0, 10)
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('notion-clone-recent', JSON.stringify(state.recentPageIds))
+        }
+      })
     },
 
     // 페이지 제목 수정 → 디바운스 저장

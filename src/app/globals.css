@@ -314,3 +314,172 @@
   position: absolute;
   z-index: 2;
 }
+
+/* ==============================================
+   테마 CSS 변수 — settingsStore의 applyTheme()가 .dark 클래스를 토글
+   Python으로 치면: CSS_VARS = {'light': {...}, 'dark': {...}}
+   ============================================== */
+
+:root {
+  /* 배경 계층 */
+  --bg-primary:    #ffffff;
+  --bg-secondary:  #f9fafb;
+  --bg-hover:      #f3f4f6;
+  --bg-active:     #e5e7eb;
+  /* 텍스트 계층 */
+  --text-primary:  #111827;
+  --text-secondary:#6b7280;
+  --text-tertiary: #9ca3af;
+  /* 테두리 */
+  --border-color:  #e5e7eb;
+  --border-subtle: #f3f4f6;
+  /* 편집기 글꼴 (settingsStore의 applyEditorStyle로 덮어쓰기) */
+  --editor-font:   'Inter', 'Noto Sans KR', sans-serif;
+  --editor-size:   16px;
+  --editor-lh:     1.6;
+}
+
+/* 다크 모드 — html.dark 클래스가 붙으면 변수 값 교체 */
+html.dark {
+  --bg-primary:    #1e1e1e;
+  --bg-secondary:  #252525;
+  --bg-hover:      #2e2e2e;
+  --bg-active:     #3a3a3a;
+  --text-primary:  #f3f4f6;
+  --text-secondary:#9ca3af;
+  --text-tertiary: #6b7280;
+  --border-color:  #374151;
+  --border-subtle: #2d2d2d;
+  color-scheme: dark;
+}
+
+/* -----------------------------------------------
+   다크 모드 주요 Tailwind 클래스 오버라이드
+   !important 사용: Tailwind 유틸리티 우선순위 역전 방지
+   Python으로 치면: theme_overrides = {'.bg-white': {'dark': '#1e1e1e'}, ...}
+   ----------------------------------------------- */
+html.dark body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* 배경색 */
+html.dark .bg-white        { background-color: var(--bg-primary)    !important; }
+html.dark .bg-gray-50      { background-color: var(--bg-secondary)  !important; }
+html.dark .bg-gray-100     { background-color: var(--bg-hover)      !important; }
+html.dark .bg-gray-200     { background-color: var(--bg-active)     !important; }
+html.dark .hover\:bg-gray-50:hover   { background-color: var(--bg-hover)  !important; }
+html.dark .hover\:bg-gray-100:hover  { background-color: var(--bg-active) !important; }
+
+/* 텍스트색 */
+html.dark .text-gray-900   { color: var(--text-primary)   !important; }
+html.dark .text-gray-800   { color: var(--text-primary)   !important; }
+html.dark .text-gray-700   { color: var(--text-primary)   !important; }
+html.dark .text-gray-600   { color: var(--text-secondary) !important; }
+html.dark .text-gray-500   { color: var(--text-secondary) !important; }
+html.dark .text-gray-400   { color: var(--text-tertiary)  !important; }
+
+/* 테두리 */
+html.dark .border-gray-200 { border-color: var(--border-color)  !important; }
+html.dark .border-gray-100 { border-color: var(--border-subtle) !important; }
+html.dark .border-gray-300 { border-color: var(--border-color)  !important; }
+html.dark .divide-gray-200 > * + * { border-color: var(--border-color) !important; }
+
+/* 그림자 (다크에서는 더 진하게) */
+html.dark .shadow-sm  { box-shadow: 0 1px 2px rgba(0,0,0,0.4)  !important; }
+html.dark .shadow-lg  { box-shadow: 0 8px 24px rgba(0,0,0,0.5) !important; }
+html.dark .shadow-xl  { box-shadow: 0 12px 32px rgba(0,0,0,0.6) !important; }
+
+/* -----------------------------------------------
+   편집기 글꼴/크기/줄간격 CSS 변수 적용
+   settingsStore의 applyEditorStyle()이 :root 변수를 변경하면 즉시 반영
+   ----------------------------------------------- */
+.tiptap {
+  font-family: var(--editor-font);
+  font-size:   var(--editor-size);
+  line-height: var(--editor-lh);
+}
+
+/* 다크 모드 편집기 추가 스타일 */
+html.dark .tiptap {
+  color: var(--text-primary);
+}
+html.dark .tiptap table th {
+  background-color: var(--bg-hover) !important;
+}
+html.dark .tiptap table td,
+html.dark .tiptap table th {
+  border-color: var(--border-color) !important;
+}
+html.dark .tiptap code {
+  background-color: var(--bg-hover) !important;
+  color: #f87171 !important;
+}
+html.dark .tiptap hr {
+  border-top-color: var(--border-color) !important;
+}
+
+/* ==============================================
+   PDF 인쇄 스타일 — window.print() 호출 시 적용
+   핵심: #app-layout의 flex+h-screen+overflow-hidden을 해제해야
+         메인 패널이 전체 너비/높이를 차지할 수 있음
+   Python으로 치면: if printing: hide_sidebar(); fix_layout(); expand_toggles()
+   ============================================== */
+@media print {
+
+  /* 사이드바 패널 2개(카테고리, 페이지 목록) 숨기기 */
+  aside { display: none !important; }
+
+  /* ★ 핵심 수정: flex 컨테이너(#app-layout)의 레이아웃 제약 해제
+     flex + h-screen + overflow-hidden 조합이 메인 영역을 좁게 만들던 원인 */
+  #app-layout {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* 에디터 패널을 전체 너비로 확장, 높이 제한 해제 */
+  main {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* 본문 이미지 크기 초과 방지 — PDF 페이지 너비에 맞게 자동 축소 */
+  img { max-width: 100% !important; height: auto !important; }
+
+  /* 커버 이미지 예외: height:auto 재정의를 막고 h-52 컨테이너 안에 고정
+     height:auto !important가 덮어쓰면 원본 크기로 펼쳐져 본문과 겹치는 버그 발생 */
+  .cover-area {
+    height: 13rem !important;
+    overflow: hidden !important;
+  }
+  .cover-area img {
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }
+
+  /* 내보내기 버튼, 드래그 핸들, 블록 메뉴, 커버 버튼 등 UI 요소 숨기기
+     (h-12 피커 영역도 print-hide로 제거 — 인쇄 시 불필요한 48px 공백 제거) */
+  .print-hide { display: none !important; }
+
+  /* 본문 영역 패딩 조정 — 인쇄 시 콘텐츠를 최대한 크게
+     화면: px-16(64px) → 인쇄: 좌측 1rem(기존 2rem의 절반), 우측 2rem */
+  .content-body {
+    padding-left: 1rem !important;
+    padding-right: 2rem !important;
+    padding-top: 0.25rem !important;
+    max-width: none !important;
+  }
+
+  /* 토글 블록 내용 강제 펼치기 (UI에서 접혀있어도 인쇄 시 표시) */
+  [data-toggle-content] { display: block !important; }
+
+  /* 페이지 여백 설정 — 상단/좌 여백 줄여서 본문 시작 위치를 끌어올림 */
+  @page { margin: 1cm 1.5cm; }
+
+  /* 배경색/그림자 인쇄 허용 (칸반, 콜아웃 배경 표시) */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}

@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { BlockType } from '@/types/block'
+import { useSettingsStore } from '@/store/settingsStore'
 
 const COMMANDS = [
   {
@@ -35,6 +36,8 @@ const COMMANDS = [
       { icon: '📊', name: '표', description: '3×3 테이블을 삽입합니다', type: 'table' as BlockType },
       { icon: '💻', name: '코드', description: '코드 블록 삽입', type: 'code' as BlockType },
       { icon: '➖', name: '구분선', description: '구분선을 삽입합니다', type: 'divider' as BlockType },
+      { icon: '📋', name: '칸반', description: '칸반 보드를 삽입합니다', type: 'kanban' as BlockType },
+      { icon: '💡', name: '콜아웃', description: '팁/정보/경고/위험 강조 박스를 삽입합니다', type: 'admonition' as BlockType },
     ]
   },
 ]
@@ -49,7 +52,7 @@ interface SlashCommandProps {
 }
 
 export default function SlashCommand({
-  editor,
+  editor: _editor,
   isOpen,
   position,
   onSelect,
@@ -63,12 +66,28 @@ export default function SlashCommand({
   // Python으로 치면: selected_ref = None
   const selectedRef = useRef<HTMLButtonElement>(null)
 
+  // 플러그인 설정 읽기 — 비활성화된 플러그인은 메뉴에서 숨김
+  // Python으로 치면: plugins = settings_store.plugins
+  const { plugins } = useSettingsStore()
+
+  // 플러그인 토글 → BlockType 매핑 (false이면 해당 블록 타입을 메뉴에서 제거)
+  // Python으로 치면: PLUGIN_BLOCK_MAP = {'kanban': 'kanban', ...}
+  const pluginBlockMap: Partial<Record<BlockType, boolean>> = {
+    kanban:      plugins.kanban,
+    admonition:  plugins.admonition,
+  }
+
   const filteredGroups = COMMANDS.map(group => ({
     ...group,
-    items: group.items.filter(item =>
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+    items: group.items.filter(item => {
+      // 플러그인 토글이 false이면 해당 블록 타입 제거
+      // Python으로 치면: if type in plugin_map and not plugin_map[type]: return False
+      if (item.type in pluginBlockMap && !pluginBlockMap[item.type as BlockType]) return false
+      return (
+        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.description.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    })
   })).filter(group => group.items.length > 0)
 
   const allFilteredItems = filteredGroups.flatMap(g => g.items)
