@@ -560,7 +560,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       />
 
       {/* ── 본문 영역 (최대 너비 제한) ───────────── */}
-      <div className="content-body max-w-3xl mx-auto px-16 pb-24">
+      <div className="content-body max-w-3xl mr-auto px-16 pb-24">
 
         {/* ── 내보내기 버튼 (우측 상단) ─────────────
             드롭다운: Markdown(.md) / PDF(인쇄)

@@ -14,6 +14,7 @@ import PageList from '@/components/editor/PageList'
 import PageEditor from '@/components/editor/PageEditor'
 import ShortcutModal from '@/components/editor/ShortcutModal'
 import QuickAddModal from '@/components/editor/QuickAddModal'
+import GlobalSearch from '@/components/editor/GlobalSearch'
 import SettingsModal from '@/components/settings/SettingsModal'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
@@ -42,6 +43,10 @@ export default function Home() {
   // Python으로 치면: self.quick_add_open = False
   const [quickAddOpen, setQuickAddOpen] = useState(false)
 
+  // 전체 검색 팝업 열림 여부 (Ctrl+K)
+  // Python으로 치면: self.search_open = False
+  const [searchOpen, setSearchOpen] = useState(false)
+
   // 플러그인 설정 — quickAdd ON일 때만 단축키 활성화
   // Python으로 치면: plugins = settings.plugins
   const { plugins } = useSettingsStore()
@@ -63,6 +68,23 @@ export default function Home() {
     window.addEventListener('keydown', handleQuickAddKey)
     return () => window.removeEventListener('keydown', handleQuickAddKey)
   }, [plugins.quickAdd])
+
+  // -----------------------------------------------
+  // Ctrl+K 단축키 → 전체 검색 팝업 열기/닫기
+  // Python으로 치면:
+  //   def on_key_down(event):
+  //       if event.ctrl and event.key == 'k': toggle_search()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleSearchKey(e: KeyboardEvent) {
+      if (e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        setSearchOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleSearchKey)
+    return () => window.removeEventListener('keydown', handleSearchKey)
+  }, [])
 
   // -----------------------------------------------
   // 앱 초기화 시 저장된 테마 + 편집기 스타일 복원
@@ -219,6 +241,12 @@ export default function Home() {
             Python으로 치면: if quick_add_open and plugins.quick_add: render(QuickAddModal) */}
         {quickAddOpen && plugins.quickAdd && (
           <QuickAddModal onClose={() => setQuickAddOpen(false)} />
+        )}
+
+        {/* ── 전체 검색 팝업 (Ctrl+K) ────────────────────
+            Python으로 치면: if search_open: render(GlobalSearch) */}
+        {searchOpen && (
+          <GlobalSearch onClose={() => setSearchOpen(false)} />
         )}
 
       </div>

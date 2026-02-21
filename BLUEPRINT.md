@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-21 (PDF 내보내기 레이아웃 수정, dnd-kit hydration 에러 수정)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-21 (블록 멘션 팝업 UX 완성 — 화면 절반 기준 포지셔닝 + 외부 클릭 시 트리거 텍스트 삭제)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -71,6 +71,7 @@ notion-clone/
 │   │   │   ├── MentionPopup.tsx  # @멘션 팝업
 │   │   │   ├── EmojiPicker.tsx   # 페이지 아이콘 이모지 선택기
 │   │   │   ├── CoverPicker.tsx   # 페이지 커버 선택기
+│   │   │   ├── GlobalSearch.tsx  # 전체 텍스트 검색 팝업 (Ctrl+K)
 │   │   │   └── ShortcutModal.tsx # 단축키 안내 모달
 │   │   │
 │   │   ├── settings/
@@ -210,7 +211,11 @@ content.json = {
 - [x] 디버그 탭 — 서버 로그 뷰어 (최근 100개)
 
 ### ✅ 기타
-- [x] @멘션 팝업 (`@` 입력 시 페이지 링크 삽입)
+- [x] @멘션 팝업 (`@` / `[[` 입력 시 페이지+블록 통합 검색 팝업)
+- [x] 내부 페이지 링크 — 연보라 칩 스타일, 클릭 시 해당 페이지로 이동
+- [x] 내부 블록 링크 — 청록 칩 스타일, 클릭 시 해당 페이지로 이동 후 블록으로 스크롤
+- [x] 팝업 포지셔닝 UX — 화면 절반 기준 (위쪽 절반→팝업 아래, 아래쪽 절반→팝업 위) + 뷰포트 잘림 방지
+- [x] 팝업 외부 클릭 닫기 — 클릭 시 트리거 텍스트(`@`, `[[`, `/`) 자동 삭제 (팝업 재오픈 방지)
 - [x] 단축키 안내 모달
 - [x] 이미지 업로드 + FastAPI 정적 파일 서빙
 - [x] 500ms 디바운스 자동 저장
@@ -218,6 +223,7 @@ content.json = {
 - [x] 빠른 노트 캡처 (Quick Add) — `Ctrl+Alt+N`으로 미니 팝업, 제목+메모 즉시 저장
 - [x] 캘린더 위젯 — 메모 목록 상단 미니 달력, 날짜 클릭으로 해당 날짜 메모 필터
 - [x] 개별 페이지 내보내기 — 에디터 상단 ⬇ 버튼 → Markdown(.md) / PDF(브라우저 인쇄)
+- [x] 전체 텍스트 검색 (`Ctrl+K`) — 페이지 제목 + 블록 내용 전문 검색, 키보드 탐색(↑↓ Enter), 검색어 하이라이트
 
 ---
 
@@ -242,6 +248,7 @@ content.json = {
 | POST | `/api/import` | JSON 백업에서 vault 복구 |
 | GET | `/api/settings/vault-path` | vault 경로 + 통계 |
 | GET | `/api/debug/logs` | 서버 로그 (최근 100개) |
+| GET | `/api/search?q=` | 페이지 제목 + 블록 내용 전문 검색 |
 | GET | `/static/{path}` | 이미지 파일 정적 서빙 |
 
 ---
@@ -326,27 +333,67 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
 - 같은 날짜 재클릭 또는 "필터 해제" 버튼으로 필터 취소
 - 설정 패널 플러그인 탭에서 ON/OFF 가능 (기본값: ON)
 
-#### 9-5. 페이지 내 전체 검색 (Ctrl+F)
-- 현재는 사이드바 페이지 제목 검색만 됨
-- 페이지 내 블록 content 전체 검색 필요
-- 백엔드: `GET /api/search?q=검색어` → 블록 content 포함 검색 결과 반환
-- 프론트: `Ctrl+K` 또는 `Ctrl+F`로 전역 검색 팝업 오픈
+#### ~~9-5. 페이지 내 전체 검색 (Ctrl+K)~~ ✅ 완료 (2026-02-21)
+- `src/components/editor/GlobalSearch.tsx` 신규 생성
+- 백엔드: `GET /api/search?q=검색어` 엔드포인트 추가 (HTML 스트립 + 자식 블록 포함)
+- 프론트: `Ctrl+K` 전역 단축키 → 오버레이 팝업
+- 결과: 페이지 아이콘 + 제목 + 스니펫 + 블록 타입 배지
+- 키보드 탐색: ↑↓ 이동, Enter 선택, Esc 닫기, 검색어 하이라이트
 
-#### 9-6. 블록 링크 / 페이지 링크
-- `[[페이지 이름]]` 입력 시 자동 페이지 링크
-- `@멘션` 기능이 있지만 실제 링크(클릭 시 해당 페이지로 이동)로 고도화
-- `MentionPopup.tsx` 개선 필요
+#### ~~9-6. 블록 링크 / 페이지 링크~~ ✅ 완료 (2026-02-21)
+- `[[페이지이름` 입력으로 페이지 링크 팝업 열기 (기존 `@` 트리거와 동일 팝업)
+- `Editor.tsx` `checkMention()` — `@` + `[[` 두 가지 트리거 감지
+- `MentionPopup.tsx` — `trigger` prop 추가, 헤더 문구 변경
+- `globals.css` — `a[href^="#page-"]` 연보라 칩 스타일 + 다크모드 지원
+- 클릭 시 해당 페이지로 이동하는 기능은 기존부터 동작 (`setCurrentPage` 연결됨)
 
-### 🟢 우선순위 낮음
+#### ~~9-6 확장. 블록 수준 멘션~~ ✅ 완료 (2026-02-21)
+- **팝업 UI 개편**: 페이지/블록 두 섹션으로 그룹화 (📄 페이지 / 🧱 블록)
+- `MentionPopup.tsx` 완전 리라이트
+  - `MentionItem` 유니언 타입 export: `{ kind:'page'; page }` | `{ kind:'block'; page; block; plainText }`
+  - 클라이언트 사이드 검색 (`useMemo` — 서버 API 불필요, pages 스토어 활용)
+  - heading 블록 우선 표시, 한 페이지 최대 2개, 전체 최대 6개
+  - 브레드크럼 표시: `{pageIcon} {pageTitle} › [타입배지] 블록내용`
+  - **화면 절반 기준 포지셔닝**: 커서 Y < 화면 절반 → 팝업 아래, 커서 Y ≥ 화면 절반 → 팝업 위
+  - **X 잘림 방지**: `clamp(left, 8, vw - POPUP_W - 8)`
+  - **`onClickOutside` prop 추가**: 외부 클릭 시 `@query`/`[[query` 텍스트 삭제 후 닫힘
+- `Editor.tsx` 수정
+  - `handleMentionSelect(item: MentionItem)` — 페이지/블록 분기 처리
+  - 블록 링크 href: `#block-{pageId}:{blockId}` (콜론 구분자로 UUID 하이픈과 혼동 방지)
+  - 클릭 핸들러: `#block-` 링크 → `setCurrentPage(pageId)` + 150ms 후 `scrollIntoView`
+  - 5개 루트 div에 `id={block.id}` 추가 (scrollIntoView 앵커)
+  - `onClickOutside` 콜백: `deleteRange({ from: mentionMenu.from, to: cursorPos })` + 팝업 닫기
+- `SlashCommand.tsx` 수정
+  - **`popupRef` + 외부 클릭 핸들러 추가** (`onClickOutside` prop)
+  - **X 잘림 방지**: `useMemo`로 `adjustedLeft` 계산
+  - `Editor.tsx`의 `checkSlash`: 화면 절반 기준 Y 포지셔닝 + `from` 위치 저장
+  - `onClickOutside` 콜백: `deleteRange({ from: slashMenu.from, to: cursorPos })` + 팝업 닫기
+- `globals.css` — `a[href^="#block-"]` 청록(teal) 칩 스타일 + 다크모드 지원
 
-#### 9-7. Excalidraw 손그림 블록
-- Excalidraw 라이브러리 embed (`excalidraw` npm 패키지)
-- `type: 'excalidraw'` 블록, content에 JSON 직렬화 저장
-- **설정 패널 PluginsTab에서 `excalidraw` 플러그인 ON 시 활성화**
+### 🟢 앞으로 개발할 기능
+
+#### 9-7. Excalidraw 손그림 블록 (추천 1순위)
+- `excalidraw` npm 패키지 설치: `npm install @excalidraw/excalidraw`
+- `src/components/editor/ExcalidrawBlock.tsx` 신규 생성
+  - Excalidraw 컴포넌트 동적 임포트 (`next/dynamic`, SSR: false)
+  - content에 JSON 직렬화 저장: `{ elements: [...], appState: {...} }`
+  - 저장 버튼 또는 onChange 디바운스로 `updateBlock` 호출
+- `src/types/block.ts` — `BlockType`에 `'excalidraw'` 추가
+- `src/store/settingsStore.ts` — `plugins.excalidraw` (기본값 false → 켜면 활성화)
+- `src/components/editor/SlashCommand.tsx` — `{ icon: '✏️', name: 'Excalidraw', type: 'excalidraw' }` 추가
+- `src/components/editor/Editor.tsx` — `ExcalidrawBlock` 렌더 브랜치 추가
+- `src/components/settings/tabs/PluginsTab.tsx` — `available: true`로 변경
 
 #### 9-8. 블록 히스토리 / Undo-Redo 개선
-- 현재 Tiptap 내부 undo만 동작 (블록 삭제/이동은 undo 안 됨)
-- `pageStore.ts`에 undo 스택 추가 필요
+- 현재 Tiptap 내부 undo만 동작 (블록 삭제·이동은 undo 안 됨)
+- `src/store/pageStore.ts`에 undo/redo 스택 추가
+  ```ts
+  undoStack: PageSnapshot[]  // 최대 50개
+  redoStack: PageSnapshot[]
+  undo() / redo() 액션
+  ```
+- `Ctrl+Z` / `Ctrl+Shift+Z` 글로벌 단축키 연결 (page.tsx)
+- 대상 동작: 블록 추가, 삭제, 이동, 타입 변경
 
 #### ~~9-9. 페이지 내보내기 (개별)~~ ✅ 완료 (2026-02-21)
 - `PageEditor.tsx` 상단 우측에 `⬇ 내보내기` 드롭다운 버튼 추가
@@ -359,14 +406,27 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
   - 사이드바/버튼 숨기기, 페이지 여백 설정
   - 배경색 인쇄 허용 (`print-color-adjust: exact`)
 
-#### 9-10. 전체 페이지 검색 (Ctrl+K)
-- 현재 사이드바 제목 검색만 됨 → 블록 content 전체 검색 필요
-- 백엔드: `GET /api/search?q=검색어`
-- 프론트: `Ctrl+K` 전역 팝업 + 결과 클릭 시 해당 페이지 이동
+#### ~~9-10. 전체 페이지 검색 (Ctrl+K)~~ ✅ 완료 (9-5와 통합)
 
 #### 9-11. 모바일 반응형
 - 현재 데스크탑 전용 레이아웃
-- 사이드바 햄버거 메뉴, 터치 드래그앤드롭
+- 구현 범위:
+  - `page.tsx` — 사이드바 햄버거 메뉴 (`md:flex hidden` 토글)
+  - `PageList.tsx` — 모바일에서 전체 너비 드로어(drawer)로 변환
+  - `PageEditor.tsx` — 패딩/마진 반응형 조정 (`px-4 md:px-16`)
+  - `BubbleMenuBar.tsx` — 버튼 크기 터치 친화적으로 확대
+  - dnd-kit 터치 센서 추가: `TouchSensor` (`activationConstraint: { delay: 250 }`)
+
+#### 9-12. 페이지 간 블록 이동/복사
+- 블록 컨텍스트 메뉴(점 3개)에 "다른 페이지로 이동/복사" 추가
+- 대상 페이지 선택 팝업 (MentionPopup 재활용 가능)
+- `pageStore.ts`에 `moveBlock(fromPageId, toPageId, blockId)` 추가
+
+#### 9-13. 페이지 템플릿
+- 자주 쓰는 페이지 구조를 템플릿으로 저장/불러오기
+- 새 페이지 생성 시 "템플릿으로 시작" 옵션
+- `vault/_templates/` 폴더에 저장
+- 기본 제공 템플릿: 회의록, 프로젝트 계획, 일일 저널
 
 ---
 

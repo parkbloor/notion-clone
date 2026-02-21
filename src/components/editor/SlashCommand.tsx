@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { BlockType } from '@/types/block'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -47,7 +47,8 @@ interface SlashCommandProps {
   isOpen: boolean
   position: { top: number; left: number }
   onSelect: (type: BlockType) => void
-  onClose: () => void
+  onClose: () => void              // Escape 키: 팝업만 닫기 (/ 텍스트 유지)
+  onClickOutside: () => void       // 외부 클릭: 팝업 닫기 + /query 텍스트 삭제
   searchQuery: string
 }
 
@@ -57,6 +58,7 @@ export default function SlashCommand({
   position,
   onSelect,
   onClose,
+  onClickOutside,
   searchQuery,
 }: SlashCommandProps) {
 
@@ -65,6 +67,9 @@ export default function SlashCommand({
   // 선택된 버튼으로 스크롤하기 위한 ref
   // Python으로 치면: selected_ref = None
   const selectedRef = useRef<HTMLButtonElement>(null)
+  // 팝업 DOM 참조 — 외부 클릭 감지용
+  // Python으로 치면: self.popup_ref = None
+  const popupRef = useRef<HTMLDivElement>(null)
 
   // 플러그인 설정 읽기 — 비활성화된 플러그인은 메뉴에서 숨김
   // Python으로 치면: plugins = settings_store.plugins
@@ -132,12 +137,37 @@ export default function SlashCommand({
     }
   }, [selectedIndex])
 
+  // ── 팝업 외부 클릭 시 닫기 + /query 텍스트 삭제 ──
+  // onClickOutside: Editor.tsx가 /query 삭제까지 처리
+  // Python으로 치면: def on_outside_click(e): if not popup.contains(e.target): on_dismiss()
+  useEffect(() => {
+    if (!isOpen) return
+    function handleOutside(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        onClickOutside()
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [isOpen, onClickOutside])
+
+  // ── 팝업 표시 위치 계산 (화면 절반 기준 + X 잘림 방지) ──────────
+  // Editor.tsx가 position.top = coords.bottom + 8 로 전달하므로
+  // Y 방향은 여기서 오버라이드하지 않고 Editor.tsx의 checkSlash에서 처리
+  // Python으로 치면: x = clamp(left, 8, vw - MENU_W - 8)
+  const MENU_W = 288  // w-72
+  const adjustedLeft = useMemo(
+    () => Math.max(8, Math.min(position.left, window.innerWidth - MENU_W - 8)),
+    [position.left]
+  )
+
   if (!isOpen) return null
 
   if (allFilteredItems.length === 0) {
     return (
       <div
-        style={{ top: position.top, left: position.left }}
+        ref={popupRef}
+        style={{ top: position.top, left: adjustedLeft }}
         className="fixed z-50 w-72 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
       >
         <p className="text-sm text-gray-400 text-center">검색 결과가 없습니다</p>
@@ -149,7 +179,8 @@ export default function SlashCommand({
 
   return (
     <div
-      style={{ top: position.top, left: position.left }}
+      ref={popupRef}
+      style={{ top: position.top, left: adjustedLeft }}
       className="fixed z-50 w-72 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
     >
       {searchQuery && (

@@ -210,4 +210,26 @@ export const api = {
       body: JSON.stringify({ order }),
     })
   },
+
+  // ── 전체 텍스트 검색 ──────────────────────────
+  // 페이지 제목 + 블록 내용을 서버에서 검색
+  // Python으로 치면: requests.get(url, params={'q': query}).json()
+  searchPages: async (q: string): Promise<SearchResult[]> => {
+    const res = await fetch(`${BASE_URL}/api/search?q=${encodeURIComponent(q)}`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.results as SearchResult[]
+  },
+}
+
+// ── 검색 결과 한 건의 타입 ───────────────────────
+// Python으로 치면: @dataclass class SearchResult: ...
+export interface SearchResult {
+  pageId: string
+  pageTitle: string
+  pageIcon: string
+  blockId: string | null
+  blockType: string | null
+  snippet: string
+  matchType: 'title' | 'content'
 }

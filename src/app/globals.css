@@ -257,7 +257,7 @@
 }
 
 /* -----------------------------------------------
-   링크 스타일
+   링크 스타일 — 외부 링크 (일반 파란색 밑줄)
    ----------------------------------------------- */
 .tiptap a {
   color: #3b82f6;
@@ -267,6 +267,74 @@
 
 .tiptap a:hover {
   color: #1d4ed8;
+}
+
+/* -----------------------------------------------
+   내부 페이지 링크 스타일 — href="#page-..." 형식
+   @ 멘션 또는 [[ 입력으로 삽입된 내부 이동 링크
+   노션과 유사하게: 연보라 배경 칩 형태
+   ----------------------------------------------- */
+.tiptap a[href^="#page-"] {
+  color: #6d28d9;
+  background-color: #f5f3ff;
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 1px 4px;
+  border-bottom: 1px solid #c4b5fd;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tiptap a[href^="#page-"]:hover {
+  background-color: #ede9fe;
+  color: #5b21b6;
+  border-bottom-color: #a78bfa;
+}
+
+/* 다크 모드 내부 페이지 링크 */
+html.dark .tiptap a[href^="#page-"] {
+  color: #a78bfa;
+  background-color: #2e1f5e;
+  border-bottom-color: #6d28d9;
+}
+
+html.dark .tiptap a[href^="#page-"]:hover {
+  background-color: #3b2770;
+  color: #c4b5fd;
+}
+
+/* -----------------------------------------------
+   내부 블록 링크 스타일 — href="#block-{pageId}:{blockId}" 형식
+   @ 멘션 또는 [[ 입력 후 블록 항목 선택 시 삽입
+   페이지 링크(연보라)와 구분: 청록(teal) 배경 칩 형태
+   ----------------------------------------------- */
+.tiptap a[href^="#block-"] {
+  color: #0f766e;
+  background-color: #f0fdfa;
+  text-decoration: none;
+  border-radius: 3px;
+  padding: 1px 4px;
+  border-bottom: 1px solid #99f6e4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tiptap a[href^="#block-"]:hover {
+  background-color: #ccfbf1;
+  color: #0d9488;
+  border-bottom-color: #2dd4bf;
+}
+
+/* 다크 모드 내부 블록 링크 */
+html.dark .tiptap a[href^="#block-"] {
+  color: #2dd4bf;
+  background-color: #0f3330;
+  border-bottom-color: #0f766e;
+}
+
+html.dark .tiptap a[href^="#block-"]:hover {
+  background-color: #134e4a;
+  color: #5eead4;
 }
 
 /* -----------------------------------------------

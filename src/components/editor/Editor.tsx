@@ -34,7 +34,7 @@ import ImageBlock from './ImageBlock'
 import TableToolbar from './TableToolbar'
 import BlockMenu from './BlockMenu'
 import ToggleBlock from './ToggleBlock'
-import MentionPopup from './MentionPopup'
+import MentionPopup, { MentionItem } from './MentionPopup'
 import KanbanBlock from './KanbanBlock'
 import AdmonitionBlock from './AdmonitionBlock'
 
@@ -102,15 +102,18 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     isOpen: false,
     position: { top: 0, left: 0 },
     searchQuery: '',
+    from: 0,  // /query 시작 위치 — 외부 클릭 시 deleteRange에 사용
   })
 
-  // ── @ 멘션 상태 ──────────────────────────────
-  // from: 문서 내 @ 문자 위치 (deleteRange 시작점으로 사용)
-  // Python으로 치면: self.mention_state = {'is_open': False, 'query': '', 'from': 0, 'position': {...}}
+  // ── @ 멘션 / [[ 페이지링크 상태 ─────────────
+  // from    : 트리거 문자(@, [[) 위치 (deleteRange 시작점)
+  // trigger : '@' 또는 '[[' — 삭제 범위 계산에 사용
+  // Python으로 치면: self.mention_state = {'is_open': False, 'query': '', 'from': 0, 'trigger': '@', 'position': {...}}
   const [mentionMenu, setMentionMenu] = useState({
     isOpen: false,
     query: '',
     from: 0,
+    trigger: '@' as '@' | '[[',
     position: { x: 0, y: 0 },
   })
   // stale closure 방지용 ref — useEditor 콜백 내에서 최신 상태를 읽기 위해 사용
@@ -126,10 +129,24 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
 
     if (slashMatch) {
       const coords = editor.view.coordsAtPos(from)
+      const MENU_MAX_H = 380  // SlashCommand 최대 높이 (헤더+목록)
+      const MENU_W = 288      // w-72
+
+      // Y: 화면 절반 기준 — 위쪽이면 아래로, 아래쪽이면 위로 표시
+      // Python으로 치면: top = bottom+8 if cursor_y < vh/2 else cursor_y - MENU_MAX_H
+      const top = coords.top < window.innerHeight / 2
+        ? coords.bottom + 8
+        : Math.max(8, coords.top - MENU_MAX_H)
+
+      // X: 오른쪽 잘림 방지
+      // Python으로 치면: left = clamp(coords.left, 8, vw - MENU_W - 8)
+      const left = Math.max(8, Math.min(coords.left, window.innerWidth - MENU_W - 8))
+
       setSlashMenu({
         isOpen: true,
-        position: { top: coords.bottom + 8, left: coords.left },
+        position: { top, left },
         searchQuery: slashMatch[1],
+        from: from - slashMatch[0].length,  // /query 시작 위치 저장
       })
     } else {
       setSlashMenu(prev => ({ ...prev, isOpen: false }))
@@ -137,25 +154,47 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   }, [])
 
   // -----------------------------------------------
-  // @ 멘션 감지 함수
-  // cursor 앞 텍스트에서 @단어 패턴을 찾아 팝업 열기
-  // Python으로 치면: def check_mention(editor): re.search(r'@[\w가-힣]*$', text_before)
+  // @ 멘션 / [[ 페이지링크 감지 함수
+  // cursor 앞 텍스트에서 @단어 또는 [[단어 패턴을 찾아 팝업 열기
+  //
+  // @ 트리거:  "@페이지이름"   → trigger='@',  from=@ 위치
+  // [[ 트리거: "[[페이지이름"  → trigger='[[', from=[[ 위치
+  //
+  // Python으로 치면:
+  //   def check_mention(editor):
+  //       if re.search(r'@[\w가-힣]*$', text_before): open_popup(trigger='@')
+  //       elif re.search(r'\[\[[\w가-힣\s]*$', text_before): open_popup(trigger='[[')
   // -----------------------------------------------
   const checkMention = useCallback((editor: TiptapEditor) => {
     const { state } = editor
     const { from } = state.selection
-    const textBefore = state.doc.textBetween(Math.max(0, from - 30), from, '\n')
-    // @한글/영문/숫자 패턴 (슬래시 메뉴와 충돌하지 않도록 @ 앞에 / 없어야 함)
-    const mentionMatch = textBefore.match(/@([\w가-힣]*)$/)
+    const textBefore = state.doc.textBetween(Math.max(0, from - 40), from, '\n')
 
-    if (mentionMatch) {
-      const query = mentionMatch[1]
-      const atPos = from - query.length - 1  // @ 문자의 문서 내 위치
+    // @ 트리거: @한글/영문/숫자 (슬래시 메뉴와 충돌하지 않게 / 앞 @ 제외)
+    const atMatch = textBefore.match(/@([\w가-힣]*)$/)
+    // [[ 트리거: [[한글/영문/숫자/공백
+    const bracketMatch = textBefore.match(/\[\[([\w가-힣\s]*)$/)
+
+    if (atMatch) {
+      const query = atMatch[1]
+      const atPos = from - query.length - 1  // @ 문자 위치
       const coords = editor.view.coordsAtPos(from)
       setMentionMenu({
         isOpen: true,
         query,
         from: atPos,
+        trigger: '@',
+        position: { x: coords.left, y: coords.bottom },
+      })
+    } else if (bracketMatch) {
+      const query = bracketMatch[1]
+      const bracketPos = from - query.length - 2  // [[ 시작 위치 (2글자)
+      const coords = editor.view.coordsAtPos(from)
+      setMentionMenu({
+        isOpen: true,
+        query,
+        from: bracketPos,
+        trigger: '[[',
         position: { x: coords.left, y: coords.bottom },
       })
     } else {
@@ -346,24 +385,44 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   }
 
   // -----------------------------------------------
-  // @ 멘션 페이지 선택 처리
-  // @query 텍스트를 삭제하고 클릭 가능한 페이지 링크를 삽입
-  // Python으로 치면: def handle_mention_select(page): delete_at_query(); insert_link(page)
+  // @ 멘션 / [[ 페이지링크 선택 처리
+  // 선택된 항목 종류에 따라 페이지 링크 또는 블록 링크를 삽입
+  //
+  // kind='page'  → href="#page-{pageId}" 형식
+  // kind='block' → href="#block-{pageId}:{blockId}" 형식 (: 구분자)
+  //
+  // Python으로 치면:
+  //   def handle_mention_select(item):
+  //       delete_trigger_text()
+  //       if item.kind == 'page': insert_page_link(item.page)
+  //       else: insert_block_link(item.page, item.block)
   // -----------------------------------------------
-  function handleMentionSelect(page: Page) {
+  function handleMentionSelect(item: MentionItem) {
     if (!editor) return
     const cursorPos = editor.state.selection.from
-    editor.chain()
-      .focus()
-      // @query 범위 삭제 (@ 위치부터 현재 커서까지)
-      .deleteRange({ from: mentionMenu.from, to: cursorPos })
-      // 페이지 링크 삽입: 아이콘 + 제목 텍스트에 link mark 적용
-      .insertContent({
+    // 트리거(@query 또는 [[query) 범위 삭제
+    const chain = editor.chain().focus().deleteRange({ from: mentionMenu.from, to: cursorPos })
+
+    if (item.kind === 'page') {
+      // ── 페이지 링크 삽입 ──
+      // Python으로 치면: insert_text(f'{icon} {title}', href=f'#page-{id}')
+      chain.insertContent({
         type: 'text',
-        text: `${page.icon} ${page.title || '제목 없음'}`,
-        marks: [{ type: 'link', attrs: { href: `#page-${page.id}` } }],
-      })
-      .run()
+        text: `${item.page.icon} ${item.page.title || '제목 없음'}`,
+        marks: [{ type: 'link', attrs: { href: `#page-${item.page.id}` } }],
+      }).run()
+    } else {
+      // ── 블록 링크 삽입 ──
+      // href = "#block-{pageId}:{blockId}" (콜론으로 구분 — UUID의 하이픈과 혼동 방지)
+      // 표시 텍스트: "페이지아이콘 페이지제목 › 블록내용 앞부분"
+      // Python으로 치면: insert_text(f'{icon} {title} › {snippet}', href=f'#block-{pid}:{bid}')
+      const snippet = item.plainText.slice(0, 30) + (item.plainText.length > 30 ? '…' : '')
+      chain.insertContent({
+        type: 'text',
+        text: `${item.page.icon} ${item.page.title || '제목 없음'} › ${snippet || '(내용 없음)'}`,
+        marks: [{ type: 'link', attrs: { href: `#block-${item.page.id}:${item.block.id}` } }],
+      }).run()
+    }
     setMentionMenu(prev => ({ ...prev, isOpen: false }))
   }
 
@@ -405,6 +464,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   if (block.type === 'image') {
     return (
       <div
+        id={block.id}
         ref={setNodeRef}
         style={{
           transform: CSS.Transform.toString(transform),
@@ -439,6 +499,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   if (block.type === 'toggle') {
     return (
       <div
+        id={block.id}
         ref={setNodeRef}
         style={{
           transform: CSS.Transform.toString(transform),
@@ -471,6 +532,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   if (block.type === 'kanban') {
     return (
       <div
+        id={block.id}
         ref={setNodeRef}
         style={{
           transform: CSS.Transform.toString(transform),
@@ -508,6 +570,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   if (block.type === 'admonition') {
     return (
       <div
+        id={block.id}
         ref={setNodeRef}
         style={{
           transform: CSS.Transform.toString(transform),
@@ -538,11 +601,13 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
 
   return (
     // -----------------------------------------------
+    // id          : #block- 링크에서 scrollIntoView() 앵커로 사용
     // setNodeRef  : dnd-kit이 이 DOM 요소를 드래그 아이템으로 추적
     // style       : 드래그 중 transform(위치 이동) + transition(애니메이션) 적용
     // opacity     : 드래그 중인 원본 블록을 반투명하게 표시
     // -----------------------------------------------
     <div
+      id={block.id}
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -572,8 +637,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
 
       {/* 테이블 블록: 커서가 테이블 안에 있을 때 툴바 표시 */}
       {/* Python으로 치면: if editor.is_active('table'): render(TableToolbar) */}
-      {/* 페이지 멘션 링크 클릭 처리 — href="#page-{id}" 형식의 링크를 내부 이동으로 처리 */}
-      {/* Python으로 치면: if link.href.startswith('#page-'): navigate(link.href[6:]) */}
+      {/* 내부 링크 클릭 처리 */}
+      {/* #page-{id}  → 해당 페이지로 이동 */}
+      {/* #block-{pageId}:{blockId} → 해당 페이지로 이동 후 블록으로 스크롤 */}
+      {/* Python으로 치면: if link.startswith('#page-'): go(link[6:]); elif '#block-': go_and_scroll(link) */}
       <div
         className="flex-1"
         onClick={(e) => {
@@ -583,6 +650,22 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             if (href.startsWith('#page-')) {
               e.preventDefault()
               setCurrentPage(href.slice(6))
+            } else if (href.startsWith('#block-')) {
+              e.preventDefault()
+              // format: #block-{pageId}:{blockId}  콜론이 구분자
+              // Python으로 치면: page_id, block_id = href[7:].split(':', 1)
+              const rest = href.slice(7)
+              const colonIdx = rest.indexOf(':')
+              if (colonIdx !== -1) {
+                const targetPageId = rest.slice(0, colonIdx)
+                const targetBlockId = rest.slice(colonIdx + 1)
+                setCurrentPage(targetPageId)
+                // 페이지 전환 후 렌더링이 완료되면 블록으로 스크롤
+                // Python으로 치면: await asyncio.sleep(0.15); element.scroll_into_view()
+                setTimeout(() => {
+                  document.getElementById(targetBlockId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }, 150)
+              }
             }
           }
         }}
@@ -599,17 +682,34 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           position={slashMenu.position}
           onSelect={handleSlashSelect}
           onClose={() => setSlashMenu(prev => ({ ...prev, isOpen: false }))}
+          onClickOutside={() => {
+            // 외부 클릭: /query 텍스트 삭제 후 팝업 닫기
+            // 삭제하지 않으면 checkSlash가 즉시 팝업을 다시 열어버림
+            // Python으로 치면: editor.delete_range(from=slash_from, to=cursor); popup.close()
+            const cursorPos = editor.state.selection.from
+            editor.chain().deleteRange({ from: slashMenu.from, to: cursorPos }).run()
+            setSlashMenu(prev => ({ ...prev, isOpen: false }))
+          }}
           searchQuery={slashMenu.searchQuery}
         />
       )}
-      {/* @ 멘션 팝업 — 멘션 활성 시 페이지 목록 표시 */}
-      {mentionMenu.isOpen && (
+      {/* @ 멘션 / [[ 페이지링크 팝업 */}
+      {editor && mentionMenu.isOpen && (
         <MentionPopup
           query={mentionMenu.query}
           pages={pages}
           position={mentionMenu.position}
           onSelect={handleMentionSelect}
           onClose={() => setMentionMenu(prev => ({ ...prev, isOpen: false }))}
+          onClickOutside={() => {
+            // 외부 클릭: @query / [[query 텍스트 삭제 후 팝업 닫기
+            // 삭제하지 않으면 checkMention이 즉시 팝업을 다시 열어버림
+            // Python으로 치면: editor.delete_range(from=mention_from, to=cursor); popup.close()
+            const cursorPos = editor.state.selection.from
+            editor.chain().deleteRange({ from: mentionMenu.from, to: cursorPos }).run()
+            setMentionMenu(prev => ({ ...prev, isOpen: false }))
+          }}
+          trigger={mentionMenu.trigger}
         />
       )}
     </div>
