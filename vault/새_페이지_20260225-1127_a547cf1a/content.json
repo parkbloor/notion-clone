@@ -1,0 +1,20 @@
+{
+  "id": "a547cf1a-6a8a-45e6-89a8-1377a0876821",
+  "title": "새 페이지",
+  "icon": "📝",
+  "cover": null,
+  "coverPosition": 50,
+  "tags": [],
+  "starred": false,
+  "blocks": [
+    {
+      "id": "6ef6e995-3b3d-4335-b062-9a2b97883ed8",
+      "type": "heading2",
+      "content": "<h2>제목</h2><p></p>",
+      "createdAt": "2026-02-25T11:32:38.318Z",
+      "updatedAt": "2026-02-25T11:32:38.336Z"
+    }
+  ],
+  "createdAt": "2026-02-25T11:27:08.426Z",
+  "updatedAt": "2026-02-25T11:32:38.318Z"
+}

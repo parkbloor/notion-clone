@@ -7,12 +7,17 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import { Undo2, Redo2 } from 'lucide-react'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
 import { Block, Page } from '@/types/block'
 import Editor from './Editor'
 import EmojiPicker from './EmojiPicker'
 import CoverPicker from './CoverPicker'
+import TemplatePanel from './TemplatePanel'
+import WordCountBar from './WordCountBar'
+import TocPanel from './TocPanel'
+import { useSettingsStore } from '@/store/settingsStore'
 
 // =============================================
 // 마크다운 내보내기 헬퍼 함수들
@@ -224,7 +229,17 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     updatePageTitle, addBlock, moveBlock,
     updatePageIcon, updatePageCover, updatePageCoverPosition,
     addTagToPage, removeTagFromPage,
+    undoPage, redoPage, canUndo, canRedo,
+    applyTemplate,
   } = usePageStore()
+
+  // historyVersion 구독 → undo/redo 실행 시 버튼 활성화 상태 자동 갱신
+  // Python으로 치면: self.history_version = store.history_version  # reactive
+  const historyVersion = usePageStore((state) => state.historyVersion)
+
+  // 플러그인 설정 + 집중 모드 상태/토글 구독
+  // Python으로 치면: self.plugins = settings_store.plugins
+  const { plugins, isFocusMode, toggleFocusMode } = useSettingsStore()
 
   // ── UI 상태 ──────────────────────────────────
   // 이모지 피커 열림 여부
@@ -559,13 +574,60 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         className="hidden"
       />
 
-      {/* ── 본문 영역 (최대 너비 제한) ───────────── */}
-      <div className="content-body max-w-3xl mr-auto px-16 pb-24">
+      {/* ── 본문 영역: 콘텐츠 + 선택적 TOC 사이드바 ───────────── */}
+      {/* tableOfContents 플러그인 ON 시 flex 레이아웃으로 TOC를 우측에 배치 */}
+      {/* Python으로 치면: self.content_layout = HBox([content, toc]) if plugins.toc else VBox([content]) */}
+      <div className="flex items-start">
+      <div className="content-body flex-1 min-w-0 max-w-3xl mr-auto px-16 pb-24">
 
-        {/* ── 내보내기 버튼 (우측 상단) ─────────────
-            드롭다운: Markdown(.md) / PDF(인쇄)
-            Python으로 치면: export_btn = QPushButton('내보내기') */}
-        <div className="flex justify-end pt-4 pb-1 print-hide">
+        {/* ── undo/redo + 내보내기 버튼 (우측 상단) ──────
+            historyVersion 구독 → 버튼 활성화 상태 자동 갱신
+            Python으로 치면: undo_btn, redo_btn, export_btn = QPushButton() */}
+        <div className="flex justify-end items-center gap-1 pt-4 pb-1 print-hide">
+
+          {/* 실행 취소 (Ctrl+Z) */}
+          {/* historyVersion >= 0는 항상 true — 구독 유지를 위해 disabled에 포함 */}
+          <button
+            type="button"
+            onClick={() => undoPage(pageId)}
+            disabled={historyVersion >= 0 && !canUndo(pageId)}
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="실행 취소 (Ctrl+Z)"
+          >
+            <Undo2 size={14} />
+          </button>
+
+          {/* 다시 실행 (Ctrl+Y) */}
+          <button
+            type="button"
+            onClick={() => redoPage(pageId)}
+            disabled={historyVersion >= 0 && !canRedo(pageId)}
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            title="다시 실행 (Ctrl+Y)"
+          >
+            <Redo2 size={14} />
+          </button>
+
+          {/* 집중 모드 종료 버튼 (집중 모드 플러그인 ON + 집중 모드 활성 시만 표시) */}
+          {/* Python으로 치면: if plugins.focus_mode and is_focus_mode: render_exit_btn() */}
+          {plugins.focusMode && isFocusMode && (
+            <>
+              <div className="w-px h-4 bg-gray-200 mx-1" />
+              <button
+                type="button"
+                onClick={toggleFocusMode}
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
+                title="집중 모드 종료 (Ctrl+Shift+F)"
+              >
+                <span>🎯</span>
+                <span>집중 모드 종료</span>
+              </button>
+            </>
+          )}
+
+          {/* 구분선 */}
+          <div className="w-px h-4 bg-gray-200 mx-1" />
+
           <div className="relative" ref={exportMenuRef}>
             <button
               type="button"
@@ -702,6 +764,13 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           )}
         </div>
 
+        {/* ── 템플릿 패널 (빈 페이지일 때만 표시) ──────
+            블록이 1개이고 내용이 비어 있으면 템플릿 목록 표시
+            Python으로 치면: if len(page.blocks) == 1 and not page.blocks[0].content: render_template_panel() */}
+        {page.blocks.length === 1 && !stripHtml(page.blocks[0].content).trim() && (
+          <TemplatePanel onSelect={(content) => applyTemplate(pageId, content)} />
+        )}
+
         {/* ── 블록 목록 렌더링 ─────────────────────── */}
         <DndContext
           id="dnd-blocks"
@@ -732,7 +801,24 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           onClick={() => addBlock(pageId)}
         />
 
+        {/* ── 단어 수 표시 바 (플러그인 ON 시만 렌더링) ──
+            블록이 모두 비어 있어도 바는 항상 표시 (0 단어 0 글자)
+            Python으로 치면: if plugins.word_count: render WordCountBar(page.blocks) */}
+        {plugins.wordCount && <WordCountBar blocks={page.blocks} />}
+
       </div>
+
+      {/* ── TOC 사이드 패널 (tableOfContents 플러그인 ON + 헤딩 있을 때) ──
+          xl 이상 넓은 화면에서만 표시 (px-16 본문 영역과 겹치지 않도록)
+          sticky top-20: 스크롤 시 상단에 고정
+          Python으로 치면: if plugins.table_of_contents: render TocPanel(page.blocks) */}
+      {plugins.tableOfContents && (
+        <div className="hidden xl:block pt-16">
+          <TocPanel blocks={page.blocks} />
+        </div>
+      )}
+
+      </div>{/* ── flex 래퍼 닫기 */}
     </div>
   )
 }

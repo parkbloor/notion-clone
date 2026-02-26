@@ -51,8 +51,17 @@ const SHORTCUT_GROUPS = [
   {
     group: '탐색',
     items: [
+      { keys: ['Ctrl', 'K'], label: '전체 검색 열기' },
       { keys: ['Escape'], label: '검색 초기화 / 메뉴 닫기' },
       { keys: ['?'], label: '단축키 안내 열기' },
+    ],
+  },
+  {
+    group: '플러그인',
+    items: [
+      { keys: ['Ctrl', 'Alt', 'N'], label: '빠른 노트 캡처 (QuickAdd)' },
+      { keys: ['Ctrl', 'Shift', 'F'], label: '집중 모드 ON/OFF (Focus Mode)' },
+      { keys: ['Ctrl', 'Alt', 'D'], label: '오늘의 일간 노트 열기 (Periodic Notes)' },
     ],
   },
 ]

@@ -6,8 +6,10 @@
 
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
+import { toast } from 'sonner'
 import { Block, BlockType, Category, Page, createBlock, createPage } from '@/types/block'
 import { api } from '@/lib/api'
+import { parseTemplateContent } from '@/lib/templateParser'
 
 // -----------------------------------------------
 // 페이지 저장 디바운서
@@ -44,9 +46,53 @@ function scheduleSave(
             }
           })
         }
-      } catch { /* 서버 꺼져도 무시 */ }
+      } catch {
+        // 자동 저장 실패 — id 고정으로 중복 토스트 방지 (타이핑마다 실패해도 1개만 표시)
+        // Python으로 치면: toast_map['save-error'] = show_once(msg)
+        toast.error('자동 저장 실패. 서버 연결을 확인해 주세요.', {
+          id: 'save-error',
+          duration: 3000,
+        })
+      }
     }
   }, 500))
+}
+
+
+// -----------------------------------------------
+// 블록 구조 히스토리 (undo/redo)
+// 텍스트 수정(updateBlock)은 Tiptap 내장 History가 처리
+// 블록 추가/삭제/이동/타입변경/복제만 이 히스토리가 담당
+// Python으로 치면: page_history: dict[str, {"past": list[str], "future": list[str]}] = {}
+// -----------------------------------------------
+const pageHistoryMap = new Map<string, { past: string[]; future: string[] }>()
+
+// 히스토리 엔트리 가져오기 (없으면 새로 생성)
+// Python으로 치면: def get_history(page_id): return page_history.setdefault(page_id, {...})
+function getHistory(pageId: string): { past: string[]; future: string[] } {
+  if (!pageHistoryMap.has(pageId)) {
+    pageHistoryMap.set(pageId, { past: [], future: [] })
+  }
+  return pageHistoryMap.get(pageId)!
+}
+
+// 현재 블록 배열 스냅샷을 past에 푸시 (새 액션 직전에 호출)
+// Python으로 치면: def push_block_history(page_id, blocks): history["past"].append(json.dumps(blocks))
+function pushBlockHistory(pageId: string, blocks: readonly Block[]): void {
+  const h = getHistory(pageId)
+  h.past.push(JSON.stringify(blocks))
+  h.future = []  // 새 액션 발생 시 redo 히스토리 초기화
+  if (h.past.length > 50) h.past.shift()  // 최대 50개 유지
+}
+
+// JSON 문자열에서 블록 배열 복원 (ISO 문자열 → Date 객체)
+// Python으로 치면: def parse_blocks(json_str): return [restore_dates(b) for b in json.loads(json_str)]
+function parseBlocksFromJson(json: string): Block[] {
+  return (JSON.parse(json) as Block[]).map(b => ({
+    ...b,
+    createdAt: new Date(b.createdAt as unknown as string),
+    updatedAt: new Date(b.updatedAt as unknown as string),
+  }))
 }
 
 
@@ -105,6 +151,9 @@ interface PageStore {
   duplicatePage: (pageId: string) => void
 
   // ── 블록 액션 ─────────────────────────────────
+  // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입 (템플릿 적용)
+  // Python으로 치면: def apply_template(self, page_id, markdown_content): ...
+  applyTemplate: (pageId: string, markdownContent: string) => void
   addBlock: (pageId: string, afterBlockId?: string) => void
   updateBlock: (pageId: string, blockId: string, content: string) => void
   updateBlockType: (pageId: string, blockId: string, type: BlockType) => void
@@ -112,6 +161,17 @@ interface PageStore {
   moveBlock: (pageId: string, fromIndex: number, toIndex: number) => void
   addBlockBefore: (pageId: string, beforeBlockId: string) => void
   duplicateBlock: (pageId: string, blockId: string) => void
+
+  // ── 블록 히스토리 ──────────────────────────────
+  // 구조 변경(추가/삭제/이동/타입/복제) 또는 undo/redo 실행 시 증가 → UI 리렌더링 트리거
+  // Python으로 치면: history_version: int = 0
+  historyVersion: number
+  undoPage: (pageId: string) => void
+  redoPage: (pageId: string) => void
+  // 순수 계산 (외부 Map 조회) → 컴포넌트는 historyVersion을 구독해서 리렌더링
+  // Python으로 치면: def can_undo(self, page_id): return bool(history[page_id]["past"])
+  canUndo: (pageId: string) => boolean
+  canRedo: (pageId: string) => boolean
 
   // ── 카테고리 액션 ─────────────────────────────
   setCurrentCategory: (categoryId: string | null) => void
@@ -144,6 +204,10 @@ export const usePageStore = create<PageStore>()(
     categoryMap: {},
     categoryOrder: [],
     currentCategoryId: null,  // null = 전체보기
+
+    // 구조 변경/undo/redo 발생 시 증가 → 버튼 활성화 상태 리렌더링용
+    // Python으로 치면: self.history_version = 0
+    historyVersion: 0,
 
     // 최근 파일 목록 — localStorage에서 복원 (서버 사이드에선 빈 배열)
     // Python으로 치면: self.recent_page_ids = json.load(local_storage) or []
@@ -185,8 +249,11 @@ export const usePageStore = create<PageStore>()(
           state.categoryOrder = data.categoryOrder ?? []
         })
       } catch {
-        // 서버가 꺼져있으면 로컬 초기 상태 유지
-        console.warn('📡 서버 연결 실패 — 로컬 상태로 동작합니다')
+        // 서버가 꺼져있으면 로컬 초기 상태 유지 + 사용자에게 알림
+        toast.warning('서버에 연결할 수 없습니다. 로컬 상태로 동작합니다.', {
+          id: 'server-offline',
+          duration: 4000,
+        })
       }
     },
 
@@ -221,6 +288,7 @@ export const usePageStore = create<PageStore>()(
           state.pages.push(newPage)
           state.currentPageId = newPage.id
         })
+        toast.warning('서버 연결 실패로 로컬에만 메모가 생성됐습니다.', { duration: 3000 })
       }
     },
 
@@ -388,6 +456,9 @@ export const usePageStore = create<PageStore>()(
     // ── 블록 액션 ──────────────────────────────
 
     addBlock: (pageId, afterBlockId) => {
+      // 변경 전 스냅샷 저장 (undo용)
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
@@ -397,6 +468,7 @@ export const usePageStore = create<PageStore>()(
           if (index !== -1) { page.blocks.splice(index + 1, 0, newBlock); return }
         }
         page.blocks.push(newBlock)
+        state.historyVersion++  // undo 버튼 활성화 트리거
       })
       scheduleSave(pageId, get, set)
     },
@@ -413,47 +485,61 @@ export const usePageStore = create<PageStore>()(
     },
 
     updateBlockType: (pageId, blockId, type) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         const block = page.blocks.find(b => b.id === blockId)
         if (block) { block.type = type; block.updatedAt = new Date() }
+        state.historyVersion++
       })
       scheduleSave(pageId, get, set)
     },
 
     deleteBlock: (pageId, blockId) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         page.blocks = page.blocks.filter(b => b.id !== blockId)
         if (page.blocks.length === 0) page.blocks.push(createBlock('paragraph'))
+        state.historyVersion++
       })
       scheduleSave(pageId, get, set)
     },
 
     moveBlock: (pageId, fromIndex, toIndex) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         const [removed] = page.blocks.splice(fromIndex, 1)
         page.blocks.splice(toIndex, 0, removed)
+        state.historyVersion++
       })
       scheduleSave(pageId, get, set)
     },
 
     addBlockBefore: (pageId, beforeBlockId) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         const index = page.blocks.findIndex(b => b.id === beforeBlockId)
         if (index === -1) return
         page.blocks.splice(index, 0, createBlock('paragraph'))
+        state.historyVersion++
       })
       scheduleSave(pageId, get, set)
     },
 
     duplicateBlock: (pageId, blockId) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
@@ -467,9 +553,83 @@ export const usePageStore = create<PageStore>()(
           updatedAt: new Date(),
         }
         page.blocks.splice(index + 1, 0, duplicate)
+        state.historyVersion++
       })
       scheduleSave(pageId, get, set)
     },
+
+
+    // -----------------------------------------------
+    // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입
+    // 빈 페이지(paragraph 1개 + 내용 없음) 조건에서만 교체
+    // Python으로 치면: def apply_template(self, page_id, content): page.blocks = parse(content)
+    // -----------------------------------------------
+    applyTemplate: (pageId, markdownContent) => {
+      const parsedBlocks = parseTemplateContent(markdownContent)
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        // immer draft 내에서 배열 직접 교체 시 splice 사용 (직접 대입 시 변경 추적 안 됨)
+        // Python으로 치면: page.blocks[:] = parsed_blocks
+        page.blocks.splice(0, page.blocks.length, ...parsedBlocks)
+        page.updatedAt = new Date()
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+
+    // ── 블록 히스토리 액션 ─────────────────────
+
+    // 블록 구조 되돌리기 (undo)
+    // past 스택에서 꺼내 복원, 현재 상태는 future에 저장
+    // Python으로 치면: def undo_page(self, page_id): blocks = history["past"].pop(); restore(blocks)
+    undoPage: (pageId) => {
+      const h = getHistory(pageId)
+      if (h.past.length === 0) return
+      const currentBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (!currentBlocks) return
+      // 현재 상태를 future에 보관 (redo용)
+      h.future.push(JSON.stringify(currentBlocks))
+      const prev = h.past.pop()!
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        page.blocks.splice(0, page.blocks.length, ...parseBlocksFromJson(prev))
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 블록 구조 다시 실행 (redo)
+    // future 스택에서 꺼내 복원, 현재 상태는 past에 저장
+    // Python으로 치면: def redo_page(self, page_id): blocks = history["future"].pop(); restore(blocks)
+    redoPage: (pageId) => {
+      const h = getHistory(pageId)
+      if (h.future.length === 0) return
+      const currentBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (!currentBlocks) return
+      // 현재 상태를 past에 보관 (undo용)
+      h.past.push(JSON.stringify(currentBlocks))
+      const next = h.future.pop()!
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        page.blocks.splice(0, page.blocks.length, ...parseBlocksFromJson(next))
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // undo 가능 여부 (외부 Map 조회 — historyVersion 구독으로 리렌더링 보장)
+    // Python으로 치면: def can_undo(self, page_id): return bool(history[page_id]["past"])
+    canUndo: (pageId) => getHistory(pageId).past.length > 0,
+
+    // redo 가능 여부
+    // Python으로 치면: def can_redo(self, page_id): return bool(history[page_id]["future"])
+    canRedo: (pageId) => getHistory(pageId).future.length > 0,
 
 
     // ── 카테고리 액션 ──────────────────────────
@@ -489,7 +649,7 @@ export const usePageStore = create<PageStore>()(
           state.categoryOrder.push(cat.id)
         })
       } catch {
-        console.error('카테고리 생성 실패')
+        toast.error('카테고리 생성에 실패했습니다.')
       }
     },
 
@@ -506,7 +666,7 @@ export const usePageStore = create<PageStore>()(
           }
         })
       } catch {
-        console.error('카테고리 이름 변경 실패')
+        toast.error('카테고리 이름 변경에 실패했습니다.')
       }
     },
 
@@ -527,6 +687,7 @@ export const usePageStore = create<PageStore>()(
         }
         return { hasPages: result.hasPages, count: result.count }
       } catch {
+        toast.error('카테고리 삭제 중 오류가 발생했습니다.')
         return { hasPages: false }
       }
     },
@@ -549,7 +710,7 @@ export const usePageStore = create<PageStore>()(
           }
         })
       } catch {
-        // 서버 실패해도 로컬 categoryMap은 업데이트
+        // 서버 실패해도 로컬 categoryMap은 업데이트 + 사용자 알림
         set((state) => {
           if (categoryId) {
             state.categoryMap[pageId] = categoryId
@@ -557,6 +718,7 @@ export const usePageStore = create<PageStore>()(
             delete state.categoryMap[pageId]
           }
         })
+        toast.warning('서버 이동에 실패했습니다. 새로고침 시 되돌아갈 수 있습니다.')
       }
     },
 

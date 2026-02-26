@@ -13,6 +13,7 @@ import PluginsTab    from './tabs/PluginsTab'
 import DataTab       from './tabs/DataTab'
 import StorageTab    from './tabs/StorageTab'
 import DebugTab      from './tabs/DebugTab'
+import TemplatesTab  from './tabs/TemplatesTab'
 
 interface SettingsModalProps {
   onClose: () => void
@@ -22,12 +23,13 @@ interface SettingsModalProps {
 // 탭 목록 정의
 // Python으로 치면: TABS = [{'id': 'appearance', 'icon': '🎨', 'label': '모양'}, ...]
 // -----------------------------------------------
-type TabId = 'appearance' | 'editor' | 'plugins' | 'data' | 'storage' | 'debug'
+type TabId = 'appearance' | 'editor' | 'plugins' | 'data' | 'storage' | 'debug' | 'templates'
 
 const TABS: Array<{ id: TabId; icon: string; label: string }> = [
   { id: 'appearance', icon: '🎨', label: '모양'     },
   { id: 'editor',     icon: '✏️',  label: '편집기'  },
   { id: 'plugins',    icon: '🧩', label: '플러그인' },
+  { id: 'templates',  icon: '📋', label: '템플릿'   },
   { id: 'data',       icon: '📦', label: '데이터'   },
   { id: 'storage',    icon: '📁', label: '저장 위치' },
   { id: 'debug',      icon: '🔍', label: '디버그'   },
@@ -39,6 +41,7 @@ const TAB_COMPONENTS: Record<TabId, React.ComponentType> = {
   appearance: AppearanceTab,
   editor:     EditorTab,
   plugins:    PluginsTab,
+  templates:  TemplatesTab,
   data:       DataTab,
   storage:    StorageTab,
   debug:      DebugTab,
@@ -78,7 +81,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       {/* 모달 컨테이너 */}
       <div
         ref={modalRef}
-        className="bg-white rounded-2xl shadow-2xl w-[720px] h-[540px] flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-180 h-135 flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
         {/* 모달 헤더 */}

@@ -21,6 +21,12 @@ export interface PluginSettings {
   excalidraw: boolean   // 손그림 다이어그램 블록
   recentFiles: boolean  // 최근 파일 목록
   quickAdd: boolean     // 빠른 노트 캡처
+  wordCount: boolean       // 에디터 하단 단어/글자 수 표시
+  focusMode: boolean       // 집중 모드 (사이드바 숨김)
+  pomodoro: boolean        // 포모도로 타이머 위젯
+  tableOfContents: boolean // 페이지 내 목차(TOC) 사이드 패널
+  periodicNotes: boolean   // 일간/주간 노트 자동 생성
+  canvas: boolean          // 무한 캔버스 블록
 }
 
 // -----------------------------------------------
@@ -45,6 +51,10 @@ export interface SettingsStore {
   // ── 플러그인 토글 ────────────────────────────
   plugins: PluginSettings
 
+  // ── 집중 모드 활성 여부 (앱 재시작 시 초기화 — localStorage 저장 안 함) ──
+  // Python으로 치면: self._focus_mode_active: bool = False  # volatile
+  isFocusMode: boolean
+
   // ── 액션 ────────────────────────────────────
   // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
   setTheme: (theme: 'light' | 'dark' | 'auto') => void
@@ -52,6 +62,9 @@ export interface SettingsStore {
   setFontSize: (size: 14 | 16 | 18 | 20) => void
   setLineHeight: (lh: number) => void
   togglePlugin: (name: keyof PluginSettings) => void
+  // 집중 모드 on/off 토글 (Ctrl+Shift+F 또는 버튼)
+  // Python으로 치면: def toggle_focus_mode(self): self._focus_mode_active ^= True
+  toggleFocusMode: () => void
 }
 
 // -----------------------------------------------
@@ -113,7 +126,15 @@ export const useSettingsStore = create<SettingsStore>()(
         excalidraw:  false,
         recentFiles: true,
         quickAdd:    true,
+        wordCount:        true,
+        focusMode:        true,
+        pomodoro:         true,
+        tableOfContents:  true,
+        periodicNotes:    true,
+        canvas:           true,
       },
+      // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
+      isFocusMode: false,
 
       // ── 테마 변경 ────────────────────────────
       // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
@@ -143,6 +164,14 @@ export const useSettingsStore = create<SettingsStore>()(
       togglePlugin: (name) => {
         set((state) => {
           state.plugins[name] = !state.plugins[name]
+        })
+      },
+
+      // ── 집중 모드 토글 ────────────────────────
+      // Python으로 치면: def toggle_focus_mode(self): self.is_focus_mode ^= True
+      toggleFocusMode: () => {
+        set((state) => {
+          state.isFocusMode = !state.isFocusMode
         })
       },
     })),

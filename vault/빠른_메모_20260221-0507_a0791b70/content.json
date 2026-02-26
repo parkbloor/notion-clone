@@ -1,0 +1,20 @@
+{
+  "id": "a0791b70-e850-4ca7-ae0e-e2cfad6502d0",
+  "title": "빠른 메모",
+  "icon": "📝",
+  "cover": null,
+  "coverPosition": 50,
+  "tags": [],
+  "starred": false,
+  "blocks": [
+    {
+      "id": "dd1eeab0-08e9-483f-a1f1-44c9e61eded3",
+      "type": "paragraph",
+      "content": "<p>메모 테스트</p>",
+      "createdAt": "2026-02-21T05:07:24.939Z",
+      "updatedAt": "2026-02-21T05:07:24.969Z"
+    }
+  ],
+  "createdAt": "2026-02-21T05:07:24.939Z",
+  "updatedAt": "2026-02-21T05:07:24.939Z"
+}

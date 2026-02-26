@@ -7,6 +7,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
@@ -91,6 +92,9 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
       saveContent(url, savedWidth)
     } catch {
       // 서버 꺼져 있을 때 — base64로 임시 저장 (Graceful degradation)
+      toast.warning('서버 업로드 실패. 임시 저장으로 유지되며 서버 재연결 시 다시 업로드해 주세요.', {
+        duration: 5000,
+      })
       const reader = new FileReader()
       reader.onload = (e) => {
         const dataUrl = e.target?.result as string

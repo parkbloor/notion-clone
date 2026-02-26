@@ -37,6 +37,7 @@ import ToggleBlock from './ToggleBlock'
 import MentionPopup, { MentionItem } from './MentionPopup'
 import KanbanBlock from './KanbanBlock'
 import AdmonitionBlock from './AdmonitionBlock'
+import CanvasBlock from './CanvasBlock'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -380,6 +381,11 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (type === 'admonition') {
       updateBlock(pageId, block.id, JSON.stringify({ variant: 'tip', text: '' }))
     }
+    // 캔버스 타입으로 전환 시 빈 노드/엣지 배열로 초기화
+    // Python으로 치면: if type == 'canvas': block.content = json.dumps({'nodes':[],'edges':[]})
+    if (type === 'canvas') {
+      updateBlock(pageId, block.id, JSON.stringify({ nodes: [], edges: [] }))
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
@@ -430,7 +436,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (!editor) return
     // 이미지·토글 블록은 Tiptap으로 관리하지 않으므로 조기 반환
     // Python으로 치면: if type in ('image', 'toggle'): return
-    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition') return
+    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -590,6 +596,43 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         </div>
         <div className="flex-1">
           <AdmonitionBlock
+            blockId={block.id}
+            content={block.content}
+            onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 캔버스 블록: CanvasBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { nodes: CanvasNode[], edges: CanvasEdge[] }
+  // Python으로 치면: if block.type == 'canvas': return render(CanvasBlock)
+  // -----------------------------------------------
+  if (block.type === 'canvas') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <CanvasBlock
             blockId={block.id}
             content={block.content}
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}

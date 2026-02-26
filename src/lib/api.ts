@@ -222,6 +222,60 @@ export const api = {
   },
 }
 
+// ── 템플릿 타입 ─────────────────────────────────
+// Python으로 치면: @dataclass class Template: id: str; name: str; ...
+export interface Template {
+  id: string
+  name: string
+  icon: string
+  description: string
+  content: string  // 마크다운 형식 텍스트
+}
+
+// ── 템플릿 CRUD API ──────────────────────────────
+// Python으로 치면: class TemplateApiClient: ...
+export const templateApi = {
+
+  // 모든 템플릿 목록
+  // Python으로 치면: requests.get(f'{BASE_URL}/api/templates').json()['templates']
+  getAll: async (): Promise<Template[]> => {
+    const res = await fetch(`${BASE_URL}/api/templates`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.templates as Template[]
+  },
+
+  // 새 템플릿 생성
+  // Python으로 치면: requests.post(url, json=body).json()
+  create: async (body: Omit<Template, 'id'>): Promise<Template> => {
+    const res = await fetch(`${BASE_URL}/api/templates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error('템플릿 생성 실패')
+    return await res.json()
+  },
+
+  // 템플릿 수정
+  // Python으로 치면: requests.put(url, json=body).json()
+  update: async (id: string, body: Omit<Template, 'id'>): Promise<Template> => {
+    const res = await fetch(`${BASE_URL}/api/templates/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error('템플릿 수정 실패')
+    return await res.json()
+  },
+
+  // 템플릿 삭제
+  // Python으로 치면: requests.delete(url)
+  delete: async (id: string): Promise<void> => {
+    await fetch(`${BASE_URL}/api/templates/${id}`, { method: 'DELETE' })
+  },
+}
+
 // ── 검색 결과 한 건의 타입 ───────────────────────
 // Python으로 치면: @dataclass class SearchResult: ...
 export interface SearchResult {

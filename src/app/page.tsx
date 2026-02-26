@@ -16,6 +16,7 @@ import ShortcutModal from '@/components/editor/ShortcutModal'
 import QuickAddModal from '@/components/editor/QuickAddModal'
 import GlobalSearch from '@/components/editor/GlobalSearch'
 import SettingsModal from '@/components/settings/SettingsModal'
+import PomodoroWidget from '@/components/editor/PomodoroWidget'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
 // Python으로 치면: from dnd import DndContext, arrayMove
@@ -47,9 +48,9 @@ export default function Home() {
   // Python으로 치면: self.search_open = False
   const [searchOpen, setSearchOpen] = useState(false)
 
-  // 플러그인 설정 — quickAdd ON일 때만 단축키 활성화
-  // Python으로 치면: plugins = settings.plugins
-  const { plugins } = useSettingsStore()
+  // 플러그인 설정 + 집중 모드 상태/토글
+  // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
+  const { plugins, isFocusMode, toggleFocusMode } = useSettingsStore()
 
   // -----------------------------------------------
   // Ctrl+Alt+N 단축키 → 빠른 노트 팝업 열기
@@ -87,6 +88,24 @@ export default function Home() {
   }, [])
 
   // -----------------------------------------------
+  // Ctrl+Shift+F 단축키 → 집중 모드 ON/OFF 토글
+  // focusMode 플러그인이 OFF이면 무시
+  // Python으로 치면:
+  //   def on_key_down(event):
+  //       if event.ctrl and event.shift and event.key == 'f': toggle_focus_mode()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleFocusKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'f' && plugins.focusMode) {
+        e.preventDefault()
+        toggleFocusMode()
+      }
+    }
+    window.addEventListener('keydown', handleFocusKey)
+    return () => window.removeEventListener('keydown', handleFocusKey)
+  }, [plugins.focusMode, toggleFocusMode])
+
+  // -----------------------------------------------
   // 앱 초기화 시 저장된 테마 + 편집기 스타일 복원
   // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
   // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
@@ -105,11 +124,87 @@ export default function Home() {
     pages,
     categoryOrder,
     setCurrentPage,
+    addPage,
     loadFromServer,
     movePageToCategory,
     reorderCategories,
     reorderPages,
+    undoPage,
+    redoPage,
   } = usePageStore()
+
+  // -----------------------------------------------
+  // 오늘의 일간 노트를 열거나 없으면 새로 생성
+  // 제목 형식: "일간 노트 YYYY-MM-DD"
+  // Python으로 치면: def open_daily_note(self): ...
+  // -----------------------------------------------
+  function openDailyNote() {
+    const today = new Date()
+    const yy = today.getFullYear()
+    const mm = String(today.getMonth() + 1).padStart(2, '0')
+    const dd = String(today.getDate()).padStart(2, '0')
+    const title = `일간 노트 ${yy}-${mm}-${dd}`
+
+    // 기존 페이지 중 동일 제목 검색
+    const existing = pages.find(p => p.title === title)
+    if (existing) {
+      setCurrentPage(existing.id)
+    } else {
+      // 없으면 새 페이지 생성 (addPage가 currentPageId를 새 페이지로 설정함)
+      addPage(title, null)
+    }
+  }
+
+  // -----------------------------------------------
+  // Ctrl+Alt+D 단축키 → 오늘의 일간 노트 열기/생성 (Periodic Notes)
+  // periodicNotes 플러그인이 OFF이면 무시
+  // Python으로 치면:
+  //   def on_key_down(event):
+  //       if event.ctrl and event.alt and event.key == 'd': open_daily_note()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleDailyKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'd' && plugins.periodicNotes) {
+        e.preventDefault()
+        openDailyNote()
+      }
+    }
+    window.addEventListener('keydown', handleDailyKey)
+    return () => window.removeEventListener('keydown', handleDailyKey)
+  }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z → 블록 구조 undo/redo
+  // contenteditable(Tiptap) 안에서는 Tiptap 자체 히스토리가 처리 → 무시
+  // Python으로 치면:
+  //   def on_key_down(e):
+  //       if e.target.is_content_editable: return  # Tiptap에 위임
+  //       if ctrl+z: undo_page(current_page_id)
+  //       if ctrl+y or ctrl+shift+z: redo_page(current_page_id)
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleUndoRedo(e: KeyboardEvent) {
+      if (!currentPageId) return
+      // contenteditable 안에서는 Tiptap이 담당 → 여기서 처리 안 함
+      if ((e.target as HTMLElement).isContentEditable) return
+
+      const isUndo = e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'
+      const isRedo = e.ctrlKey && (
+        e.key.toLowerCase() === 'y' ||
+        (e.shiftKey && e.key.toLowerCase() === 'z')
+      )
+
+      if (isUndo) {
+        e.preventDefault()
+        undoPage(currentPageId)
+      } else if (isRedo) {
+        e.preventDefault()
+        redoPage(currentPageId)
+      }
+    }
+    window.addEventListener('keydown', handleUndoRedo)
+    return () => window.removeEventListener('keydown', handleUndoRedo)
+  }, [currentPageId, undoPage, redoPage])
 
   // -----------------------------------------------
   // 앱 첫 진입 시 FastAPI 서버에서 페이지+카테고리 목록 불러오기
@@ -120,12 +215,15 @@ export default function Home() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
-  // 서버 로드 후 currentPageId가 없으면 첫 번째 페이지 선택
-  // Python으로 치면: if current_page is None: current_page = pages[0]
+  // 서버 로드 후 currentPageId가 없으면 첫 번째 페이지 자동 선택
+  // 렌더 중 직접 호출하면 React 경고 + API 에러 발생 → useEffect로 이동
+  // Python으로 치면: asyncio.ensure_future(select_first_page_if_none())
   // -----------------------------------------------
-  if (!currentPageId && pages.length > 0) {
-    setCurrentPage(pages[0].id)
-  }
+  useEffect(() => {
+    if (!currentPageId && pages.length > 0) {
+      setCurrentPage(pages[0].id)
+    }
+  }, [currentPageId, pages.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── dnd-kit 드래그 센서 (8px 이상 움직여야 드래그 시작) ──
   const sensors = useSensors(
@@ -192,12 +290,15 @@ export default function Home() {
       {/* id="app-layout": @media print에서 flex→block으로 전환하여 인쇄 시 사이드바 공간 제거 */}
       <div id="app-layout" className="flex h-screen bg-white overflow-hidden relative">
 
-        {/* ── 1패널: 카테고리(폴더) 사이드바 ─────── */}
-        <CategorySidebar />
+        {/* ── 1패널: 카테고리(폴더) 사이드바 ─────────
+            집중 모드 활성 시 숨김 (isFocusMode=true)
+            Python으로 치면: if not is_focus_mode: render(CategorySidebar) */}
+        {!isFocusMode && <CategorySidebar />}
 
-        {/* ── 2패널: 페이지(메모) 목록 ────────────── */}
-        {/* onOpenSettings: 설정 모달을 여는 콜백을 PageList 하단 버튼으로 전달 */}
-        <PageList onOpenSettings={() => setSettingsOpen(true)} />
+        {/* ── 2패널: 페이지(메모) 목록 ────────────────
+            집중 모드 활성 시 숨김
+            Python으로 치면: if not is_focus_mode: render(PageList) */}
+        {!isFocusMode && <PageList onOpenSettings={() => setSettingsOpen(true)} />}
 
         {/* ── 3패널: 에디터 ────────────────────────
             flex-1: 남은 공간 전부 차지
@@ -214,8 +315,13 @@ export default function Home() {
           )}
         </main>
 
+        {/* ── 포모도로 타이머 위젯 (pomodoro 플러그인 ON 시만 표시) ──
+            fixed 포지션으로 화면 우측 하단에 플로팅
+            Python으로 치면: if plugins.pomodoro: render PomodoroWidget() */}
+        {plugins.pomodoro && <PomodoroWidget />}
+
         {/* ── ? 단축키 안내 버튼 (우측 하단 고정) ──────
-            fixed 대신 absolute 사용 — overflow:hidden인 부모 안에 있어야 함
+            Pomodoro 위젯 위쪽에 위치 (bottom-5 vs bottom-16)
             Python으로 치면: self.help_btn = QPushButton('?'); self.help_btn.move(right, bottom) */}
         <button
           type="button"

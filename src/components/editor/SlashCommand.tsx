@@ -38,6 +38,7 @@ const COMMANDS = [
       { icon: '➖', name: '구분선', description: '구분선을 삽입합니다', type: 'divider' as BlockType },
       { icon: '📋', name: '칸반', description: '칸반 보드를 삽입합니다', type: 'kanban' as BlockType },
       { icon: '💡', name: '콜아웃', description: '팁/정보/경고/위험 강조 박스를 삽입합니다', type: 'admonition' as BlockType },
+      { icon: '🖼️', name: '캔버스', description: '무한 캔버스 — 카드와 화살표로 다이어그램 작성', type: 'canvas' as BlockType },
     ]
   },
 ]
@@ -80,6 +81,7 @@ export default function SlashCommand({
   const pluginBlockMap: Partial<Record<BlockType, boolean>> = {
     kanban:      plugins.kanban,
     admonition:  plugins.admonition,
+    canvas:      plugins.canvas,
   }
 
   const filteredGroups = COMMANDS.map(group => ({

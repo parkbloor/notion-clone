@@ -7,6 +7,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import { toast } from 'sonner'
 
 const BASE_URL = 'http://localhost:8000'
 
@@ -36,8 +37,8 @@ export default function DataTab() {
       a.download = `notion-clone-backup-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
-    } catch (e) {
-      alert('JSON 내보내기 중 오류가 발생했습니다.')
+    } catch {
+      toast.error('JSON 내보내기 중 오류가 발생했습니다.')
     } finally {
       setIsExporting(false)
     }
@@ -59,8 +60,8 @@ export default function DataTab() {
       a.download = `notion-clone-markdown-${new Date().toISOString().slice(0, 10)}.zip`
       a.click()
       URL.revokeObjectURL(url)
-    } catch (e) {
-      alert('마크다운 내보내기 중 오류가 발생했습니다.')
+    } catch {
+      toast.error('마크다운 내보내기 중 오류가 발생했습니다.')
     } finally {
       setIsExporting(false)
     }
