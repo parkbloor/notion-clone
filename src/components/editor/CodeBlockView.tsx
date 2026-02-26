@@ -94,7 +94,8 @@ export default function CodeBlockView({ node, updateAttributes }: CodeBlockViewP
           as="code": <code> 태그로 렌더링 (pre > code 구조 완성)
           ----------------------------------------- */}
       <pre>
-        <NodeViewContent as="code" />
+        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+        <NodeViewContent as={"code" as any} />
       </pre>
 
     </NodeViewWrapper>

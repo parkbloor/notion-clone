@@ -161,6 +161,12 @@ interface PageStore {
   moveBlock: (pageId: string, fromIndex: number, toIndex: number) => void
   addBlockBefore: (pageId: string, beforeBlockId: string) => void
   duplicateBlock: (pageId: string, blockId: string) => void
+  // 블록을 다른 페이지로 이동 (원본 삭제 + 대상 마지막에 추가)
+  // Python으로 치면: def move_block_to_page(self, from_id, to_id, block_id): ...
+  moveBlockToPage: (fromPageId: string, toPageId: string, blockId: string) => void
+  // 블록을 다른 페이지로 복사 (원본 유지 + 대상 마지막에 복사본 추가)
+  // Python으로 치면: def copy_block_to_page(self, from_id, to_id, block_id): ...
+  copyBlockToPage: (fromPageId: string, toPageId: string, blockId: string) => void
 
   // ── 블록 히스토리 ──────────────────────────────
   // 구조 변경(추가/삭제/이동/타입/복제) 또는 undo/redo 실행 시 증가 → UI 리렌더링 트리거
@@ -558,6 +564,64 @@ export const usePageStore = create<PageStore>()(
       scheduleSave(pageId, get, set)
     },
 
+
+    // -----------------------------------------------
+    // 블록을 다른 페이지로 이동
+    // 원본 페이지에서 제거 + 대상 페이지 마지막에 추가
+    // Python으로 치면: def move_block_to_page(self, from_id, to_id, block_id): ...
+    // -----------------------------------------------
+    moveBlockToPage: (fromPageId, toPageId, blockId) => {
+      // 두 페이지 모두 undo 스냅샷 저장
+      const snapFrom = get().pages.find(p => p.id === fromPageId)?.blocks
+      const snapTo = get().pages.find(p => p.id === toPageId)?.blocks
+      if (snapFrom) pushBlockHistory(fromPageId, snapFrom)
+      if (snapTo) pushBlockHistory(toPageId, snapTo)
+      set((state) => {
+        const fromPage = state.pages.find(p => p.id === fromPageId)
+        const toPage = state.pages.find(p => p.id === toPageId)
+        if (!fromPage || !toPage) return
+        const idx = fromPage.blocks.findIndex(b => b.id === blockId)
+        if (idx === -1) return
+        // 원본 페이지에서 블록 제거
+        const [block] = fromPage.blocks.splice(idx, 1)
+        // 빈 페이지 보호: 블록이 0개가 되면 빈 단락 삽입
+        if (fromPage.blocks.length === 0) fromPage.blocks.push(createBlock('paragraph'))
+        // 대상 페이지 마지막에 추가 (updatedAt 갱신)
+        block.updatedAt = new Date()
+        toPage.blocks.push(block)
+        state.historyVersion++
+      })
+      scheduleSave(fromPageId, get, set)
+      scheduleSave(toPageId, get, set)
+    },
+
+    // -----------------------------------------------
+    // 블록을 다른 페이지로 복사
+    // 원본 유지 + 대상 페이지 마지막에 복사본 추가
+    // Python으로 치면: def copy_block_to_page(self, from_id, to_id, block_id): ...
+    // -----------------------------------------------
+    copyBlockToPage: (fromPageId, toPageId, blockId) => {
+      // 대상 페이지만 undo 스냅샷 저장 (원본 변경 없음)
+      const snapTo = get().pages.find(p => p.id === toPageId)?.blocks
+      if (snapTo) pushBlockHistory(toPageId, snapTo)
+      set((state) => {
+        const fromPage = state.pages.find(p => p.id === fromPageId)
+        const toPage = state.pages.find(p => p.id === toPageId)
+        if (!fromPage || !toPage) return
+        const block = fromPage.blocks.find(b => b.id === blockId)
+        if (!block) return
+        // 새 ID + 새 날짜로 복사본 생성
+        const copy: Block = {
+          ...block,
+          id: crypto.randomUUID(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }
+        toPage.blocks.push(copy)
+        state.historyVersion++
+      })
+      scheduleSave(toPageId, get, set)
+    },
 
     // -----------------------------------------------
     // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입

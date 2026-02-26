@@ -26,6 +26,7 @@ export type BlockType =
   | 'kanban'         // 칸반 보드
   | 'admonition'    // 콜아웃 (팁/정보/경고/위험)
   | 'canvas'        // 무한 캔버스 (노드 + 엣지 다이어그램)
+  | 'excalidraw'   // Excalidraw 손그림 다이어그램
 
 
 // -----------------------------------------------

@@ -5,7 +5,6 @@ import { XIcon } from "lucide-react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
 
 function Dialog({
   ...props
@@ -111,7 +110,7 @@ function DialogFooter({
       {children}
       {showCloseButton && (
         <DialogPrimitive.Close asChild>
-          <Button variant="outline">Close</Button>
+          <button type="button" className="rounded border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50 transition-colors">Close</button>
         </DialogPrimitive.Close>
       )}
     </div>

@@ -268,7 +268,7 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
     function onWheel(e: WheelEvent) {
       e.preventDefault()
       const f = e.deltaY < 0 ? 1.1 : 0.9
-      const rect = el.getBoundingClientRect()
+      const rect = el!.getBoundingClientRect()
       const mx = e.clientX - rect.left, my = e.clientY - rect.top
       setViewport(prev => {
         const s = Math.max(0.2, Math.min(3.0, prev.scale * f))
@@ -552,7 +552,7 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
               <g key={edge.id}>
                 <path d={d} stroke="transparent" strokeWidth="14" fill="none"
                   className="pointer-events-auto cursor-pointer"
-                  onClick={(e)=>{e.stopPropagation();deleteEdge(edge.id)}} title="클릭하여 연결 삭제" />
+                  onClick={(e)=>{e.stopPropagation();deleteEdge(edge.id)}} aria-label="클릭하여 연결 삭제" />
                 <path d={d} stroke="#9ca3af" strokeWidth="2" fill="none" markerEnd={`url(#${markerId})`}
                   className="pointer-events-none" />
               </g>

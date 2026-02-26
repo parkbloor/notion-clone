@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-21 (블록 멘션 팝업 UX 완성 — 화면 절반 기준 포지셔닝 + 외부 클릭 시 트리거 텍스트 삭제)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-26 (Excalidraw 손그림 블록 완성 + 플러그인 시스템 완성 + 백엔드 라우터 분리 + 보안 패치)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -43,19 +43,26 @@
 ```
 notion-clone/
 ├── backend/
-│   ├── main.py                  # FastAPI 서버 전체 (1051줄)
+│   ├── core.py                  # 공유 상수·Pydantic 모델·헬퍼·보안 검증
+│   ├── main.py                  # FastAPI 앱 + 미들웨어 + 라우터 등록 (50줄)
+│   ├── routers/
+│   │   ├── pages.py             # 페이지 CRUD + 이미지 업로드
+│   │   ├── categories.py        # 카테고리 CRUD
+│   │   ├── export_import.py     # JSON·마크다운 내보내기 / JSON 가져오기
+│   │   ├── search.py            # 전문 검색
+│   │   └── system.py            # vault 경로 통계·디버그 로그
 │   └── requirements.txt         # fastapi, uvicorn, python-multipart
 │
 ├── src/
 │   ├── app/
 │   │   ├── page.tsx             # 진입점 — 전체 레이아웃 (사이드바 + 에디터)
-│   │   ├── layout.tsx           # HTML 루트 레이아웃
-│   │   └── globals.css          # Tiptap 스타일 + CSS 변수 + 다크모드
+│   │   ├── layout.tsx           # HTML 루트 레이아웃 (Toaster 포함)
+│   │   └── globals.css          # Tiptap 스타일 + CSS 변수 + 다크모드 + @media print
 │   │
 │   ├── components/
 │   │   ├── editor/
-│   │   │   ├── Editor.tsx        # 블록 1개 = Tiptap 인스턴스 (574줄)
-│   │   │   ├── PageEditor.tsx    # 페이지 렌더러 + 블록 dnd-kit
+│   │   │   ├── Editor.tsx        # 블록 1개 = Tiptap 인스턴스
+│   │   │   ├── PageEditor.tsx    # 페이지 렌더러 + 블록 dnd-kit + TOC 레이아웃
 │   │   │   ├── PageList.tsx      # 왼쪽 사이드바 — 페이지/카테고리 목록
 │   │   │   ├── Sidebar.tsx       # 사이드바 래퍼
 │   │   │   ├── CategorySidebar.tsx # 카테고리 드래그 정렬
@@ -68,10 +75,17 @@ notion-clone/
 │   │   │   ├── ToggleBlock.tsx   # 접고/펼치는 토글 블록
 │   │   │   ├── KanbanBlock.tsx   # 칸반 보드 블록 (중첩 dnd-kit)
 │   │   │   ├── AdmonitionBlock.tsx # 콜아웃 블록 (팁/정보/경고/위험)
+│   │   │   ├── CanvasBlock.tsx   # 무한 캔버스 (노드·엣지·팬·줌)
+│   │   │   ├── ExcalidrawBlock.tsx # ✅ Excalidraw 손그림 다이어그램 블록
+│   │   │   ├── WordCountBar.tsx  # 에디터 하단 단어/글자 수 표시
+│   │   │   ├── PomodoroWidget.tsx # 포모도로 타이머 플로팅 위젯
+│   │   │   ├── TocPanel.tsx      # 목차(TOC) 사이드 패널
+│   │   │   ├── CalendarWidget.tsx # 메모 목록 상단 달력 위젯
 │   │   │   ├── MentionPopup.tsx  # @멘션 팝업
 │   │   │   ├── EmojiPicker.tsx   # 페이지 아이콘 이모지 선택기
 │   │   │   ├── CoverPicker.tsx   # 페이지 커버 선택기
 │   │   │   ├── GlobalSearch.tsx  # 전체 텍스트 검색 팝업 (Ctrl+K)
+│   │   │   ├── QuickAddModal.tsx # 빠른 노트 캡처 팝업 (Ctrl+Alt+N)
 │   │   │   └── ShortcutModal.tsx # 단축키 안내 모달
 │   │   │
 │   │   ├── settings/
@@ -79,7 +93,7 @@ notion-clone/
 │   │   │   └── tabs/
 │   │   │       ├── AppearanceTab.tsx # 테마 (라이트/다크/시스템)
 │   │   │       ├── EditorTab.tsx     # 글꼴/크기/줄간격
-│   │   │       ├── PluginsTab.tsx    # 플러그인 ON/OFF 토글
+│   │   │       ├── PluginsTab.tsx    # 플러그인 ON/OFF 마스터-디테일
 │   │   │       ├── DataTab.tsx       # JSON·MD 내보내기 / 가져오기
 │   │   │       ├── StorageTab.tsx    # vault 경로 + 통계
 │   │   │       └── DebugTab.tsx      # 서버 로그 뷰어
@@ -89,7 +103,7 @@ notion-clone/
 │   │       └── dialog.tsx        # shadcn/ui Dialog
 │   │
 │   ├── store/
-│   │   ├── pageStore.ts          # 페이지/카테고리 전역 상태 + API 동기화 (562줄)
+│   │   ├── pageStore.ts          # 페이지/카테고리 전역 상태 + API 동기화
 │   │   └── settingsStore.ts      # 앱 설정 전역 상태 (localStorage 영속)
 │   │
 │   ├── lib/
@@ -185,6 +199,8 @@ content.json = {
 - [x] 칸반 블록 — 3열 기본, 카드 추가/삭제/열 간 드래그
 - [x] 콜아웃(Admonition) 블록 — 팁/정보/경고/위험 4종류, 아이콘 클릭으로 종류 순환
 - [x] 구분선 블록
+- [x] 캔버스 블록 — 무한 캔버스, 더블클릭 노드 추가, SVG 베지어 엣지, 팬/줌, 노드 색상 6종, 리사이즈·연결 핸들, 스냅
+- [x] **Excalidraw 블록** — 손그림 스타일 다이어그램, 전체화면 토글, 800ms 디바운스 저장, ko-KR 로케일
 
 ### ✅ 페이지 관리
 - [x] 페이지 생성/삭제/복제
@@ -209,6 +225,20 @@ content.json = {
 - [x] 데이터 탭 — JSON 백업 다운로드, 마크다운 ZIP 다운로드, JSON 가져오기
 - [x] 저장 위치 탭 — vault 경로, 페이지 수, 용량 표시
 - [x] 디버그 탭 — 서버 로그 뷰어 (최근 100개)
+
+### ✅ 플러그인 시스템
+- [x] 단어 수 표시 (WordCountBar) — 에디터 하단 실시간 단어/글자 수
+- [x] 집중 모드 — `Ctrl+Shift+F`, 사이드바 숨김, `isFocusMode` + `toggleFocusMode()`
+- [x] 포모도로 타이머 — 25분+5분 플로팅 위젯, 최소화 지원, 완료 횟수 🍅 표시
+- [x] 목차(TOC) 패널 — `xl:` 이상에서만 우측 sticky 표시, 헤딩 클릭 시 스크롤
+- [x] Periodic Notes — `Ctrl+Alt+D`, 오늘 일간 노트 생성·이동
+
+### ✅ 보안 + 백엔드
+- [x] `validate_uuid()` — UUID 형식 검증, 400 에러로 경로 트래버설 차단
+- [x] `assert_inside_vault()` — resolve() 후 VAULT_DIR 하위 여부 확인
+- [x] 이미지 업로드 — 확장자 화이트리스트(jpg/png/gif/webp) + 10MB 제한
+- [x] 라우터 분리 (`backend/routers/`) — pages, categories, export_import, search, system
+- [x] API 실패 시 토스트 알림 (sonner)
 
 ### ✅ 기타
 - [x] @멘션 팝업 (`@` / `[[` 입력 시 페이지+블록 통합 검색 팝업)
@@ -286,13 +316,20 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
   fontFamily: 'sans' | 'serif' | 'mono',
   fontSize: 14 | 16 | 18 | 20,
   lineHeight: number,  // 1.4 ~ 2.0
+  isFocusMode: boolean,  // volatile — 앱 재시작 시 항상 false
   plugins: {
-    kanban: boolean,      // ✅ 구현됨
-    calendar: boolean,    // ✅ 구현됨
-    admonition: boolean,  // ✅ 구현됨
-    excalidraw: boolean,  // ⬜ 미구현
-    recentFiles: boolean, // ✅ 구현됨
-    quickAdd: boolean,    // ✅ 구현됨
+    kanban: boolean,          // ✅ 구현됨
+    calendar: boolean,        // ✅ 구현됨
+    admonition: boolean,      // ✅ 구현됨
+    excalidraw: boolean,      // ✅ 구현됨 (기본값 false)
+    recentFiles: boolean,     // ✅ 구현됨
+    quickAdd: boolean,        // ✅ 구현됨
+    wordCount: boolean,       // ✅ 구현됨
+    focusMode: boolean,       // ✅ 구현됨
+    pomodoro: boolean,        // ✅ 구현됨
+    tableOfContents: boolean, // ✅ 구현됨
+    periodicNotes: boolean,   // ✅ 구현됨
+    canvas: boolean,          // ✅ 구현됨
   }
 }
 ```
@@ -372,28 +409,28 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
 
 ### 🟢 앞으로 개발할 기능
 
-#### 9-7. Excalidraw 손그림 블록 (추천 1순위)
-- `excalidraw` npm 패키지 설치: `npm install @excalidraw/excalidraw`
+#### ~~9-7. Excalidraw 손그림 블록~~ ✅ 완료 (2026-02-26)
+- `@excalidraw/excalidraw` v0.18.0 설치
 - `src/components/editor/ExcalidrawBlock.tsx` 신규 생성
-  - Excalidraw 컴포넌트 동적 임포트 (`next/dynamic`, SSR: false)
-  - content에 JSON 직렬화 저장: `{ elements: [...], appState: {...} }`
-  - 저장 버튼 또는 onChange 디바운스로 `updateBlock` 호출
-- `src/types/block.ts` — `BlockType`에 `'excalidraw'` 추가
-- `src/store/settingsStore.ts` — `plugins.excalidraw` (기본값 false → 켜면 활성화)
-- `src/components/editor/SlashCommand.tsx` — `{ icon: '✏️', name: 'Excalidraw', type: 'excalidraw' }` 추가
-- `src/components/editor/Editor.tsx` — `ExcalidrawBlock` 렌더 브랜치 추가
-- `src/components/settings/tabs/PluginsTab.tsx` — `available: true`로 변경
+  - `next/dynamic` + `ssr: false` 동적 임포트
+  - `initialData` — blockId를 키로 useMemo, 첫 마운트 시에만 파싱
+  - `onChange` — 800ms 디바운스 후 `updateBlock` 호출
+  - 전체화면 토글 버튼 (fixed inset-0 z-50)
+  - `langCode="ko-KR"` 한국어 로케일
+- `src/types/block.ts` — `'excalidraw'` 추가
+- `src/components/editor/SlashCommand.tsx` — Excalidraw 항목 + pluginBlockMap 추가
+- `src/components/editor/Editor.tsx` — 초기 content `{}` + 렌더 브랜치 추가
+- `src/components/settings/tabs/PluginsTab.tsx` — `available: true`, version `'1.0.0'`로 변경
+- content 저장 형식: `{ "elements": [...], "appState": { "viewBackgroundColor": "#ffffff" } }`
 
-#### 9-8. 블록 히스토리 / Undo-Redo 개선
-- 현재 Tiptap 내부 undo만 동작 (블록 삭제·이동은 undo 안 됨)
-- `src/store/pageStore.ts`에 undo/redo 스택 추가
-  ```ts
-  undoStack: PageSnapshot[]  // 최대 50개
-  redoStack: PageSnapshot[]
-  undo() / redo() 액션
-  ```
-- `Ctrl+Z` / `Ctrl+Shift+Z` 글로벌 단축키 연결 (page.tsx)
-- 대상 동작: 블록 추가, 삭제, 이동, 타입 변경
+#### ~~9-8. 블록 히스토리 / Undo-Redo 개선~~ ✅ 완료
+- `pageHistoryMap` — 페이지별 `{ past: string[], future: string[] }` 외부 Map (최대 50개)
+- `pushBlockHistory()` — 구조 변경 직전 스냅샷 저장 (addBlock/deleteBlock/moveBlock/updateBlockType/duplicateBlock/addBlockBefore/applyTemplate 모두 적용)
+- `undoPage(pageId)` / `redoPage(pageId)` — past↔future 교환 + 복원
+- `canUndo(pageId)` / `canRedo(pageId)` — 버튼 활성화 상태 계산
+- `historyVersion` (Zustand 상태) — 구조 변경마다 증가 → 버튼 리렌더링 트리거
+- `Ctrl+Z` / `Ctrl+Shift+Z` / `Ctrl+Y` 글로벌 단축키 → `page.tsx` (contenteditable 내에서는 Tiptap에 위임)
+- Undo2 / Redo2 버튼 UI → `PageEditor.tsx` 에디터 상단 우측, `disabled` 상태 연동
 
 #### ~~9-9. 페이지 내보내기 (개별)~~ ✅ 완료 (2026-02-21)
 - `PageEditor.tsx` 상단 우측에 `⬇ 내보내기` 드롭다운 버튼 추가
@@ -417,16 +454,23 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
   - `BubbleMenuBar.tsx` — 버튼 크기 터치 친화적으로 확대
   - dnd-kit 터치 센서 추가: `TouchSensor` (`activationConstraint: { delay: 250 }`)
 
-#### 9-12. 페이지 간 블록 이동/복사
-- 블록 컨텍스트 메뉴(점 3개)에 "다른 페이지로 이동/복사" 추가
-- 대상 페이지 선택 팝업 (MentionPopup 재활용 가능)
-- `pageStore.ts`에 `moveBlock(fromPageId, toPageId, blockId)` 추가
+#### 9-12. ✅ 페이지 간 블록 이동/복사 (2026-02-26 완료)
+- **BlockMenu.tsx** `+` 버튼 메뉴에 "다른 페이지로 이동 ↗️" / "다른 페이지로 복사 🔗" 추가
+- **PagePickerPopup** 인라인 컴포넌트: 검색창 + 페이지 목록, fixed 위치(anchor rect 기준)
+  - 현재 페이지 자동 제외, Escape·외부클릭 닫기, 즉시 포커스
+- **pageStore.ts** 새 액션:
+  - `moveBlockToPage(fromPageId, toPageId, blockId)` — 원본 삭제 + 대상 마지막에 추가 + 양쪽 undo 스냅샷
+  - `copyBlockToPage(fromPageId, toPageId, blockId)` — 원본 유지 + 대상에 새 ID로 복사본 추가
+- 완료 후 sonner 토스트: `"블록이 '페이지명'으로 이동/복사됐습니다"`
 
-#### 9-13. 페이지 템플릿
-- 자주 쓰는 페이지 구조를 템플릿으로 저장/불러오기
-- 새 페이지 생성 시 "템플릿으로 시작" 옵션
-- `vault/_templates/` 폴더에 저장
-- 기본 제공 템플릿: 회의록, 프로젝트 계획, 일일 저널
+#### 9-13. ✅ 페이지 템플릿 (2026-02-26 완료)
+- **TemplatePanel.tsx** — 빈 페이지(블록 1개, 내용 없음) 자동 표시, 템플릿 카드 선택 시 `applyTemplate()` 호출
+- **TemplatesTab.tsx** — 설정 > 템플릿 탭: 생성·편집·삭제 UI (인라인 폼, 마크다운 입력, sonner 토스트)
+- **backend/routers/templates.py** — CRUD API + 서버 시작 시 기본 템플릿 5종 자동 시드
+  - 시드 조건: `vault/_templates/` 폴더가 비어 있을 때만 실행 (기존 사용자 데이터 보존)
+  - 기본 템플릿: 📋 회의록, 📊 프로젝트 계획, 📅 일일 저널, 📖 독서 노트, 🎯 목표 설정
+- **templateParser.ts** — 마크다운 → Block 배열 파서 (heading/list/taskList/code/divider 지원)
+- **vault/_templates/** — JSON 파일로 저장 (`{id}.json`), UUID 형식 검증으로 경로 트래버설 차단
 
 ---
 
@@ -571,5 +615,41 @@ npm run dev:api
 
 ---
 
-*이 청사진은 2026-02-21 기준 구현 상태를 반영합니다.*
+---
+
+## 14. Excalidraw 블록 패턴
+
+### 동적 임포트 (SSR 비활성화)
+```tsx
+// Excalidraw는 브라우저 전용 API를 사용하므로 반드시 SSR: false
+const ExcalidrawComponent = dynamic(
+  async () => {
+    const mod = await import('@excalidraw/excalidraw')
+    return mod.Excalidraw
+  },
+  { ssr: false, loading: () => <div>✏️ 로딩 중...</div> }
+)
+```
+
+### initialData 재렌더 방지
+```tsx
+// blockId가 바뀔 때만 재계산 — content 변경 시 Excalidraw 내부 상태 보존
+const initialData = useMemo(() => {
+  try {
+    const p = JSON.parse(content)
+    return { elements: p.elements ?? [], appState: { viewBackgroundColor: p.appState?.viewBackgroundColor ?? '#ffffff' }, scrollToContent: true }
+  } catch {
+    return { elements: [], appState: { viewBackgroundColor: '#ffffff' }, scrollToContent: false }
+  }
+}, [blockId])  // ← content 의존성 의도적으로 제외
+```
+
+### CSS 임포트
+```tsx
+import '@excalidraw/excalidraw/index.css'  // 컴포넌트 상단에 포함
+```
+
+---
+
+*이 청사진은 2026-02-26 기준 구현 상태를 반영합니다.*
 *새 기능 구현 후 해당 섹션(5번, 9번)을 업데이트해 주세요.*

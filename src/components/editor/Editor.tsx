@@ -38,6 +38,7 @@ import MentionPopup, { MentionItem } from './MentionPopup'
 import KanbanBlock from './KanbanBlock'
 import AdmonitionBlock from './AdmonitionBlock'
 import CanvasBlock from './CanvasBlock'
+import ExcalidrawBlock from './ExcalidrawBlock'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -234,10 +235,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       // Python으로 치면: extensions.append(CustomCodeBlock)
       CustomCodeBlock,
     ],
-    // 이미지·토글 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
+    // 이미지·토글·칸반·Excalidraw 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
-    // Python으로 치면: content = '' if type in ('image', 'toggle') else block.content
-    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban') ? '' : (block.content || ''),
+    // Python으로 치면: content = '' if type in ('image', 'toggle', 'excalidraw') else block.content
+    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -386,6 +387,14 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (type === 'canvas') {
       updateBlock(pageId, block.id, JSON.stringify({ nodes: [], edges: [] }))
     }
+    // Excalidraw 타입으로 전환 시 빈 elements/appState JSON으로 초기화
+    // Python으로 치면: if type == 'excalidraw': block.content = json.dumps({'elements':[],'appState':{...}})
+    if (type === 'excalidraw') {
+      updateBlock(pageId, block.id, JSON.stringify({
+        elements: [],
+        appState: { viewBackgroundColor: '#ffffff' },
+      }))
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
@@ -434,9 +443,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
 
   function applyBlockType(editor: TiptapEditor, type: BlockType) {
     if (!editor) return
-    // 이미지·토글 블록은 Tiptap으로 관리하지 않으므로 조기 반환
-    // Python으로 치면: if type in ('image', 'toggle'): return
-    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas') return
+    // 이미지·토글 등 비-Tiptap 블록은 조기 반환
+    // Python으로 치면: if type in ('image', 'toggle', 'excalidraw'): return
+    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -633,6 +642,43 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         </div>
         <div className="flex-1">
           <CanvasBlock
+            blockId={block.id}
+            content={block.content}
+            onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // Excalidraw 블록: ExcalidrawBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { elements: [...], appState: { viewBackgroundColor: string } }
+  // Python으로 치면: if block.type == 'excalidraw': return render(ExcalidrawBlock)
+  // -----------------------------------------------
+  if (block.type === 'excalidraw') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <ExcalidrawBlock
             blockId={block.id}
             content={block.content}
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}

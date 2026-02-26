@@ -39,6 +39,7 @@ const COMMANDS = [
       { icon: '📋', name: '칸반', description: '칸반 보드를 삽입합니다', type: 'kanban' as BlockType },
       { icon: '💡', name: '콜아웃', description: '팁/정보/경고/위험 강조 박스를 삽입합니다', type: 'admonition' as BlockType },
       { icon: '🖼️', name: '캔버스', description: '무한 캔버스 — 카드와 화살표로 다이어그램 작성', type: 'canvas' as BlockType },
+      { icon: '✏️', name: 'Excalidraw', description: '손그림 스타일 다이어그램을 자유롭게 그립니다', type: 'excalidraw' as BlockType },
     ]
   },
 ]
@@ -82,6 +83,7 @@ export default function SlashCommand({
     kanban:      plugins.kanban,
     admonition:  plugins.admonition,
     canvas:      plugins.canvas,
+    excalidraw:  plugins.excalidraw,  // Excalidraw 플러그인 OFF 시 슬래시 메뉴에서 숨김
   }
 
   const filteredGroups = COMMANDS.map(group => ({

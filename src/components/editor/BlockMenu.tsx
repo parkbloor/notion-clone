@@ -1,14 +1,16 @@
 // =============================================
 // src/components/editor/BlockMenu.tsx
 // 역할: 블록 왼쪽 + 버튼 클릭 시 나타나는 블록 조작 메뉴
-//       위에 추가 / 아래에 추가 / 복제 / 삭제
+//       위에 추가 / 아래에 추가 / 복제 / 다른 페이지로 이동·복사 / 삭제
 // Python으로 치면: class BlockMenu(Widget): def render(self): ...
 // =============================================
 
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
+import { Page } from '@/types/block'
 
 interface BlockMenuProps {
   pageId: string
@@ -51,6 +53,111 @@ function Divider() {
 }
 
 // -----------------------------------------------
+// 페이지 선택 팝업 — 이동/복사 대상 페이지를 검색·선택
+// anchorRect: 기준 요소(MenuRef)의 뷰포트 좌표 → 팝업 위치 계산에 사용
+// Python으로 치면: class PagePickerPopup(Widget): def render(self): ...
+// -----------------------------------------------
+function PagePickerPopup({
+  currentPageId,
+  pages,
+  anchorRect,
+  onSelect,
+  onClose,
+}: {
+  currentPageId: string
+  pages: Page[]
+  anchorRect: DOMRect
+  onSelect: (page: Page) => void
+  onClose: () => void
+}) {
+  // 검색어 상태
+  // Python으로 치면: self.query = ""
+  const [query, setQuery] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+
+  // 마운트 즉시 검색창에 포커스
+  // Python으로 치면: def on_mount(self): self.input.focus()
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  // Escape 키 → 팝업 닫기 (capture 단계에서 처리해 에디터보다 먼저 반응)
+  // Python으로 치면: document.on('keydown', capture=True, lambda e: close() if e.key == 'Escape')
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+    }
+    document.addEventListener('keydown', handleKey, true)
+    return () => document.removeEventListener('keydown', handleKey, true)
+  }, [onClose])
+
+  // 팝업 외부 클릭 → 닫기
+  // Python으로 치면: def on_outside_click(event): if not popup.contains(event.target): close()
+  useEffect(() => {
+    function handleOutside(e: MouseEvent) {
+      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+    document.addEventListener('mousedown', handleOutside)
+    return () => document.removeEventListener('mousedown', handleOutside)
+  }, [onClose])
+
+  // 현재 페이지 제외 + 검색어 필터 (최대 8개)
+  // Python으로 치면: filtered = [p for p in pages if p.id != current and query in p.title.lower()][:8]
+  const filtered = pages
+    .filter(p => p.id !== currentPageId)
+    .filter(p => !query || p.title.toLowerCase().includes(query.toLowerCase()))
+    .slice(0, 8)
+
+  // 팝업 위치 계산 — anchor 오른쪽, 뷰포트 밖으로 나가면 왼쪽으로 당김
+  // Python으로 치면: left = min(anchor.right + 4, vw - POPUP_W - 8)
+  const POPUP_W = 240
+  const left = Math.min(anchorRect.right + 4, window.innerWidth - POPUP_W - 8)
+  const top = Math.max(8, Math.min(anchorRect.top, window.innerHeight - 320))
+
+  return (
+    <div
+      ref={popupRef}
+      style={{ position: 'fixed', left, top, zIndex: 200, width: POPUP_W }}
+      className="bg-white border border-gray-200 rounded-lg shadow-xl overflow-hidden"
+    >
+      {/* ── 검색 헤더 ───────────────────────────────── */}
+      <div className="p-2 border-b border-gray-100">
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="페이지 검색…"
+          className="w-full text-sm px-2 py-1 rounded border border-gray-200 outline-none focus:border-blue-300"
+        />
+      </div>
+
+      {/* ── 페이지 목록 ─────────────────────────────── */}
+      <div className="max-h-56 overflow-y-auto py-1">
+        {filtered.length === 0 ? (
+          <p className="text-sm text-gray-400 px-3 py-2">
+            {query ? `"${query}" 결과 없음` : '다른 페이지가 없습니다'}
+          </p>
+        ) : (
+          filtered.map(page => (
+            <button
+              key={page.id}
+              type="button"
+              onClick={() => onSelect(page)}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-gray-700 hover:bg-gray-100 transition-colors"
+            >
+              <span className="shrink-0">{page.icon}</span>
+              <span className="truncate">{page.title || '제목 없음'}</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+// -----------------------------------------------
 // BlockMenu 메인 컴포넌트
 // Python으로 치면: class BlockMenu(Component): ...
 // -----------------------------------------------
@@ -60,11 +167,23 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
   // Python으로 치면: is_open = False
   const [isOpen, setIsOpen] = useState(false)
 
-  // 메뉴 컨테이너 DOM 참조 (외부 클릭 감지용)
+  // 페이지 선택 모드: null = 닫힘, 'move' = 이동, 'copy' = 복사
+  // Python으로 치면: self.picker_mode: Optional[str] = None
+  const [pickerMode, setPickerMode] = useState<'move' | 'copy' | null>(null)
+
+  // 페이지 선택 팝업 위치 기준 rect (menuRef의 뷰포트 좌표)
+  // Python으로 치면: self.picker_anchor: Optional[DOMRect] = None
+  const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null)
+
+  // 메뉴 컨테이너 DOM 참조 (외부 클릭 감지 + 팝업 위치 계산)
   // Python으로 치면: menu_ref = None
   const menuRef = useRef<HTMLDivElement>(null)
 
-  const { addBlock, addBlockBefore, duplicateBlock, deleteBlock } = usePageStore()
+  const {
+    pages, currentPageId,
+    addBlock, addBlockBefore, duplicateBlock, deleteBlock,
+    moveBlockToPage, copyBlockToPage,
+  } = usePageStore()
 
   // -----------------------------------------------
   // 메뉴가 열렸을 때 외부 클릭 또는 Escape 키로 닫기
@@ -92,6 +211,35 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
       document.removeEventListener('keydown', handleEscape)
     }
   }, [isOpen])
+
+  // -----------------------------------------------
+  // 페이지 선택 팝업 열기 헬퍼
+  // 메인 드롭다운을 닫고, pickerMode와 기준 위치를 설정
+  // Python으로 치면: def open_picker(self, mode): self.picker_mode = mode; self.picker_anchor = rect
+  // -----------------------------------------------
+  function openPicker(mode: 'move' | 'copy') {
+    setIsOpen(false)
+    setPickerMode(mode)
+    setPickerAnchor(menuRef.current?.getBoundingClientRect() ?? null)
+  }
+
+  // -----------------------------------------------
+  // 페이지 선택 완료 핸들러
+  // 선택된 페이지로 이동 또는 복사 + 토스트 알림
+  // Python으로 치면: def on_page_select(self, target_page): do_action(); toast()
+  // -----------------------------------------------
+  function handlePageSelect(targetPage: Page) {
+    const label = targetPage.title || '제목 없음'
+    if (pickerMode === 'move') {
+      moveBlockToPage(pageId, targetPage.id, blockId)
+      toast.success(`블록이 "${label}"으로 이동됐습니다`)
+    } else if (pickerMode === 'copy') {
+      copyBlockToPage(pageId, targetPage.id, blockId)
+      toast.success(`블록이 "${label}"으로 복사됐습니다`)
+    }
+    setPickerMode(null)
+    setPickerAnchor(null)
+  }
 
   return (
     // -----------------------------------------------
@@ -124,7 +272,7 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
           z-50: 다른 요소 위에 표시
           Python으로 치면: dropdown.position = (button.left, button.bottom) */}
       {isOpen && (
-        <div className="absolute left-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-44 py-1 overflow-hidden">
+        <div className="absolute left-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-48 py-1 overflow-hidden">
 
           {/* ── 블록 추가 그룹 ────────────────────────── */}
           <MenuItem
@@ -158,6 +306,21 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
 
           <Divider />
 
+          {/* ── 페이지 간 이동 / 복사 ─────────────────── */}
+          {/* Python으로 치면: MoveToPageBtn, CopyToPageBtn = open_picker('move'/'copy') */}
+          <MenuItem
+            icon="↗️"
+            label="다른 페이지로 이동"
+            onClick={() => openPicker('move')}
+          />
+          <MenuItem
+            icon="🔗"
+            label="다른 페이지로 복사"
+            onClick={() => openPicker('copy')}
+          />
+
+          <Divider />
+
           {/* ── 삭제 (빨간색 강조) ────────────────────── */}
           {/* 삭제 후 블록이 0개면 스토어가 자동으로 빈 블록을 하나 추가 */}
           <MenuItem
@@ -171,6 +334,19 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
           />
 
         </div>
+      )}
+
+      {/* ── 페이지 선택 팝업 ─────────────────────────────
+          pickerMode가 설정되면 렌더링, onClose/onSelect로 정리
+          Python으로 치면: if self.picker_mode: render PagePickerPopup(...) */}
+      {pickerMode && pickerAnchor && (
+        <PagePickerPopup
+          currentPageId={currentPageId ?? pageId}
+          pages={pages}
+          anchorRect={pickerAnchor}
+          onSelect={handlePageSelect}
+          onClose={() => { setPickerMode(null); setPickerAnchor(null) }}
+        />
       )}
 
     </div>
