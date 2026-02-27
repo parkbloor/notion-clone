@@ -69,6 +69,12 @@ export interface SettingsStore {
   // Python으로 치면: self._focus_mode_active: bool = False  # volatile
   isFocusMode: boolean
 
+  // ── 카테고리 사이드바 접힘 여부 (localStorage에 영속) ──
+  // true = 아이콘만 표시(w-12), false = 전체 표시(w-44)
+  // Python으로 치면: self.sidebar_collapsed: bool = False
+  sidebarCollapsed: boolean
+  toggleSidebarCollapsed: () => void
+
   // ── 레이아웃 기본값 ──────────────────────────────────────────────────
   // Python으로 치면: self.layout_default_orientation = 'portrait'
   layoutDefaultOrientation: 'portrait' | 'landscape'  // 새 레이아웃 블록 기본 방향
@@ -165,6 +171,8 @@ export const useSettingsStore = create<SettingsStore>()(
       },
       // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
       isFocusMode: false,
+      // 사이드바 접힘 여부 기본값 — false = 전체 표시
+      sidebarCollapsed: false,
       // 레이아웃 기본값 — 빈 문자열 = 새 블록 추가 시 항상 피커 표시
       layoutDefaultOrientation: 'portrait',
       layoutDefaultTemplate: '',
@@ -206,6 +214,14 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleFocusMode: () => {
         set((state) => {
           state.isFocusMode = !state.isFocusMode
+        })
+      },
+
+      // ── 사이드바 접힘 토글 ────────────────────
+      // Python으로 치면: def toggle_sidebar_collapsed(self): self.sidebar_collapsed ^= True
+      toggleSidebarCollapsed: () => {
+        set((state) => {
+          state.sidebarCollapsed = !state.sidebarCollapsed
         })
       },
 
