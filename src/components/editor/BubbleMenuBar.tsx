@@ -219,8 +219,8 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
               handleAction(btn.action)
             }}
             className={btn.isActive(editor)
-              ? `px-2 py-1 rounded text-sm transition-colors bg-white text-gray-900 ${btn.className}`
-              : `px-2 py-1 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white ${btn.className}`}
+              ? `px-2 py-2 rounded text-sm transition-colors bg-white text-gray-900 ${btn.className}`
+              : `px-2 py-2 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white ${btn.className}`}
           >
             {btn.label}
           </button>
@@ -240,7 +240,7 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
             if (from !== to) savedSelection.current = { from, to }
             setOpenPicker(prev => prev === 'text' ? null : 'text')
           }}
-          className={openPicker === 'text' ? 'px-2 py-1 rounded text-sm bg-gray-700 text-white' : 'px-2 py-1 rounded text-sm text-gray-300 hover:bg-gray-700 hover:text-white'}
+          className={openPicker === 'text' ? 'px-2 py-2 rounded text-sm bg-gray-700 text-white' : 'px-2 py-2 rounded text-sm text-gray-300 hover:bg-gray-700 hover:text-white'}
         >
           <span style={{ borderBottom: `2px solid ${currentTextColor ?? '#9ca3af'}`, paddingBottom: '1px' }}>
             A
@@ -259,7 +259,7 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
             if (from !== to) savedSelection.current = { from, to }
             setOpenPicker(prev => prev === 'highlight' ? null : 'highlight')
           }}
-          className={openPicker === 'highlight' ? 'px-2 py-1 rounded text-sm bg-gray-700 text-white' : 'px-2 py-1 rounded text-sm text-gray-300 hover:bg-gray-700 hover:text-white'}
+          className={openPicker === 'highlight' ? 'px-2 py-2 rounded text-sm bg-gray-700 text-white' : 'px-2 py-2 rounded text-sm text-gray-300 hover:bg-gray-700 hover:text-white'}
         >
           <span
             className="text-xs px-0.5 rounded-sm"
@@ -288,7 +288,7 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
               editor.chain().focus().setLink({ href: url }).run()
             }
           }}
-          className={editor.isActive('link') ? 'px-2 py-1 rounded text-sm transition-colors bg-white text-gray-900' : 'px-2 py-1 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white'}
+          className={editor.isActive('link') ? 'px-2 py-2 rounded text-sm transition-colors bg-white text-gray-900' : 'px-2 py-2 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white'}
         >
           🔗
         </button>
@@ -302,7 +302,7 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
               e.stopPropagation()
               handleAction((editor) => editor.chain().focus().unsetLink().run())
             }}
-            className="px-2 py-1 rounded text-sm text-red-400 hover:bg-gray-700 transition-colors"
+            className="px-2 py-2 rounded text-sm text-red-400 hover:bg-gray-700 transition-colors"
           >
             ✕
           </button>

@@ -449,14 +449,15 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
 
 #### ~~9-10. 전체 페이지 검색 (Ctrl+K)~~ ✅ 완료 (9-5와 통합)
 
-#### 9-11. 모바일 반응형
-- 현재 데스크탑 전용 레이아웃
-- 구현 범위:
-  - `page.tsx` — 사이드바 햄버거 메뉴 (`md:flex hidden` 토글)
-  - `PageList.tsx` — 모바일에서 전체 너비 드로어(drawer)로 변환
-  - `PageEditor.tsx` — 패딩/마진 반응형 조정 (`px-4 md:px-16`)
-  - `BubbleMenuBar.tsx` — 버튼 크기 터치 친화적으로 확대
-  - dnd-kit 터치 센서 추가: `TouchSensor` (`activationConstraint: { delay: 250 }`)
+#### ~~9-11. 모바일 반응형~~ ✅ 완료 (2026-02-27)
+- `page.tsx` — `sidebarOpen` 상태 + ☰ 햄버거 버튼 (`md:hidden fixed top-3 left-3 z-50`)
+  - 모바일: 사이드바 패널 기본 숨김(`hidden md:flex`) → 햄버거 탭 시 `fixed inset-y-0 left-0 z-40` 드로어
+  - 오버레이 배경(`fixed inset-0 z-30 bg-black/40`) 탭 시 사이드바 닫힘
+  - `<main className="pt-14 md:pt-0">` — 모바일 햄버거 버튼 공간 확보
+  - `TouchSensor { delay:250, tolerance:5 }` 추가 (카테고리/페이지 드래그)
+- `PageList.tsx` — `onCloseMobile?: () => void` prop 추가, 페이지 선택·최근 파일 클릭 시 사이드바 자동 닫힘
+- `PageEditor.tsx` — `px-4 sm:px-8 md:px-16` 반응형 본문 패딩 + `TouchSensor` (블록 드래그)
+- `BubbleMenuBar.tsx` — 버튼 `py-1` → `py-2` (터치 친화적 높이, 모든 서식/색상/링크 버튼 일괄 적용)
 
 #### 9-12. ✅ 페이지 간 블록 이동/복사 (2026-02-26 완료)
 - **BlockMenu.tsx** `+` 버튼 메뉴에 "다른 페이지로 이동 ↗️" / "다른 페이지로 복사 🔗" 추가

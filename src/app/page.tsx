@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore, applyTheme, applyEditorStyle } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
@@ -23,6 +23,7 @@ import PomodoroWidget from '@/components/editor/PomodoroWidget'
 import {
   DndContext,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -35,6 +36,14 @@ export default function Home() {
   // 단축키 안내 모달 열림 여부
   // Python으로 치면: self.shortcut_modal_open = False
   const [shortcutOpen, setShortcutOpen] = useState(false)
+
+  // 모바일 사이드바 열림 여부 — 햄버거 버튼으로 토글
+  // Python으로 치면: self.sidebar_open = False
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // 모바일에서 페이지 선택 시 사이드바 자동 닫기 콜백
+  // Python으로 치면: def close_mobile_sidebar(self): self.sidebar_open = False
+  const closeMobileSidebar = useCallback(() => setSidebarOpen(false), [])
 
   // 설정 모달 열림 여부
   // Python으로 치면: self.settings_modal_open = False
@@ -225,9 +234,13 @@ export default function Home() {
     }
   }, [currentPageId, pages.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── dnd-kit 드래그 센서 (8px 이상 움직여야 드래그 시작) ──
+  // ── dnd-kit 드래그 센서 ───────────────────────────────────
+  // PointerSensor: 데스크탑 마우스 — 8px 이상 이동해야 드래그 시작
+  // TouchSensor: 모바일 터치 — 250ms 길게 누르면 드래그 시작 (오발동 방지)
+  // Python으로 치면: sensors = [PointerSensor(min_distance=8), TouchSensor(delay=250)]
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   )
 
   // -----------------------------------------------
@@ -286,24 +299,52 @@ export default function Home() {
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
+      {/* 모바일 사이드바 오버레이 배경 — 탭하면 사이드바 닫힘
+          md 이상(데스크탑)에서는 숨김
+          Python으로 치면: if sidebar_open: render Overlay() */}
+      {sidebarOpen && !isFocusMode && (
+        <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
       {/* 전체 레이아웃: 3패널 가로 배치 */}
       {/* id="app-layout": @media print에서 flex→block으로 전환하여 인쇄 시 사이드바 공간 제거 */}
       <div id="app-layout" className="flex h-screen bg-white overflow-hidden relative">
 
-        {/* ── 1패널: 카테고리(폴더) 사이드바 ─────────
-            집중 모드 활성 시 숨김 (isFocusMode=true)
-            Python으로 치면: if not is_focus_mode: render(CategorySidebar) */}
-        {!isFocusMode && <CategorySidebar />}
+        {/* ── 사이드바 패널 래퍼 ──────────────────────
+            데스크탑(md+): 항상 인라인 flex로 표시
+            모바일: 기본 숨김 → 햄버거 탭 시 fixed 드로어로 슬라이드
+            집중 모드 시 완전 숨김
+            Python으로 치면:
+              if is_focus_mode: hide()
+              elif mobile and not sidebar_open: hide()
+              else: show() */}
+        {!isFocusMode && (
+          <div className={sidebarOpen ? "flex fixed inset-y-0 left-0 z-40 shadow-2xl md:relative md:z-auto md:shadow-none" : "hidden md:flex"}>
+            <CategorySidebar />
+            <PageList onOpenSettings={() => setSettingsOpen(true)} onCloseMobile={closeMobileSidebar} />
+          </div>
+        )}
 
-        {/* ── 2패널: 페이지(메모) 목록 ────────────────
-            집중 모드 활성 시 숨김
-            Python으로 치면: if not is_focus_mode: render(PageList) */}
-        {!isFocusMode && <PageList onOpenSettings={() => setSettingsOpen(true)} />}
+        {/* ── 모바일 햄버거 버튼 ────────────────────
+            md 이상(데스크탑)에서는 숨김
+            집중 모드 시 숨김
+            Python으로 치면: if not is_focus_mode and is_mobile: render HamburgerButton() */}
+        {!isFocusMode && (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(prev => !prev)}
+            className="md:hidden fixed top-3 left-3 z-50 w-9 h-9 flex items-center justify-center bg-white rounded-lg shadow border border-gray-200 text-gray-600 text-lg"
+            title="메뉴 열기/닫기"
+          >
+            ☰
+          </button>
+        )}
 
-        {/* ── 3패널: 에디터 ────────────────────────
+        {/* ── 에디터 패널 ──────────────────────────
             flex-1: 남은 공간 전부 차지
-            overflow-y-auto: 내용이 길어지면 스크롤 */}
-        <main className="flex-1 overflow-y-auto">
+            overflow-y-auto: 내용이 길어지면 스크롤
+            pt-14 md:pt-0: 모바일에서 햄버거 버튼 공간 확보 */}
+        <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
           {currentPageId ? (
             // 페이지가 선택되어 있으면 에디터 렌더링
             <PageEditor pageId={currentPageId} />

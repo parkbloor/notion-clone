@@ -355,9 +355,12 @@ function PageItem({ page, isSelected, currentCategoryId, onSelect, searchQuery, 
 // -----------------------------------------------
 interface PageListProps {
   onOpenSettings?: () => void
+  // 모바일에서 페이지 선택 시 사이드바 드로어를 닫는 콜백
+  // Python으로 치면: on_close_mobile: Callable | None = None
+  onCloseMobile?: () => void
 }
 
-export default function PageList({ onOpenSettings }: PageListProps) {
+export default function PageList({ onOpenSettings, onCloseMobile }: PageListProps) {
 
   const {
     pages,
@@ -591,7 +594,7 @@ export default function PageList({ onOpenSettings }: PageListProps) {
                 page={page}
                 isSelected={currentPageId === page.id}
                 currentCategoryId={currentCategoryId}
-                onSelect={() => { setCurrentPage(page.id); pushRecentPage(page.id) }}
+                onSelect={() => { setCurrentPage(page.id); pushRecentPage(page.id); onCloseMobile?.() }}
                 searchQuery={searchQuery.trim() || undefined}
                 snippet={snippet || undefined}
                 categoryName={catName}
@@ -624,7 +627,7 @@ export default function PageList({ onOpenSettings }: PageListProps) {
               <button
                 key={pageId}
                 type="button"
-                onClick={() => { setCurrentPage(pageId); pushRecentPage(pageId) }}
+                onClick={() => { setCurrentPage(pageId); pushRecentPage(pageId); onCloseMobile?.() }}
                 className={isSelected
                   ? "w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm text-left bg-gray-200 text-gray-900"
                   : "w-full flex items-center gap-2 px-2 py-1 rounded-md text-sm text-left text-gray-500 hover:bg-gray-100 transition-colors"}

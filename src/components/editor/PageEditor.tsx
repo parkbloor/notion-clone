@@ -204,6 +204,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -429,10 +430,14 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   }
 
   // -----------------------------------------------
-  // 드래그 센서 — 8px 이상 움직여야 드래그 시작
+  // 드래그 센서
+  // PointerSensor: 데스크탑 마우스 — 8px 이상 이동해야 드래그 시작
+  // TouchSensor: 모바일 터치 — 250ms 길게 누르면 드래그 시작 (오발동 방지)
+  // Python으로 치면: sensors = [PointerSensor(min_distance=8), TouchSensor(delay=250)]
   // -----------------------------------------------
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   )
 
   // -----------------------------------------------
@@ -578,7 +583,9 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       {/* tableOfContents 플러그인 ON 시 flex 레이아웃으로 TOC를 우측에 배치 */}
       {/* Python으로 치면: self.content_layout = HBox([content, toc]) if plugins.toc else VBox([content]) */}
       <div className="flex items-start">
-      <div className="content-body flex-1 min-w-0 max-w-3xl mr-auto px-16 pb-24">
+      {/* 본문 콘텐츠 래퍼 — 모바일: px-4, 태블릿: px-8, 데스크탑: px-16 */}
+      {/* Python으로 치면: padding = 'px-16' if desktop else 'px-4' */}
+      <div className="content-body flex-1 min-w-0 max-w-3xl mr-auto px-4 sm:px-8 md:px-16 pb-24">
 
         {/* ── undo/redo + 내보내기 버튼 (우측 상단) ──────
             historyVersion 구독 → 버튼 활성화 상태 자동 갱신
