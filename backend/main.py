@@ -56,3 +56,12 @@ app.include_router(export_import.router)
 app.include_router(search.router)
 app.include_router(system.router)
 app.include_router(templates.router)
+
+
+# ── PyInstaller 번들 진입점 ─────────────────────────
+# python main.py 로 직접 실행하거나 PyInstaller 번들로 실행될 때만 uvicorn 구동
+# uvicorn backend.main:app 으로 실행할 때는 __name__ == 'backend.main' 이므로 스킵
+# Python으로 치면: if __name__ == '__main__': uvicorn.run(app)
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='127.0.0.1', port=8000, log_level='info')
