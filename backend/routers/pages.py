@@ -13,6 +13,8 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from backend.core import (
     ALLOWED_IMAGE_EXTS,
     MAX_IMAGE_SIZE,
+    ALLOWED_VIDEO_EXTS,
+    MAX_VIDEO_SIZE,
     VAULT_DIR,
     CreatePageBody,
     MoveCategoryBody,
@@ -414,5 +416,64 @@ async def upload_image(page_id: str, file: UploadFile = File(...)):
     cat_folder = get_category_folder_name(cat_id, index)
     prefix = get_image_url_prefix(page_folder, cat_folder)
     url = f"{prefix}images/{filename}"
+
+    return {"url": url, "filename": filename}
+
+
+# -----------------------------------------------
+# 비디오 업로드
+# 이미지 업로드와 동일한 구조 — 저장 위치만 videos/ 로 분리
+# Python으로 치면: def upload_video(page_id, file): validate → save → return url
+# -----------------------------------------------
+@router.post("/pages/{page_id}/videos")
+async def upload_video(page_id: str, file: UploadFile = File(...)):
+    """
+    비디오 업로드 → vault/{경로}/videos/{uuid}.ext 저장 → URL 반환
+    허용 확장자: .mp4 .webm .ogg .mov .avi .mkv  /  최대 500MB
+    """
+    # 🔒 UUID 검증 (경로 트래버설 방지)
+    # Python으로 치면: validate_uuid(page_id)
+    validate_uuid(page_id, "페이지 ID")
+
+    # 확장자 화이트리스트 검증
+    # Python으로 치면: if suffix not in ALLOWED_VIDEO: raise ValueError
+    raw_suffix = Path(file.filename or "").suffix.lower()
+    if raw_suffix not in ALLOWED_VIDEO_EXTS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"허용되지 않는 파일 형식입니다. 허용: {', '.join(sorted(ALLOWED_VIDEO_EXTS))}",
+        )
+
+    # 파일 내용 읽기 + 크기 제한 (500MB)
+    # Python으로 치면: content = file.read(); assert len(content) <= MAX_VIDEO_SIZE
+    content = await file.read()
+    if len(content) > MAX_VIDEO_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기가 500MB를 초과합니다 ({len(content) // (1024*1024)}MB)",
+        )
+
+    # 페이지 폴더 + videos/ 하위 디렉토리에 저장
+    # Python으로 치면: videos_dir = get_page_dir(page_id) / 'videos'
+    index = load_index()
+    page_dir = get_page_dir(page_id, index)
+    videos_dir = page_dir / "videos"
+
+    # 🔒 vault 탈출 방지
+    assert_inside_vault(videos_dir)
+    videos_dir.mkdir(parents=True, exist_ok=True)
+
+    # UUID 기반 파일명 (원본 파일명 무시 → 경로 인젝션 방지)
+    # Python으로 치면: filename = f"{uuid.uuid4()}{suffix}"
+    filename = f"{uuid.uuid4()}{raw_suffix}"
+    file_path = videos_dir / filename
+    file_path.write_bytes(content)
+
+    # URL 경로 계산 (카테고리 prefix 포함, 이미지와 동일한 prefix 사용)
+    page_folder = get_folder_name(page_id, index)
+    cat_id = index.get("categoryMap", {}).get(page_id)
+    cat_folder = get_category_folder_name(cat_id, index)
+    prefix = get_image_url_prefix(page_folder, cat_folder)
+    url = f"{prefix}videos/{filename}"
 
     return {"url": url, "filename": filename}

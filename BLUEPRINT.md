@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-26 (Excalidraw 손그림 블록 완성 + 플러그인 시스템 완성 + 백엔드 라우터 분리 + 보안 패치)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-27 (레이아웃 블록 구현 — A4 다단 8종 템플릿 + 비디오 블록 + 저장 위치 지정)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -77,6 +77,9 @@ notion-clone/
 │   │   │   ├── AdmonitionBlock.tsx # 콜아웃 블록 (팁/정보/경고/위험)
 │   │   │   ├── CanvasBlock.tsx   # 무한 캔버스 (노드·엣지·팬·줌)
 │   │   │   ├── ExcalidrawBlock.tsx # ✅ Excalidraw 손그림 다이어그램 블록
+│   │   │   ├── VideoBlock.tsx    # ✅ 로컬 비디오 파일 업로드 + 재생
+│   │   │   ├── LayoutBlock.tsx   # ✅ A4 다단 레이아웃 블록 (8종 템플릿)
+│   │   │   ├── LayoutSlot.tsx    # ✅ 레이아웃 블록 안의 슬롯 (미니 에디터)
 │   │   │   ├── WordCountBar.tsx  # 에디터 하단 단어/글자 수 표시
 │   │   │   ├── PomodoroWidget.tsx # 포모도로 타이머 플로팅 위젯
 │   │   │   ├── TocPanel.tsx      # 목차(TOC) 사이드 패널
@@ -223,7 +226,7 @@ content.json = {
 - [x] 편집기 탭 — 글꼴(sans/serif/mono), 크기(14~20px), 줄간격
 - [x] 플러그인 탭 — 칸반(ON), 캘린더(ON), 콜아웃(ON), 최근 파일(ON), 빠른 캡처(ON), Excalidraw(준비 중)
 - [x] 데이터 탭 — JSON 백업 다운로드, 마크다운 ZIP 다운로드, JSON 가져오기
-- [x] 저장 위치 탭 — vault 경로, 페이지 수, 용량 표시
+- [x] 저장 위치 탭 — vault 경로, 페이지 수, 용량 표시, 경로 변경(재시작 방식)
 - [x] 디버그 탭 — 서버 로그 뷰어 (최근 100개)
 
 ### ✅ 플러그인 시스템
@@ -277,6 +280,7 @@ content.json = {
 | GET | `/api/export/markdown` | vault → 마크다운 ZIP 다운로드 |
 | POST | `/api/import` | JSON 백업에서 vault 복구 |
 | GET | `/api/settings/vault-path` | vault 경로 + 통계 |
+| POST | `/api/settings/vault-path` | vault 경로 변경 (vault_config.json 저장, 재시작 필요) |
 | GET | `/api/debug/logs` | 서버 로그 (최근 100개) |
 | GET | `/api/search?q=` | 페이지 제목 + 블록 내용 전문 검색 |
 | GET | `/static/{path}` | 이미지 파일 정적 서빙 |

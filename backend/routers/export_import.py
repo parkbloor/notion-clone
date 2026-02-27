@@ -115,6 +115,24 @@ def export_markdown():
                 lines.append("---")
             elif btype == "kanban":
                 lines.append("[칸반 보드]")
+            elif btype == "layout":
+                # 레이아웃 블록: 슬롯 A→B→C 순서로 선형화 (--- 구분선 삽입)
+                # Python으로 치면: for slot in ['a','b','c']: lines += blocks_to_md(slot_blocks)
+                try:
+                    layout_data = json.loads(content) if isinstance(content, str) else {}
+                    slot_parts = []
+                    for slot_id in ["a", "b", "c"]:
+                        slot_blocks = layout_data.get("slots", {}).get(slot_id, [])
+                        if slot_blocks:
+                            slot_md = blocks_to_markdown(slot_blocks).strip()
+                            if slot_md:
+                                slot_parts.append(slot_md)
+                    if slot_parts:
+                        lines.append("\n\n---\n\n".join(slot_parts))
+                    else:
+                        lines.append("[레이아웃 블록]")
+                except Exception:
+                    lines.append("[레이아웃 블록]")
             else:
                 lines.append(content)
             lines.append("")  # 빈 줄 구분

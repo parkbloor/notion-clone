@@ -138,6 +138,23 @@ export const api = {
     return data.url as string
   },
 
+  // ── 비디오 파일 업로드 ───────────────────────
+  // Python으로 치면: requests.post(url, files={'file': video_file})
+  uploadVideo: async (pageId: string, file: File): Promise<string> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/videos`, {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail ?? '비디오 업로드 실패')
+    }
+    const data = await res.json()
+    return data.url as string
+  },
+
   // ── 카테고리 생성 ─────────────────────────────
   // Python으로 치면: requests.post(url, json={'name': name})
   createCategory: async (name: string): Promise<Category> => {

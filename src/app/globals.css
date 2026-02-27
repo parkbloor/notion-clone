@@ -550,4 +550,41 @@ html.dark .tiptap hr {
 
   /* 배경색/그림자 인쇄 허용 (칸반, 콜아웃 배경 표시) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+
+  /* ── 레이아웃 블록 인쇄 스타일 ────────────────────────────────
+     A4 비율 박스를 실제 A4 용지 한 장에 꽉 채우고, 다음 레이아웃은 다음 페이지에 출력
+     Python으로 치면: if printing: layout_block.page_break = 'after'
+     ─────────────────────────────────────────────────────────── */
+
+  /* layout-block: 전체 너비로 펼치고 페이지 넘김 후 여백 제거 */
+  .layout-block {
+    width: 100% !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+    page-break-after: always !important;
+    break-after: always !important;
+  }
+
+  /* A4 비율 박스: aspect-ratio 대신 실제 A4 높이로 고정 (인쇄 시 가변 높이 방지) */
+  /* 세로 A4 (210:297): 인쇄 마진 제외 후 실질 높이 ≈ 267mm */
+  .layout-block [style*="210 / 297"],
+  .layout-block [style*="210/297"] {
+    aspect-ratio: unset !important;
+    height: 267mm !important;
+    width: 100% !important;
+  }
+
+  /* 가로 A4 (297:210): 실질 높이 ≈ 187mm */
+  .layout-block [style*="297 / 210"],
+  .layout-block [style*="297/210"] {
+    aspect-ratio: unset !important;
+    height: 187mm !important;
+    width: 100% !important;
+  }
+
+  /* 슬롯: overflow-y-auto → visible (인쇄 시 클리핑 방지) */
+  .layout-slot {
+    overflow: visible !important;
+  }
 }

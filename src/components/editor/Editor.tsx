@@ -39,6 +39,8 @@ import KanbanBlock from './KanbanBlock'
 import AdmonitionBlock from './AdmonitionBlock'
 import CanvasBlock from './CanvasBlock'
 import ExcalidrawBlock from './ExcalidrawBlock'
+import VideoBlock from './VideoBlock'
+import LayoutBlock from './LayoutBlock'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -235,10 +237,12 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       // Python으로 치면: extensions.append(CustomCodeBlock)
       CustomCodeBlock,
     ],
-    // 이미지·토글·칸반·Excalidraw 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
+    // 이미지·토글·칸반·Excalidraw·비디오 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
-    // Python으로 치면: content = '' if type in ('image', 'toggle', 'excalidraw') else block.content
-    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw') ? '' : (block.content || ''),
+    // Python으로 치면: content = '' if type in ('image', 'toggle', 'excalidraw', 'video') else block.content
+    // 이미지·토글·레이아웃 등 비-Tiptap 블록은 Tiptap content를 빈 문자열로 초기화
+    // Python으로 치면: content = '' if type in ('image', 'toggle', 'layout', ...) else block.content
+    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -395,6 +399,11 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         appState: { viewBackgroundColor: '#ffffff' },
       }))
     }
+    // 레이아웃 타입으로 전환 시 빈 content로 초기화 → LayoutBlock 피커 표시
+    // Python으로 치면: if type == 'layout': block.content = ''
+    if (type === 'layout') {
+      updateBlock(pageId, block.id, '')
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
@@ -443,9 +452,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
 
   function applyBlockType(editor: TiptapEditor, type: BlockType) {
     if (!editor) return
-    // 이미지·토글 등 비-Tiptap 블록은 조기 반환
-    // Python으로 치면: if type in ('image', 'toggle', 'excalidraw'): return
-    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw') return
+    // 이미지·토글·레이아웃 등 비-Tiptap 블록은 조기 반환
+    // Python으로 치면: if type in ('image', 'toggle', 'layout', ...): return
+    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -682,6 +691,77 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             blockId={block.id}
             content={block.content}
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 비디오 블록: VideoBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { src: "http://localhost:8000/static/.../videos/uuid.mp4" }
+  // Python으로 치면: if block.type == 'video': return render(VideoBlock)
+  // -----------------------------------------------
+  if (block.type === 'video') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <VideoBlock block={block} pageId={pageId} />
+        </div>
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 레이아웃 블록: LayoutBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { template, orientation, slots: { a, b, c? } }
+  // 각 슬롯에는 Block[] 이 담겨 있으며 A4 비율 그리드로 표시됨
+  // Python으로 치면: if block.type == 'layout': return render(LayoutBlock)
+  // -----------------------------------------------
+  if (block.type === 'layout') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <LayoutBlock
+            blockId={block.id}
+            content={block.content}
+            onChange={newContent => updateBlock(pageId, block.id, newContent)}
           />
         </div>
       </div>

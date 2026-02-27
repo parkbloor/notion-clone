@@ -17,9 +17,34 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 
+# ── vault 설정 파일 (사용자 지정 경로 저장) ─────────
+# Python으로 치면: CONFIG_FILE = BASE_DIR / 'vault_config.json'
+CONFIG_FILE = Path(__file__).parent / "vault_config.json"
+
+
+def _load_vault_dir() -> Path:
+    """
+    vault_config.json에서 사용자 지정 경로를 읽어 VAULT_DIR 결정
+    설정 파일 없거나 경로 이상하면 기본값(프로젝트 루트/vault) 반환
+    Python으로 치면: def _get_vault_dir(): return json.load('config.json')['vault_path'] or DEFAULT
+    """
+    if CONFIG_FILE.exists():
+        try:
+            data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            custom = data.get("vault_path", "").strip()
+            if custom:
+                p = Path(custom)
+                if p.is_absolute():
+                    p.mkdir(parents=True, exist_ok=True)
+                    return p
+        except Exception:
+            pass
+    return Path(__file__).parent.parent / "vault"
+
+
 # ── vault 디렉토리 설정 ────────────────────────
-# Python으로 치면: BASE_DIR = os.path.dirname(__file__)
-VAULT_DIR = Path(__file__).parent.parent / "vault"
+# Python으로 치면: VAULT_DIR = _get_vault_dir()
+VAULT_DIR = _load_vault_dir()
 VAULT_DIR.mkdir(exist_ok=True)
 
 # 페이지 순서·카테고리를 기록하는 인덱스 파일
@@ -33,6 +58,15 @@ ALLOWED_IMAGE_EXTS = frozenset({'.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'
 # 최대 파일 크기: 10MB
 # Python으로 치면: MAX_SIZE = 10 * 1024 * 1024
 MAX_IMAGE_SIZE = 10 * 1024 * 1024
+
+# ── 비디오 업로드 제한 ──────────────────────────
+# 허용 비디오 확장자 (소문자만)
+# Python으로 치면: ALLOWED_VIDEO = frozenset({'.mp4', ...})
+ALLOWED_VIDEO_EXTS = frozenset({'.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'})
+
+# 최대 비디오 파일 크기: 500MB
+# Python으로 치면: MAX_VIDEO_SIZE = 500 * 1024 * 1024
+MAX_VIDEO_SIZE = 500 * 1024 * 1024
 
 # ── UUID 형식 검증 정규식 ──────────────────────
 # Python으로 치면: re.compile(r'^[a-f0-9]{8}-...$')

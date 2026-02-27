@@ -40,6 +40,8 @@ const COMMANDS = [
       { icon: '💡', name: '콜아웃', description: '팁/정보/경고/위험 강조 박스를 삽입합니다', type: 'admonition' as BlockType },
       { icon: '🖼️', name: '캔버스', description: '무한 캔버스 — 카드와 화살표로 다이어그램 작성', type: 'canvas' as BlockType },
       { icon: '✏️', name: 'Excalidraw', description: '손그림 스타일 다이어그램을 자유롭게 그립니다', type: 'excalidraw' as BlockType },
+      { icon: '🎬', name: '비디오', description: '로컬 비디오 파일을 업로드하여 재생합니다', type: 'video' as BlockType },
+      { icon: '📐', name: '레이아웃', description: 'A4 용지 기준 다단 레이아웃 (잡지 편집 스타일)', type: 'layout' as BlockType },
     ]
   },
 ]
@@ -84,6 +86,8 @@ export default function SlashCommand({
     admonition:  plugins.admonition,
     canvas:      plugins.canvas,
     excalidraw:  plugins.excalidraw,  // Excalidraw 플러그인 OFF 시 슬래시 메뉴에서 숨김
+    layout:      plugins.layoutEnabled, // layoutEnabled OFF 시 슬래시 메뉴에서 숨김
+    // video는 pluginBlockMap에 없으므로 항상 메뉴에 표시됨 (autoplay/loop은 설정에서만 조절)
   }
 
   const filteredGroups = COMMANDS.map(group => ({
