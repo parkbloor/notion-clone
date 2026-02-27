@@ -1,0 +1,126 @@
+{
+  "id": "b2c3d4e5-2345-4000-abcd-000000000002",
+  "title": "샘플 노트",
+  "icon": "📓",
+  "cover": "color:#f0fdf4",
+  "coverPosition": 50,
+  "tags": ["예시", "데모"],
+  "starred": false,
+  "blocks": [
+    {
+      "id": "b2000000-0000-0000-0000-000000000001",
+      "type": "paragraph",
+      "content": "<p>이 페이지는 Notion Clone에서 지원하는 다양한 블록 타입을 보여주는 예시 페이지입니다. <em>기울임꼴</em>과 <strong>굵은 글씨</strong>, <code>인라인 코드</code>를 사용할 수 있습니다.</p>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000002",
+      "type": "heading2",
+      "content": "<h2>📋 체크리스트</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000003",
+      "type": "taskList",
+      "content": "<ul data-type=\"taskList\"><li data-type=\"taskItem\" data-checked=\"true\"><label><input type=\"checkbox\" checked></label><div><p>프로젝트 아이디어 정리</p></div></li><li data-type=\"taskItem\" data-checked=\"true\"><label><input type=\"checkbox\" checked></label><div><p>기술 스택 결정 (Next.js + Tiptap + FastAPI)</p></div></li><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"></label><div><p>UI 디자인 완성</p></div></li><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"></label><div><p>배포 및 공개</p></div></li></ul>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000004",
+      "type": "heading2",
+      "content": "<h2>📌 글머리 기호 목록</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000005",
+      "type": "bulletList",
+      "content": "<ul><li><p>Next.js 14 App Router</p></li><li><p>Tiptap v3 — 블록 에디터</p></li><li><p>Zustand — 전역 상태 관리</p></li><li><p>dnd-kit — 드래그 앤 드롭</p></li><li><p>FastAPI (Python) — REST API 서버</p></li></ul>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000006",
+      "type": "heading2",
+      "content": "<h2>💻 코드 블록</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000007",
+      "type": "code",
+      "content": "<pre><code>// 페이지 링크 삽입 예시\n// 에디터에서 [[ 를 입력하면 페이지 링크를 삽입할 수 있습니다\n\nfunction createPageLink(pageId: string, title: string) {\n  return `<a href=\"#page-${pageId}\">${title}</a>`;\n}\n\nconsole.log(createPageLink('abc123', '시작하기'));\n// 출력: <a href=\"#page-abc123\">시작하기</a></code></pre>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000008",
+      "type": "heading2",
+      "content": "<h2>💬 인용구</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000009",
+      "type": "paragraph",
+      "content": "<blockquote><p>단순함은 복잡함보다 어렵다. 생각을 정리하고 단순하게 만들기 위해서는 열심히 노력해야 한다. 하지만 결국 그게 가치있는 일이다.</p><p>— Steve Jobs</p></blockquote>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000010",
+      "type": "heading2",
+      "content": "<h2>🔀 토글 블록</h2>",
+      "children": [
+        {
+          "id": "b2000000-0000-0000-0000-000000000011",
+          "type": "paragraph",
+          "content": "<p>토글 안에 내용을 넣을 수 있습니다. <strong>클릭해서 펼치거나 접으세요.</strong></p>",
+          "children": [],
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        },
+        {
+          "id": "b2000000-0000-0000-0000-000000000012",
+          "type": "bulletList",
+          "content": "<ul><li><p>토글 안에 중첩된 목록도 가능</p></li><li><p>다양한 블록을 토글 안에 배치</p></li></ul>",
+          "children": [],
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000013",
+      "type": "divider",
+      "content": "<hr>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "b2000000-0000-0000-0000-000000000014",
+      "type": "paragraph",
+      "content": "<p>더 많은 블록은 <code>/</code> 커맨드를 입력해 추가하세요. 칸반 보드, 캘린더, 손그림(Excalidraw), 캔버스 등 다양한 블록을 지원합니다! 🎉</p>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}

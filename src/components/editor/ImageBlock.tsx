@@ -65,6 +65,8 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
   const displayWidth = isResizing ? localWidth : savedWidth
 
   // 유효한 이미지 src 여부
+  // data:image/ — 구 포맷 base64 (legacy 표시 전용, 신규 저장 금지)
+  // http — 서버 업로드 후 받은 정상 URL
   const hasValidImage = src.startsWith('data:image/') || src.startsWith('http')
 
   // -----------------------------------------------
@@ -77,11 +79,11 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
 
   // -----------------------------------------------
   // 파일 → 서버 업로드 후 URL 저장
-  // 서버가 꺼져 있으면 base64 data URL로 fallback
+  // 업로드 실패 시 base64 저장 금지 — vault 파일 비대화 방지
   // Python으로 치면:
   //   async def load_file(file):
   //       try: url = await api.upload(file); save(url)
-  //       except: url = to_base64(file); save(url)
+  //       except: toast.error(...); return  # base64 저장 안 함
   // -----------------------------------------------
   async function loadFile(file: File) {
     if (!file.type.startsWith('image/')) return
@@ -91,16 +93,8 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
       const url = await api.uploadImage(pageId, file)
       saveContent(url, savedWidth)
     } catch {
-      // 서버 꺼져 있을 때 — base64로 임시 저장 (Graceful degradation)
-      toast.warning('서버 업로드 실패. 임시 저장으로 유지되며 서버 재연결 시 다시 업로드해 주세요.', {
-        duration: 5000,
-      })
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        const dataUrl = e.target?.result as string
-        saveContent(dataUrl, savedWidth)
-      }
-      reader.readAsDataURL(file)
+      // 업로드 실패 시 에러 표시만 — base64 fallback 제거
+      toast.error('이미지 업로드에 실패했습니다. 서버 연결을 확인해 주세요.')
     } finally {
       setIsUploading(false)
     }

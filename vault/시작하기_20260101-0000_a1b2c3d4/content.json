@@ -1,0 +1,85 @@
+{
+  "id": "a1b2c3d4-1234-4000-abcd-000000000001",
+  "title": "시작하기",
+  "icon": "🚀",
+  "cover": "gradient:linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+  "coverPosition": 50,
+  "tags": ["가이드"],
+  "starred": true,
+  "blocks": [
+    {
+      "id": "a1000000-0000-0000-0000-000000000001",
+      "type": "paragraph",
+      "content": "<p>Notion Clone에 오신 것을 환영합니다! 이 앱은 <strong>블록 기반 노트 앱</strong>입니다. 왼쪽 사이드바에서 페이지를 관리하고, <code>/</code> 커맨드로 다양한 블록을 추가할 수 있습니다.</p>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000002",
+      "type": "heading2",
+      "content": "<h2>🗝 핵심 기능</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000003",
+      "type": "bulletList",
+      "content": "<ul><li><p>📝 <strong>블록 편집기</strong> — 단락, 제목, 목록, 코드, 이미지 등 다양한 블록 지원</p></li><li><p>📂 <strong>카테고리</strong> — 페이지를 폴더처럼 묶어 관리</p></li><li><p>🔗 <strong>백링크</strong> — <code>[[링크]]</code>로 페이지를 연결하고 참조 목록 확인</p></li><li><p>🎨 <strong>플러그인</strong> — 칸반 보드, 캘린더, 포모도로 타이머, 목차 패널 등</p></li><li><p>📦 <strong>내보내기</strong> — 페이지를 PDF·Markdown으로 내보내기</p></li></ul>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000004",
+      "type": "heading2",
+      "content": "<h2>⚡ 빠른 시작</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000005",
+      "type": "orderedList",
+      "content": "<ol><li><p>왼쪽 사이드바에서 <strong>+ 새 페이지</strong>를 클릭하세요</p></li><li><p>페이지 상단에 <strong>제목</strong>을 입력하세요</p></li><li><p>본문에서 <code>/</code>를 입력해 블록 타입을 선택하세요</p></li><li><p><code>@</code>를 입력하면 다른 페이지를 멘션할 수 있습니다</p></li><li><p><code>[[</code>를 입력하면 페이지 링크를 삽입합니다</p></li></ol>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000006",
+      "type": "heading2",
+      "content": "<h2>⌨️ 단축키</h2>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000007",
+      "type": "taskList",
+      "content": "<ul data-type=\"taskList\"><li data-type=\"taskItem\" data-checked=\"true\"><label><input type=\"checkbox\" checked></label><div><p><strong>Ctrl+Z / Ctrl+Y</strong> — 실행 취소 / 다시 실행</p></div></li><li data-type=\"taskItem\" data-checked=\"true\"><label><input type=\"checkbox\" checked></label><div><p><strong>Ctrl+B / Ctrl+I / Ctrl+U</strong> — 굵게 / 기울임 / 밑줄</p></div></li><li data-type=\"taskItem\" data-checked=\"true\"><label><input type=\"checkbox\" checked></label><div><p><strong>Ctrl+Shift+F</strong> — 집중 모드 (방해 요소 숨기기)</p></div></li><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"></label><div><p><strong>Ctrl+Alt+D</strong> — 오늘의 일간 노트 열기</p></div></li><li data-type=\"taskItem\" data-checked=\"false\"><label><input type=\"checkbox\"></label><div><p><strong>?</strong> 버튼 클릭 — 전체 단축키 / 슬래시 커맨드 안내</p></div></li></ul>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000008",
+      "type": "divider",
+      "content": "<hr>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "a1000000-0000-0000-0000-000000000009",
+      "type": "paragraph",
+      "content": "<p>더 많은 기능은 <strong>설정 탭</strong>의 플러그인 메뉴에서 확인하세요. 아래 샘플 노트에서 다양한 블록 타입을 직접 확인해보세요! 👇</p>",
+      "children": [],
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    }
+  ],
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-01T00:00:00.000Z"
+}

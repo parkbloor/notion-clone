@@ -8,6 +8,7 @@
 
 import { useRef, useState, useEffect } from 'react'
 import { Undo2, Redo2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
 import { Block, Page } from '@/types/block'
@@ -17,6 +18,7 @@ import CoverPicker from './CoverPicker'
 import TemplatePanel from './TemplatePanel'
 import WordCountBar from './WordCountBar'
 import TocPanel from './TocPanel'
+import BacklinkPanel from './BacklinkPanel'
 import { useSettingsStore } from '@/store/settingsStore'
 
 // =============================================
@@ -367,11 +369,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
 
   // -----------------------------------------------
   // 커버 이미지 파일 선택 → 서버 업로드 후 URL 저장
-  // 서버가 꺼져 있으면 base64 data URL로 fallback
+  // 업로드 실패 시 base64 저장 금지 — vault 파일 비대화 방지
   // Python으로 치면:
   //   async def on_cover_change(file):
   //       try: url = await api.upload(file); update_cover(url)
-  //       except: url = to_base64(file); update_cover(url)
+  //       except: toast.error(...); return  # base64 저장 안 함
   // -----------------------------------------------
   async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -381,11 +383,8 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       const url = await api.uploadImage(pageId, file)
       updatePageCover(pageId, url)
     } catch {
-      const reader = new FileReader()
-      reader.onload = (ev) => {
-        updatePageCover(pageId, ev.target?.result as string)
-      }
-      reader.readAsDataURL(file)
+      // 업로드 실패 시 에러 표시만 — base64 fallback 제거
+      toast.error('커버 이미지 업로드에 실패했습니다. 서버 연결을 확인해 주세요.')
     }
   }
 
@@ -812,6 +811,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             블록이 모두 비어 있어도 바는 항상 표시 (0 단어 0 글자)
             Python으로 치면: if plugins.word_count: render WordCountBar(page.blocks) */}
         {plugins.wordCount && <WordCountBar blocks={page.blocks} />}
+
+        {/* 백링크 패널 — 이 페이지를 참조하는 다른 페이지 목록 표시
+            백링크가 없으면 BacklinkPanel 자체가 null 반환 → 섹션 안 보임
+            Python으로 치면: if plugins.backlinks: render BacklinkPanel(page.id) */}
+        {plugins.backlinks && <BacklinkPanel pageId={pageId} />}
 
       </div>
 

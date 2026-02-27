@@ -41,6 +41,7 @@ export interface PluginSettings {
   videoAutoplay: boolean   // 비디오 자동 재생 (Autoplay & Loop 플러그인)
   videoLoop: boolean       // 비디오 반복 재생 (Autoplay & Loop 플러그인)
   layoutEnabled: boolean   // 레이아웃 블록 (슬래시 메뉴 표시 여부)
+  backlinks: boolean       // 페이지 하단 백링크 패널 표시
 }
 
 // -----------------------------------------------
@@ -168,6 +169,7 @@ export const useSettingsStore = create<SettingsStore>()(
         videoAutoplay:    false,  // 기본값: 자동재생 OFF (사용자가 직접 켜야 함)
         videoLoop:        false,  // 기본값: 반복재생 OFF
         layoutEnabled:    true,   // 기본값: 레이아웃 블록 ON (슬래시 메뉴에 표시)
+        backlinks:        true,   // 기본값: 백링크 패널 ON
       },
       // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
       isFocusMode: false,

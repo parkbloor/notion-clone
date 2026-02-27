@@ -80,6 +80,7 @@ notion-clone/
 │   │   │   ├── VideoBlock.tsx    # ✅ 로컬 비디오 파일 업로드 + 재생
 │   │   │   ├── LayoutBlock.tsx   # ✅ A4 다단 레이아웃 블록 (8종 템플릿)
 │   │   │   ├── LayoutSlot.tsx    # ✅ 레이아웃 블록 안의 슬롯 (미니 에디터)
+│   │   │   ├── BacklinkPanel.tsx # 백링크 패널 (이 페이지를 참조하는 페이지 목록)
 │   │   │   ├── WordCountBar.tsx  # 에디터 하단 단어/글자 수 표시
 │   │   │   ├── PomodoroWidget.tsx # 포모도로 타이머 플로팅 위젯
 │   │   │   ├── TocPanel.tsx      # 목차(TOC) 사이드 패널
@@ -231,6 +232,7 @@ content.json = {
 
 ### ✅ 플러그인 시스템
 - [x] 단어 수 표시 (WordCountBar) — 에디터 하단 실시간 단어/글자 수
+- [x] 백링크 패널 (BacklinkPanel) — 페이지 하단, @멘션/[[ 링크로 참조하는 페이지 카드 목록
 - [x] 집중 모드 — `Ctrl+Shift+F`, 사이드바 숨김, `isFocusMode` + `toggleFocusMode()`
 - [x] 포모도로 타이머 — 25분+5분 플로팅 위젯, 최소화 지원, 완료 횟수 🍅 표시
 - [x] 목차(TOC) 패널 — `xl:` 이상에서만 우측 sticky 표시, 헤딩 클릭 시 스크롤

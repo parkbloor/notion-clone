@@ -1,38 +1,14 @@
 {
   "pageOrder": [
-    "f6e50297-47bc-408a-9cec-ba7b83d371ad",
-    "f564acf0-3380-4edb-a7db-adae8124c674",
-    "a0791b70-e850-4ca7-ae0e-e2cfad6502d0",
-    "3e4f021f-21f0-4748-b6a2-f14b2c5e29d4",
-    "a547cf1a-6a8a-45e6-89a8-1377a0876821",
-    "bd9ec4cb-8348-44b9-90f4-ac93be709639"
+    "a1b2c3d4-1234-4000-abcd-000000000001",
+    "b2c3d4e5-2345-4000-abcd-000000000002"
   ],
-  "currentPageId": "bd9ec4cb-8348-44b9-90f4-ac93be709639",
+  "currentPageId": "a1b2c3d4-1234-4000-abcd-000000000001",
   "folderMap": {
-    "f6e50297-47bc-408a-9cec-ba7b83d371ad": "처음_만드는_제목_20260219-2345_f6e50297",
-    "f564acf0-3380-4edb-a7db-adae8124c674": "두번째_만드는_제목_20260220-0350_f564acf0",
-    "a0791b70-e850-4ca7-ae0e-e2cfad6502d0": "빠른_메모_20260221-0507_a0791b70",
-    "3e4f021f-21f0-4748-b6a2-f14b2c5e29d4": "첫_번째_페이지_20260225-1047_3e4f021f",
-    "a547cf1a-6a8a-45e6-89a8-1377a0876821": "새_페이지_20260225-1127_a547cf1a",
-    "bd9ec4cb-8348-44b9-90f4-ac93be709639": "새_페이지_20260226-0517_bd9ec4cb"
+    "a1b2c3d4-1234-4000-abcd-000000000001": "시작하기_20260101-0000_a1b2c3d4",
+    "b2c3d4e5-2345-4000-abcd-000000000002": "샘플_노트_20260101-0000_b2c3d4e5"
   },
-  "categories": [
-    {
-      "id": "d2ea89fc-6385-4f5a-bafe-7cb258848b53",
-      "name": "테스트",
-      "folderName": "테스트"
-    },
-    {
-      "id": "2de0bedf-ae3f-47b9-9036-f01f17b01a95",
-      "name": "호ㅓㅗㅎ",
-      "folderName": "호ㅓㅗㅎ"
-    }
-  ],
-  "categoryMap": {
-    "f564acf0-3380-4edb-a7db-adae8124c674": "d2ea89fc-6385-4f5a-bafe-7cb258848b53"
-  },
-  "categoryOrder": [
-    "2de0bedf-ae3f-47b9-9036-f01f17b01a95",
-    "d2ea89fc-6385-4f5a-bafe-7cb258848b53"
-  ]
+  "categories": [],
+  "categoryMap": {},
+  "categoryOrder": []
 }

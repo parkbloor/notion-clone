@@ -216,7 +216,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === 'heading') return '제목을 입력하세요'
-          return "'/' 입력으로 명령어 사용"
+          return "'/' 커맨드  ·  '@' 멘션  ·  '[[' 링크"
         },
       }),
       Typography,
