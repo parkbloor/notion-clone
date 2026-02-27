@@ -6,8 +6,10 @@
 
 import json
 import logging
+import os
 import re
 import shutil
+import sys
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -17,15 +19,31 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 
+# ── 앱 기본 디렉토리 결정 ────────────────────────────
+# PyInstaller로 번들된 경우와 개발 모드를 구분
+# Python으로 치면:
+#   if frozen: _APP_BASE = AppData/NotionClone  else: _APP_BASE = project_root
+if getattr(sys, 'frozen', False):
+    # PyInstaller 번들 모드: %APPDATA%\NotionClone\ 사용 (항상 쓰기 가능, 재설치 후에도 데이터 유지)
+    # Python으로 치면: _APP_BASE = Path(os.environ['APPDATA']) / 'NotionClone'
+    _appdata = os.environ.get('APPDATA') or str(Path.home())
+    _APP_BASE = Path(_appdata) / 'NotionClone'
+    _APP_BASE.mkdir(parents=True, exist_ok=True)
+else:
+    # 개발 모드: 프로젝트 루트 (backend/ 의 상위)
+    # Python으로 치면: _APP_BASE = Path(__file__).parent.parent
+    _APP_BASE = Path(__file__).parent.parent
+
+
 # ── vault 설정 파일 (사용자 지정 경로 저장) ─────────
-# Python으로 치면: CONFIG_FILE = BASE_DIR / 'vault_config.json'
-CONFIG_FILE = Path(__file__).parent / "vault_config.json"
+# Python으로 치면: CONFIG_FILE = _APP_BASE / 'vault_config.json'
+CONFIG_FILE = _APP_BASE / "vault_config.json"
 
 
 def _load_vault_dir() -> Path:
     """
     vault_config.json에서 사용자 지정 경로를 읽어 VAULT_DIR 결정
-    설정 파일 없거나 경로 이상하면 기본값(프로젝트 루트/vault) 반환
+    설정 파일 없거나 경로 이상하면 기본값(_APP_BASE/vault) 반환
     Python으로 치면: def _get_vault_dir(): return json.load('config.json')['vault_path'] or DEFAULT
     """
     if CONFIG_FILE.exists():
@@ -39,7 +57,8 @@ def _load_vault_dir() -> Path:
                     return p
         except Exception:
             pass
-    return Path(__file__).parent.parent / "vault"
+    # 기본값: _APP_BASE/vault (개발: 프로젝트루트/vault, 번들: AppData/NotionClone/vault)
+    return _APP_BASE / "vault"
 
 
 # ── vault 디렉토리 설정 ────────────────────────

@@ -2,11 +2,17 @@
   "name": "notion-clone",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
     "dev": "concurrently --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev\" \"python -m uvicorn backend.main:app --reload --port 8000\"",
     "dev:next": "next dev",
     "dev:api": "python -m uvicorn backend.main:app --reload --port 8000",
+    "electron:dev": "concurrently --names \"next,fastapi,electron\" --prefix-colors \"blue,green,cyan\" --kill-others-on-fail \"next dev\" \"python -m uvicorn backend.main:app --reload --port 8000\" \"wait-on http://localhost:3000 http://localhost:8000 && electron .\"",
     "build": "next build",
+    "build:next": "next build && node scripts/copy-next-static.js",
+    "build:backend": "pyinstaller backend/backend.spec --distpath dist-backend --workpath build-backend --noconfirm",
+    "build:electron": "electron-builder",
+    "build:all": "npm run build:next && npm run build:backend && npm run build:electron",
     "start": "next start",
     "lint": "eslint"
   },
@@ -53,11 +59,14 @@
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",
     "concurrently": "^9.2.1",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "shadcn": "^3.8.5",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^8.0.5"
   }
 }

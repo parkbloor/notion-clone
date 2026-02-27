@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<!--
+  electron/loading.html
+  역할: Electron 앱 시작 시 두 서버(Next.js + FastAPI)가 준비될 때까지 보여주는 로딩 화면
+-->
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>시작 중...</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    /* 앱 아이콘 자리 */
+    .icon {
+      font-size: 3rem;
+      margin-bottom: 1.2rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* 앱 이름 */
+    .title {
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: #ffffff;
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.02em;
+    }
+
+    /* 상태 메시지 */
+    .status {
+      font-size: 0.85rem;
+      color: #9ca3af;
+      margin-bottom: 2rem;
+    }
+
+    /* 애니메이션 점 3개 로딩 바 */
+    .dots {
+      display: flex;
+      gap: 0.4rem;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6366f1;
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+
+    .dot:nth-child(1) { animation-delay: 0s; }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40%            { transform: scale(1.0); opacity: 1.0; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50%       { transform: scale(1.08); }
+    }
+  </style>
+</head>
+<body>
+  <div class="icon">📝</div>
+  <div class="title">Notion Clone</div>
+  <div class="status">서버를 시작하는 중입니다...</div>
+  <div class="dots">
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+  </div>
+</body>
+</html>

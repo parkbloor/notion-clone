@@ -44,5 +44,10 @@ next-env.d.ts
 __pycache__/
 *.pyc
 
+# Electron 빌드 산출물
+/dist-electron/
+/dist-backend/
+/build-backend/
+
 # claude code memory (local only)
 .claude/
