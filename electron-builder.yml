@@ -14,11 +14,14 @@ directories:
   buildResources: electron/assets  # 아이콘 등 빌드 리소스
 
 # ── Electron 메인 파일 및 앱 포함 파일 ────────────────
-# 'files' = 앱 asar 번들에 포함할 파일 (전체 node_modules 제외)
+# 'files' = 앱 asar 번들에 포함할 파일
+# electron/main.js 는 Node.js 내장 모듈만 사용 → node_modules 불필요
+# node_modules 제외 시 app.asar 크기: ~440MB → ~수 KB 로 감소
 files:
   - electron/main.js
   - electron/preload.js
   - package.json
+  - "!node_modules/**"
 
 # ── extraResources: asar 밖에 두어 런타임에 접근 가능 ─────
 # process.resourcesPath 로 접근
@@ -51,6 +54,9 @@ win:
     - target: nsis
       arch:
         - x64
+  # 코드 서명 비활성화 (개인용 빌드, 인증서 없음)
+  # → winCodeSign 다운로드 및 심볼릭 링크 오류 방지
+  signingHashAlgorithms: []
   # 아이콘 파일 (없으면 Electron 기본 아이콘 사용)
   # icon: electron/assets/icon.ico
 
