@@ -16,7 +16,6 @@ import Editor from './Editor'
 import EmojiPicker from './EmojiPicker'
 import CoverPicker from './CoverPicker'
 import TemplatePanel from './TemplatePanel'
-import WordCountBar from './WordCountBar'
 import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -127,6 +126,11 @@ function blockToMarkdown(block: Block): string {
     case 'image':
       // content = 이미지 URL 문자열
       return `![이미지](${c})`
+
+    case 'math':
+      // LaTeX 수식 블록 → 마크다운 수식 펜스($$...$$)로 내보내기
+      // Python으로 치면: f'$$\n{latex}\n$$'
+      return c.trim() ? `$$\n${c.trim()}\n$$` : ''
 
     case 'divider':
       return '---'
@@ -584,7 +588,9 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       <div className="flex items-start">
       {/* 본문 콘텐츠 래퍼 — 모바일: px-4, 태블릿: px-8, 데스크탑: px-16 */}
       {/* Python으로 치면: padding = 'px-16' if desktop else 'px-4' */}
-      <div className="content-body flex-1 min-w-0 max-w-3xl mr-auto px-4 sm:px-8 md:px-16 pb-24">
+      {/* max-w는 --editor-max-width CSS 변수로 제어 (하단 슬라이더 + settingsStore) */}
+      {/* Python으로 치면: content_body.max_width = css_var('--editor-max-width') */}
+      <div className="content-body flex-1 min-w-0 mr-auto px-4 sm:px-8 md:px-16 pb-8" style={{ maxWidth: 'var(--editor-max-width, 768px)' }}>
 
         {/* ── undo/redo + 내보내기 버튼 (우측 상단) ──────
             historyVersion 구독 → 버튼 활성화 상태 자동 갱신
@@ -807,11 +813,6 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           onClick={() => addBlock(pageId)}
         />
 
-        {/* ── 단어 수 표시 바 (플러그인 ON 시만 렌더링) ──
-            블록이 모두 비어 있어도 바는 항상 표시 (0 단어 0 글자)
-            Python으로 치면: if plugins.word_count: render WordCountBar(page.blocks) */}
-        {plugins.wordCount && <WordCountBar blocks={page.blocks} />}
-
         {/* 백링크 패널 — 이 페이지를 참조하는 다른 페이지 목록 표시
             백링크가 없으면 BacklinkPanel 자체가 null 반환 → 섹션 안 보임
             Python으로 치면: if plugins.backlinks: render BacklinkPanel(page.id) */}
@@ -824,7 +825,10 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           sticky top-20: 스크롤 시 상단에 고정
           Python으로 치면: if plugins.table_of_contents: render TocPanel(page.blocks) */}
       {plugins.tableOfContents && (
-        <div className="hidden xl:block pt-16">
+        // self-stretch: items-start 부모에서 TOC 래퍼가 content-body와 같은 높이로 늘어나야
+        // sticky top-20이 전체 스크롤 구간 동안 유지됨 (높이가 짧으면 즉시 컨테이너 끝에 닿아 고정 해제)
+        // Python으로 치면: toc_wrapper.height = content_body.height  # sticky가 작동하는 최소 조건
+        <div className="hidden xl:block self-stretch pt-16">
           <TocPanel blocks={page.blocks} />
         </div>
       )}

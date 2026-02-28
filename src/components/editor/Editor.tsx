@@ -12,6 +12,15 @@ import { Typography } from '@tiptap/extension-typography'
 import { Highlight } from '@tiptap/extension-highlight'
 import { Color } from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
+// ── 폰트 확장 ────────────────────────────────────
+// FontFamily: 선택된 텍스트에 font-family 인라인 적용 (TextStyle mark 기반)
+// FontSize: 커스텀 확장 — 선택된 텍스트에 font-size 인라인 적용
+// Python으로 치면: from tiptap import FontFamily; from extensions import FontSize
+import { FontFamily } from '@tiptap/extension-font-family'
+import { FontSize } from '@/extensions/FontSize'
+// 인라인 수식 확장: $...$ 패턴 → KaTeX 인라인 노드 자동 변환
+// Python으로 치면: from extensions import InlineMath
+import { InlineMath } from '@/extensions/InlineMath'
 import { TaskList } from '@tiptap/extension-task-list'
 import { TaskItem } from '@tiptap/extension-task-item'
 // ── 테이블 확장 ────────────────────────────────
@@ -41,6 +50,9 @@ import CanvasBlock from './CanvasBlock'
 import ExcalidrawBlock from './ExcalidrawBlock'
 import VideoBlock from './VideoBlock'
 import LayoutBlock from './LayoutBlock'
+import MathBlock from './MathBlock'
+import ContextMenu from './ContextMenu'
+import type { ContextMenuSection } from './ContextMenu'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -72,15 +84,18 @@ const CustomCodeBlock = CodeBlockLowlight.extend({
   },
 }).configure({ lowlight, defaultLanguage: 'javascript' })
 
-const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3>> = {
+const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading1: 1,
   heading2: 2,
   heading3: 3,
+  heading4: 4,
+  heading5: 5,
+  heading6: 6,
 }
 
 export default function Editor({ block, pageId, isLast }: EditorProps) {
 
-  const { updateBlock, addBlock, deleteBlock, updateBlockType, pages, setCurrentPage } = usePageStore()
+  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, pages, setCurrentPage } = usePageStore()
 
   // -----------------------------------------------
   // useSortable: 이 블록을 dnd-kit의 드래그 가능한 아이템으로 등록
@@ -124,6 +139,11 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   // Python으로 치면: self._mention_ref = self.mention_state
   const mentionMenuRef = useRef(mentionMenu)
   useEffect(() => { mentionMenuRef.current = mentionMenu }, [mentionMenu])
+
+  // 우클릭 컨텍스트 메뉴 위치 상태
+  // null = 닫힘, { x, y } = 해당 viewport 좌표에 메뉴 표시
+  // Python으로 치면: self.ctx_menu_pos: tuple | None = None
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
 
   const checkSlash = useCallback((editor: TiptapEditor) => {
     const { state } = editor
@@ -212,7 +232,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       // (별도 import 없이 StarterKit.configure로 제어)
       // codeBlock: false → StarterKit 내장 코드 블록 비활성화
       // CustomCodeBlock이 대체하므로 중복 등록 방지
-      StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }),
+      StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3, 4, 5, 6] }, link: { openOnClick: false } }),
       Placeholder.configure({
         placeholder: ({ node }) => {
           if (node.type.name === 'heading') return '제목을 입력하세요'
@@ -225,6 +245,13 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       Highlight.configure({ multicolor: true }),
       TextStyle,
       Color,
+      // FontFamily: TextStyle보다 뒤에 등록해야 TextStyle mark를 확장할 수 있음
+      // Python으로 치면: extensions.extend([FontFamily, FontSize])
+      FontFamily,
+      FontSize,
+      // 인라인 수식: $...$ 입력 시 자동으로 KaTeX 노드로 변환
+      // Python으로 치면: extensions.append(InlineMath)
+      InlineMath,
       TaskList,
       TaskItem.configure({ nested: true }),
       // ── 테이블 확장 등록 ─────────────────────────
@@ -242,7 +269,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     // Python으로 치면: content = '' if type in ('image', 'toggle', 'excalidraw', 'video') else block.content
     // 이미지·토글·레이아웃 등 비-Tiptap 블록은 Tiptap content를 빈 문자열로 초기화
     // Python으로 치면: content = '' if type in ('image', 'toggle', 'layout', ...) else block.content
-    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout') ? '' : (block.content || ''),
+    // math 블록도 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
+    // Python으로 치면: content = '' if type in ('image', 'toggle', ..., 'math') else block.content
+    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout' || block.type === 'math') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -320,6 +349,27 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           return true
         }
 
+        // ── Shift+Enter: 리스트 안 → 새 list item, 그 외 → <br> 줄바꿈 ──────
+        // 리스트에서 Shift+Enter를 누르면 같은 블록 안에 새 항목 추가
+        // paragraph 등에서는 Tiptap 기본 HardBreak(<br>) 동작 유지
+        // Python으로 치면: if shift+enter and in_list: split_list_item() else: hard_break()
+        if (event.key === 'Enter' && event.shiftKey) {
+          if (editor && (editor.isActive('bulletList') || editor.isActive('orderedList'))) {
+            // 글머리·번호 목록: listItem 분리 → 새 항목
+            event.preventDefault()
+            editor.chain().focus().splitListItem('listItem').run()
+            return true
+          }
+          if (editor && editor.isActive('taskList')) {
+            // 체크박스 목록: taskItem 분리 → 새 항목
+            event.preventDefault()
+            editor.chain().focus().splitListItem('taskItem').run()
+            return true
+          }
+          // 리스트 외 (paragraph 등): Tiptap HardBreak(<br>) 기본 동작 위임
+          return false
+        }
+
         if (event.key === 'Enter' && !event.shiftKey) {
           // 테이블 셀/헤더 안에서는 Tiptap 기본 동작 유지 (셀 내 줄바꿈)
           // 새 블록을 추가하면 테이블이 두 블록으로 쪼개지기 때문
@@ -348,6 +398,92 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (!editor) return
     applyBlockType(editor, block.type)
   }, [block.type, editor])
+
+  // -----------------------------------------------
+  // 우클릭 컨텍스트 메뉴 핸들러
+  // Excalidraw는 내부 자체 컨텍스트 메뉴가 있으므로 가로채지 않음
+  // Python으로 치면: def on_right_click(e): if excalidraw: return; show_menu(e.pos)
+  // -----------------------------------------------
+  function handleContextMenu(e: React.MouseEvent) {
+    if (block.type === 'excalidraw') return
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY })
+  }
+
+  // -----------------------------------------------
+  // 컨텍스트 메뉴 섹션 빌더
+  // sections 배열로 구성 — 새 기능 추가 시 여기에 section / action 추가
+  // isTextBlock: Tiptap 기반 블록 여부 → true면 타입 변환 섹션 표시
+  // Python으로 치면: def build_sections() -> list[Section]: ...
+  // -----------------------------------------------
+  function buildContextSections(): ContextMenuSection[] {
+    const isTextBlock = ![
+      'image', 'toggle', 'kanban', 'admonition',
+      'canvas', 'excalidraw', 'video', 'layout', 'math', 'divider',
+    ].includes(block.type)
+
+    const sections: ContextMenuSection[] = [
+      // ── 블록 추가 ───────────────────────────────
+      {
+        id: 'add',
+        actions: [
+          {
+            id: 'add-above',
+            label: '위에 블록 추가',
+            icon: '↑',
+            onClick: () => addBlockBefore(pageId, block.id),
+          },
+          {
+            id: 'add-below',
+            label: '아래에 블록 추가',
+            icon: '↓',
+            onClick: () => addBlock(pageId, block.id),
+          },
+        ],
+      },
+      // ── 블록 관리 ───────────────────────────────
+      {
+        id: 'block-ops',
+        actions: [
+          {
+            id: 'duplicate',
+            label: '블록 복제',
+            icon: '⧉',
+            onClick: () => duplicateBlock(pageId, block.id),
+          },
+          {
+            id: 'delete',
+            label: '블록 삭제',
+            icon: '✕',
+            danger: true,
+            onClick: () => deleteBlock(pageId, block.id),
+          },
+        ],
+      },
+    ]
+
+    // ── 블록 타입 변환 (Tiptap 텍스트 블록만) ────────
+    // Python으로 치면: if is_text_block: sections.append(convert_section)
+    if (isTextBlock) {
+      sections.push({
+        id: 'convert',
+        title: '블록 타입 변환',
+        actions: [
+          { id: 'to-para',    label: '단락',        icon: 'T',   onClick: () => updateBlockType(pageId, block.id, 'paragraph') },
+          { id: 'to-h1',     label: '제목 1',       icon: 'H1',  onClick: () => updateBlockType(pageId, block.id, 'heading1') },
+          { id: 'to-h2',     label: '제목 2',       icon: 'H2',  onClick: () => updateBlockType(pageId, block.id, 'heading2') },
+          { id: 'to-h3',     label: '제목 3',       icon: 'H3',  onClick: () => updateBlockType(pageId, block.id, 'heading3') },
+          { id: 'to-bullet', label: '글머리 목록',   icon: '•',   onClick: () => updateBlockType(pageId, block.id, 'bulletList') },
+          { id: 'to-ol',     label: '번호 목록',     icon: '1.',  onClick: () => updateBlockType(pageId, block.id, 'orderedList') },
+          { id: 'to-task',   label: '체크 목록',     icon: '☐',   onClick: () => updateBlockType(pageId, block.id, 'taskList') },
+          { id: 'to-code',   label: '코드',          icon: '</>',  onClick: () => updateBlockType(pageId, block.id, 'code') },
+        ],
+      })
+    }
+
+    return sections
+  }
 
   function handleSlashSelect(type: BlockType) {
     if (!editor) return
@@ -404,6 +540,11 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (type === 'layout') {
       updateBlock(pageId, block.id, '')
     }
+    // 수식 타입으로 전환 시 빈 LaTeX 문자열로 초기화 → MathBlock 편집 모드 표시
+    // Python으로 치면: if type == 'math': block.content = ''
+    if (type === 'math') {
+      updateBlock(pageId, block.id, '')
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
@@ -454,7 +595,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (!editor) return
     // 이미지·토글·레이아웃 등 비-Tiptap 블록은 조기 반환
     // Python으로 치면: if type in ('image', 'toggle', 'layout', ...): return
-    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout') return
+    // math 블록도 비-Tiptap 블록 — 조기 반환
+    // Python으로 치면: if type in ('image', ..., 'math'): return
+    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -496,6 +639,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         {/* + 블록 메뉴 버튼 */}
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -511,6 +655,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         <div className="flex-1">
           <ImageBlock block={block} pageId={pageId} />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -531,6 +678,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -544,6 +692,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         <div className="flex-1">
           <ToggleBlock block={block} pageId={pageId} isLast={isLast} />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -564,6 +715,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -582,6 +734,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
           />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -602,6 +757,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -619,6 +775,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
           />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -639,6 +798,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -656,6 +816,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
           />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -676,6 +839,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -693,6 +857,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
           />
         </div>
+        {/* Excalidraw는 handleContextMenu에서 early return하므로 contextMenu가 null — 렌더링 없음 */}
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -713,6 +881,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -726,6 +895,9 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         <div className="flex-1">
           <VideoBlock block={block} pageId={pageId} />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -747,6 +919,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           opacity: isDragging ? 0.4 : 1,
         }}
         className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
         <div
@@ -764,6 +937,46 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
             onChange={newContent => updateBlock(pageId, block.id, newContent)}
           />
         </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 수식 블록: MathBlock 컴포넌트로 렌더링
+  // content = raw LaTeX 문자열 (예: "\sqrt{x^2 + y^2}")
+  // Python으로 치면: if block.type == 'math': return render(MathBlock)
+  // -----------------------------------------------
+  if (block.type === 'math') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <MathBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
       </div>
     )
   }
@@ -784,6 +997,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         opacity: isDragging ? 0.4 : 1,
       }}
       className="group relative flex items-start px-2 py-0.5"
+      onContextMenu={handleContextMenu}
     >
       {/* ── + 블록 메뉴 버튼 ─────────────────────── */}
       {/* BlockMenu: hover 시 + 버튼 표시 → 클릭하면 위/아래 추가·복제·삭제 메뉴 */}
@@ -880,6 +1094,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
           }}
           trigger={mentionMenu.trigger}
         />
+      )}
+      {/* 우클릭 컨텍스트 메뉴 — position:fixed이므로 DOM 위치와 무관 */}
+      {contextMenu && (
+        <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
       )}
     </div>
   )
