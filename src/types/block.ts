@@ -115,6 +115,9 @@ export interface Category {
   id: string           // 카테고리 고유 ID (UUID)
   name: string         // 사용자가 보는 이름 (예: "업무")
   folderName: string   // vault 안의 실제 폴더명 (예: "업무")
+  // 부모 카테고리 ID (null이면 최상위)
+  // Python으로 치면: parent_id: str | None = None
+  parentId?: string | null
 }
 
 

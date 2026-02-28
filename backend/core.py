@@ -162,6 +162,9 @@ class CreatePageBody(BaseModel):
 class CreateCategoryBody(BaseModel):
     """새 카테고리 생성 요청 바디"""
     name: str
+    # 부모 카테고리 ID (None이면 최상위 폴더)
+    # Python으로 치면: parent_id: str | None = None
+    parentId: Optional[str] = None
 
 
 class RenameCategoryBody(BaseModel):
@@ -285,6 +288,12 @@ def load_index() -> dict:
         data.setdefault("categories", [])
         data.setdefault("categoryMap", {})
         data.setdefault("categoryOrder", [])
+        # 하위 폴더 순서 — { parentCatId: [childCatId, ...] }
+        # Python으로 치면: category_child_order: dict[str, list[str]] = {}
+        data.setdefault("categoryChildOrder", {})
+        # 기존 카테고리에 parentId 기본값 추가 (버전 호환)
+        for cat in data.get("categories", []):
+            cat.setdefault("parentId", None)
         return data
     return {
         "pageOrder": [],
@@ -293,6 +302,8 @@ def load_index() -> dict:
         "categories": [],
         "categoryMap": {},
         "categoryOrder": [],
+        # 하위 폴더 순서 — { parentCatId: [childCatId, ...] }
+        "categoryChildOrder": {},
     }
 
 
@@ -302,6 +313,7 @@ def save_index(data: dict) -> None:
     data.setdefault("categories", [])
     data.setdefault("categoryMap", {})
     data.setdefault("categoryOrder", [])
+    data.setdefault("categoryChildOrder", {})
     INDEX_FILE.write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",

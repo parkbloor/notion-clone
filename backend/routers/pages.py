@@ -61,6 +61,8 @@ def get_pages():
         "categories": index.get("categories", []),
         "categoryMap": index.get("categoryMap", {}),
         "categoryOrder": index.get("categoryOrder", []),
+        # 하위 폴더 순서: { parentCatId: [childCatId, ...] }
+        "categoryChildOrder": index.get("categoryChildOrder", {}),
     }
 
 

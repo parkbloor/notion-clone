@@ -110,8 +110,11 @@ interface PageStore {
   // pageId → categoryId 매핑 (없거나 null이면 미분류)
   // Python으로 치면: category_map: dict[str, str | None] = {}
   categoryMap: Record<string, string | null>
-  // 카테고리 표시 순서 (ID 목록)
+  // 최상위 카테고리 표시 순서 (ID 목록)
   categoryOrder: string[]
+  // 하위 폴더 순서: { parentCatId: [childCatId, ...] }
+  // Python으로 치면: category_child_order: dict[str, list[str]] = {}
+  categoryChildOrder: Record<string, string[]>
   // 현재 선택된 카테고리 ID (null = 전체보기)
   currentCategoryId: string | null
 
@@ -181,14 +184,20 @@ interface PageStore {
 
   // ── 카테고리 액션 ─────────────────────────────
   setCurrentCategory: (categoryId: string | null) => void
-  addCategory: (name: string) => Promise<void>
+  // parentId가 있으면 해당 카테고리의 하위 폴더로 생성
+  // Python으로 치면: async def add_category(self, name, parent_id=None): ...
+  addCategory: (name: string, parentId?: string | null) => Promise<void>
   renameCategory: (categoryId: string, name: string) => Promise<void>
   // 안에 메모가 있으면 hasPages: true 반환 (삭제 안 됨)
+  // 하위 폴더가 있으면 hasChildren: true 반환 (삭제 안 됨)
   // Python으로 치면: async def delete_category(self, cat_id) -> dict
-  deleteCategory: (categoryId: string) => Promise<{ hasPages: boolean; count?: number }>
+  deleteCategory: (categoryId: string) => Promise<{ hasPages: boolean; hasChildren?: boolean; count?: number }>
   // 페이지를 다른 카테고리로 이동 (null = 미분류)
   movePageToCategory: (pageId: string, categoryId: string | null) => Promise<void>
   reorderCategories: (newOrder: string[]) => void
+  // 하위 카테고리 순서 변경 → 서버에도 저장
+  // Python으로 치면: def reorder_child_categories(self, parent_id, new_order): ...
+  reorderChildCategories: (parentId: string, newOrder: string[]) => void
   // 메모 목록 내 드래그로 순서 변경
   // Python으로 치면: def reorder_pages(self, from_id, to_id): ...
   reorderPages: (fromId: string, toId: string) => void
@@ -209,6 +218,7 @@ export const usePageStore = create<PageStore>()(
     categories: [],
     categoryMap: {},
     categoryOrder: [],
+    categoryChildOrder: {},
     currentCategoryId: null,  // null = 전체보기
 
     // 구조 변경/undo/redo 발생 시 증가 → 버튼 활성화 상태 리렌더링용
@@ -253,6 +263,7 @@ export const usePageStore = create<PageStore>()(
           state.categories = data.categories ?? []
           state.categoryMap = data.categoryMap ?? {}
           state.categoryOrder = data.categoryOrder ?? []
+          state.categoryChildOrder = data.categoryChildOrder ?? {}
         })
       } catch {
         // 서버가 꺼져있으면 로컬 초기 상태 유지 + 사용자에게 알림
@@ -704,13 +715,24 @@ export const usePageStore = create<PageStore>()(
     },
 
     // 새 카테고리 생성 → 서버에 POST → vault에 폴더 생성
-    // Python으로 치면: async def add_category(self, name): ...
-    addCategory: async (name) => {
+    // parentId가 있으면 하위 폴더로 생성
+    // Python으로 치면: async def add_category(self, name, parent_id=None): ...
+    addCategory: async (name, parentId) => {
       try {
-        const cat = await api.createCategory(name)
+        const cat = await api.createCategory(name, parentId)
         set((state) => {
           state.categories.push(cat)
-          state.categoryOrder.push(cat.id)
+          if (!parentId) {
+            // 최상위 카테고리 → categoryOrder에 추가
+            state.categoryOrder.push(cat.id)
+          } else {
+            // 하위 카테고리 → 부모의 categoryChildOrder에 추가
+            // Python으로 치면: child_order[parent_id].append(cat.id)
+            if (!state.categoryChildOrder[parentId]) {
+              state.categoryChildOrder[parentId] = []
+            }
+            state.categoryChildOrder[parentId].push(cat.id)
+          }
         })
       } catch {
         toast.error('카테고리 생성에 실패했습니다.')
@@ -735,21 +757,44 @@ export const usePageStore = create<PageStore>()(
     },
 
     // 카테고리 삭제 → 안에 메모 있으면 hasPages: true 반환
+    //                    하위 폴더 있으면 hasChildren: true 반환
     // Python으로 치면: async def delete_category(self, cat_id) -> dict
     deleteCategory: async (categoryId) => {
       try {
         const result = await api.deleteCategory(categoryId)
-        if (!result.hasPages) {
+        // 삭제 성공 (페이지도 없고 하위 폴더도 없음)
+        if (result.ok) {
           set((state) => {
+            // 삭제할 카테고리의 parentId 파악 (childOrder 정리용)
+            const cat = state.categories.find(c => c.id === categoryId)
+            const parentId = cat?.parentId
+
+            // categories 배열에서 제거
             state.categories = state.categories.filter(c => c.id !== categoryId)
+            // 최상위 순서에서 제거
             state.categoryOrder = state.categoryOrder.filter(id => id !== categoryId)
+            // 부모의 childOrder에서 제거
+            if (parentId && state.categoryChildOrder[parentId]) {
+              state.categoryChildOrder[parentId] = state.categoryChildOrder[parentId].filter(
+                id => id !== categoryId
+              )
+              if (state.categoryChildOrder[parentId].length === 0) {
+                delete state.categoryChildOrder[parentId]
+              }
+            }
+            // 이 카테고리의 childOrder 키 제거
+            delete state.categoryChildOrder[categoryId]
             // 삭제된 카테고리를 보고 있었으면 전체보기로 전환
             if (state.currentCategoryId === categoryId) {
               state.currentCategoryId = null
             }
           })
         }
-        return { hasPages: result.hasPages, count: result.count }
+        return {
+          hasPages: result.hasPages ?? false,
+          hasChildren: result.hasChildren,
+          count: result.count,
+        }
       } catch {
         toast.error('카테고리 삭제 중 오류가 발생했습니다.')
         return { hasPages: false }
@@ -786,11 +831,18 @@ export const usePageStore = create<PageStore>()(
       }
     },
 
-    // 카테고리 표시 순서 변경 → 서버에도 저장
+    // 최상위 카테고리 표시 순서 변경 → 서버에도 저장
     // Python으로 치면: def reorder_categories(self, new_order): ...
     reorderCategories: (newOrder) => {
       set((state) => { state.categoryOrder = newOrder })
       api.reorderCategories(newOrder).catch(() => {})
+    },
+
+    // 하위 카테고리 순서 변경 → 서버에도 저장
+    // Python으로 치면: def reorder_child_categories(self, parent_id, new_order): ...
+    reorderChildCategories: (parentId, newOrder) => {
+      set((state) => { state.categoryChildOrder[parentId] = newOrder })
+      api.reorderChildCategories(parentId, newOrder).catch(() => {})
     },
 
     // 메모 목록 내 드래그로 순서 변경 → 서버에도 저장

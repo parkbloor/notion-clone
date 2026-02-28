@@ -69,6 +69,8 @@ export const api = {
     // pageId → categoryId 매핑 (null이면 미분류)
     categoryMap: Record<string, string | null>
     categoryOrder: string[]
+    // 하위 폴더 순서: { parentCatId: [childCatId, ...] }
+    categoryChildOrder: Record<string, string[]>
   }> => {
     const res = await fetch(`${BASE_URL}/api/pages`)
     if (!res.ok) throw new Error('페이지 목록 불러오기 실패')
@@ -155,13 +157,13 @@ export const api = {
     return data.url as string
   },
 
-  // ── 카테고리 생성 ─────────────────────────────
-  // Python으로 치면: requests.post(url, json={'name': name})
-  createCategory: async (name: string): Promise<Category> => {
+  // ── 카테고리 생성 (parentId 있으면 하위 폴더) ──
+  // Python으로 치면: requests.post(url, json={'name': name, 'parentId': parent_id})
+  createCategory: async (name: string, parentId?: string | null): Promise<Category> => {
     const res = await fetch(`${BASE_URL}/api/categories`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, parentId: parentId ?? null }),
     })
     if (!res.ok) throw new Error('카테고리 생성 실패')
     return await res.json()
@@ -181,8 +183,9 @@ export const api = {
 
   // ── 카테고리 삭제 ─────────────────────────────
   // 안에 메모가 있으면 hasPages: true 반환 (삭제 안 됨)
+  // 하위 폴더가 있으면 hasChildren: true 반환 (삭제 안 됨)
   // Python으로 치면: requests.delete(url)
-  deleteCategory: async (categoryId: string): Promise<{ ok: boolean; hasPages: boolean; count?: number }> => {
+  deleteCategory: async (categoryId: string): Promise<{ ok: boolean; hasPages?: boolean; hasChildren?: boolean; count?: number }> => {
     const res = await fetch(`${BASE_URL}/api/categories/${categoryId}`, {
       method: 'DELETE',
     })
@@ -208,10 +211,20 @@ export const api = {
     return data
   },
 
-  // ── 카테고리 순서 변경 ────────────────────────
+  // ── 최상위 카테고리 순서 변경 ────────────────
   // Python으로 치면: requests.patch(url, json={'order': order})
   reorderCategories: async (order: string[]): Promise<void> => {
     await fetch(`${BASE_URL}/api/categories/reorder`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    })
+  },
+
+  // ── 하위 카테고리 순서 변경 ───────────────────
+  // Python으로 치면: requests.patch(url, json={'order': order})
+  reorderChildCategories: async (parentId: string, order: string[]): Promise<void> => {
+    await fetch(`${BASE_URL}/api/categories/${parentId}/reorder-children`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
