@@ -8,7 +8,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { usePageStore } from '@/store/pageStore'
-import { useSettingsStore, applyTheme, applyEditorStyle } from '@/store/settingsStore'
+import { useSettingsStore, applyTheme, applyEditorStyle, applyThemePreset } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
 import PageList from '@/components/editor/PageList'
 import PageEditor from '@/components/editor/PageEditor'
@@ -120,9 +120,12 @@ export default function Home() {
   // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
   // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
   // -----------------------------------------------
-  const { theme, fontFamily, fontSize, lineHeight, editorMaxWidth } = useSettingsStore()
+  const { theme, fontFamily, fontSize, lineHeight, editorMaxWidth, themePreset } = useSettingsStore()
   useEffect(() => {
     applyTheme(theme)
+    // 색상 테마 프리셋 복원 — html[data-theme] 속성 설정
+    // Python으로 치면: apply_theme_preset(self.settings.theme_preset)
+    applyThemePreset(themePreset)
     // editorMaxWidth도 함께 전달 → --editor-max-width CSS 변수 초기화
     // Python으로 치면: apply_editor_style(font, size, lh, max_width)
     applyEditorStyle(fontFamily, fontSize, lineHeight, editorMaxWidth)

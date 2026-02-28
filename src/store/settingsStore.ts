@@ -54,6 +54,10 @@ export interface SettingsStore {
   // 테마: 라이트 / 다크 / 시스템 자동
   // Python으로 치면: self.theme = 'light'
   theme: 'light' | 'dark' | 'auto'
+  // 색상 테마 프리셋: 'default'|'notion'|'sepia'|'minimal'|'forest'
+  // html[data-theme="X"] 선택자로 CSS 변수 전환
+  // Python으로 치면: self.theme_preset = 'default'
+  themePreset: string
 
   // ── 편집기 ──────────────────────────────────
   // 글꼴 패밀리: FONT_PRESETS의 id 문자열 (예: 'noto-sans', 'inter', 'mono' ...)
@@ -90,6 +94,9 @@ export interface SettingsStore {
   // ── 액션 ────────────────────────────────────
   // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
   setTheme: (theme: 'light' | 'dark' | 'auto') => void
+  // 색상 테마 프리셋 변경 — html[data-theme] 속성 전환
+  // Python으로 치면: def set_theme_preset(self, p): self.theme_preset = p; apply_theme_preset(p)
+  setThemePreset: (preset: string) => void
   // font: FONT_PRESETS의 id 문자열
   setFontFamily: (font: string) => void
   setFontSize: (size: number) => void
@@ -129,6 +136,21 @@ export function applyTheme(theme: 'light' | 'dark' | 'auto') {
 }
 
 // -----------------------------------------------
+// 테마 프리셋 적용 함수 — <html> 요소의 data-theme 속성 전환
+// 'default' → 속성 제거 (기존 :root + html.dark 규칙 유지)
+// 나머지 → html[data-theme="X"] 선택자로 CSS 변수 교체
+// Python으로 치면: def apply_theme_preset(preset): html.dataset['theme'] = preset
+// -----------------------------------------------
+export function applyThemePreset(preset: string) {
+  const html = document.documentElement
+  if (!preset || preset === 'default') {
+    html.removeAttribute('data-theme')
+  } else {
+    html.setAttribute('data-theme', preset)
+  }
+}
+
+// -----------------------------------------------
 // 편집기 CSS 변수 적용 — 글꼴/크기/줄간격을 :root 변수로 주입
 // fontFamily: FONT_PRESETS의 id 문자열 (예: 'noto-sans', 'inter', 'mono')
 // getFontPreset()으로 family 문자열을 조회해 CSS 변수에 주입
@@ -163,6 +185,8 @@ export const useSettingsStore = create<SettingsStore>()(
     immer((set) => ({
       // ── 기본값 ──────────────────────────────
       theme: 'light',
+      // 색상 테마 프리셋 기본값 — 'default' = 현재 라이트/다크 방식 유지
+      themePreset: 'default',
       fontFamily: DEFAULT_FONT_ID,  // 'noto-sans'
       fontSize: 16,
       lineHeight: 1.6,
@@ -199,6 +223,13 @@ export const useSettingsStore = create<SettingsStore>()(
       setTheme: (theme) => {
         set((state) => { state.theme = theme })
         applyTheme(theme)
+      },
+
+      // ── 색상 테마 프리셋 변경 ────────────────
+      // Python으로 치면: def set_theme_preset(self, p): self.theme_preset = p; apply_preset(p)
+      setThemePreset: (preset) => {
+        set((state) => { state.themePreset = preset })
+        applyThemePreset(preset)
       },
 
       // ── 편집기 글꼴 변경 ──────────────────────
