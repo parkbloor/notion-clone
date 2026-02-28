@@ -9,6 +9,9 @@
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { useState, useEffect, useRef } from 'react'
 import { FONT_PRESETS, FONT_SIZE_PRESETS, CATEGORY_LABELS, type FontCategory } from '@/lib/fonts'
+// 정렬 아이콘 — lucide-react 패키지에서 가져옴
+// Python으로 치면: from lucide import AlignLeft, AlignCenter, AlignRight, AlignJustify
+import { AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react'
 
 
 // -----------------------------------------------
@@ -395,6 +398,46 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
             {btn.label}
           </button>
         ))}
+
+        <Divider />
+
+        {/* ── 텍스트 정렬 버튼 (좌 / 중 / 우 / 양쪽) ─── */}
+        {/* TextAlign extension이 paragraph/heading에 text-align 속성 적용 */}
+        {/* Python으로 치면: for align in ['left','center','right','justify']: render_btn(align) */}
+        {(
+          [
+            { align: 'left',    title: '왼쪽 정렬',   Icon: AlignLeft    },
+            { align: 'center',  title: '가운데 정렬', Icon: AlignCenter  },
+            { align: 'right',   title: '오른쪽 정렬', Icon: AlignRight   },
+            { align: 'justify', title: '양쪽 정렬',   Icon: AlignJustify },
+          ] as const
+        ).map(({ align, title, Icon }) => {
+          // isActive: 현재 커서/선택 블록의 정렬이 이 값인지 여부
+          // Python으로 치면: is_active = editor.is_active({'textAlign': align})
+          const isActive = editor.isActive({ textAlign: align })
+          return (
+            <button
+              key={align}
+              title={title}
+              onPointerDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                // 이미 활성 정렬이면 해제 (기본 왼쪽 복원), 아니면 새 정렬 적용
+                // Python으로 치면: if is_active: unset_align() else: set_align(align)
+                if (isActive) {
+                  handleAction(ed => ed.chain().focus().unsetTextAlign().run())
+                } else {
+                  handleAction(ed => ed.chain().focus().setTextAlign(align).run())
+                }
+              }}
+              className={isActive
+                ? 'px-2 py-2 rounded text-sm transition-colors bg-white text-gray-900'
+                : 'px-2 py-2 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white'}
+            >
+              <Icon size={14} />
+            </button>
+          )
+        })}
 
         <Divider />
 

@@ -18,6 +18,9 @@ import { TextStyle } from '@tiptap/extension-text-style'
 // Python으로 치면: from tiptap import FontFamily; from extensions import FontSize
 import { FontFamily } from '@tiptap/extension-font-family'
 import { FontSize } from '@/extensions/FontSize'
+// 텍스트 정렬 확장: 좌/중/우/양쪽 정렬 (paragraph, heading에 적용)
+// Python으로 치면: from tiptap import TextAlign
+import { TextAlign } from '@tiptap/extension-text-align'
 // 인라인 수식 확장: $...$ 패턴 → KaTeX 인라인 노드 자동 변환
 // Python으로 치면: from extensions import InlineMath
 import { InlineMath } from '@/extensions/InlineMath'
@@ -263,6 +266,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       // 언어별 문법 하이라이팅 + 언어 선택 드롭다운 포함
       // Python으로 치면: extensions.append(CustomCodeBlock)
       CustomCodeBlock,
+      // ── 텍스트 정렬 확장 ──────────────────────────
+      // paragraph와 heading 노드에 좌/중/우/양쪽 정렬 속성 추가
+      // Python으로 치면: extensions.append(TextAlign(types=['heading', 'paragraph']))
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
     ],
     // 이미지·토글·칸반·Excalidraw·비디오 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
