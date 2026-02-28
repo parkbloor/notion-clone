@@ -422,13 +422,9 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
               onPointerDown={(e) => {
                 e.preventDefault()
                 e.stopPropagation()
-                // 이미 활성 정렬이면 해제 (기본 왼쪽 복원), 아니면 새 정렬 적용
-                // Python으로 치면: if is_active: unset_align() else: set_align(align)
-                if (isActive) {
-                  handleAction(ed => ed.chain().focus().unsetTextAlign().run())
-                } else {
-                  handleAction(ed => ed.chain().focus().setTextAlign(align).run())
-                }
+                // toggleTextAlign: 활성 정렬이면 해제, 아니면 새 정렬 적용 (내부에서 토글 처리)
+                // Python으로 치면: editor.commands.toggleTextAlign(align)
+                handleAction(ed => ed.chain().focus().toggleTextAlign(align).run())
               }}
               className={isActive
                 ? 'px-2 py-2 rounded text-sm transition-colors bg-white text-gray-900'
