@@ -17,6 +17,7 @@ import QuickAddModal from '@/components/editor/QuickAddModal'
 import GlobalSearch from '@/components/editor/GlobalSearch'
 import SettingsModal from '@/components/settings/SettingsModal'
 import PomodoroWidget from '@/components/editor/PomodoroWidget'
+import BottomBar from '@/components/editor/BottomBar'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
 // Python으로 치면: from dnd import DndContext, arrayMove
@@ -119,10 +120,12 @@ export default function Home() {
   // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
   // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
   // -----------------------------------------------
-  const { theme, fontFamily, fontSize, lineHeight } = useSettingsStore()
+  const { theme, fontFamily, fontSize, lineHeight, editorMaxWidth } = useSettingsStore()
   useEffect(() => {
     applyTheme(theme)
-    applyEditorStyle(fontFamily, fontSize, lineHeight)
+    // editorMaxWidth도 함께 전달 → --editor-max-width CSS 변수 초기화
+    // Python으로 치면: apply_editor_style(font, size, lh, max_width)
+    applyEditorStyle(fontFamily, fontSize, lineHeight, editorMaxWidth)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
@@ -341,19 +344,25 @@ export default function Home() {
         )}
 
         {/* ── 에디터 패널 ──────────────────────────
-            flex-1: 남은 공간 전부 차지
-            overflow-y-auto: 내용이 길어지면 스크롤
-            pt-14 md:pt-0: 모바일에서 햄버거 버튼 공간 확보 */}
-        <main className="flex-1 overflow-y-auto pt-14 md:pt-0">
-          {currentPageId ? (
-            // 페이지가 선택되어 있으면 에디터 렌더링
-            <PageEditor pageId={currentPageId} />
-          ) : (
-            // 선택된 페이지가 없으면 안내 문구
-            <div className="flex items-center justify-center h-full text-gray-400">
-              <p>왼쪽에서 메모를 선택하세요</p>
-            </div>
-          )}
+            flex-col: BottomBar를 하단에 고정하기 위해 세로 flex
+            min-h-0: flex-col 자식이 넘치지 않도록 최소 높이 제한
+            Python으로 치면: main_panel = VBox([scrollable_area, bottom_bar]) */}
+        <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0">
+          {/* 스크롤 가능한 에디터 영역 (flex-1로 남은 공간 차지) */}
+          <div className="flex-1 overflow-y-auto">
+            {currentPageId ? (
+              // 페이지가 선택되어 있으면 에디터 렌더링
+              <PageEditor pageId={currentPageId} />
+            ) : (
+              // 선택된 페이지가 없으면 안내 문구
+              <div className="flex items-center justify-center h-full text-gray-400">
+                <p>왼쪽에서 메모를 선택하세요</p>
+              </div>
+            )}
+          </div>
+          {/* 하단 고정 바: 너비 슬라이더 + 단어수 (페이지 선택 시만 표시) */}
+          {/* Python으로 치면: if current_page_id: render BottomBar(current_page_id) */}
+          {currentPageId && <BottomBar pageId={currentPageId} />}
         </main>
 
         {/* ── 포모도로 타이머 위젯 (pomodoro 플러그인 ON 시만 표시) ──
@@ -367,7 +376,7 @@ export default function Home() {
         <button
           type="button"
           onClick={() => setShortcutOpen(true)}
-          className="absolute bottom-5 right-5 w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 hover:text-gray-800 text-sm font-bold flex items-center justify-center shadow-sm transition-colors z-40"
+          className="absolute bottom-12 right-5 w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 hover:text-gray-800 text-sm font-bold flex items-center justify-center shadow-sm transition-colors z-40"
           title="단축키 안내 (?)">
           ?
         </button>
