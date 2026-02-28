@@ -15,6 +15,9 @@ export type BlockType =
   | 'heading1'       // 제목 1 (# )
   | 'heading2'       // 제목 2 (## )
   | 'heading3'       // 제목 3 (### )
+  | 'heading4'       // 제목 4 (#### )
+  | 'heading5'       // 제목 5 (##### )
+  | 'heading6'       // 제목 6 (###### )
   | 'bulletList'     // 글머리 기호 목록
   | 'orderedList'    // 번호 목록
   | 'taskList'       // 체크박스 목록
@@ -29,6 +32,7 @@ export type BlockType =
   | 'excalidraw'   // Excalidraw 손그림 다이어그램
   | 'video'        // 로컬 비디오 파일 (자동재생/반복 지원)
   | 'layout'       // A4 다단 레이아웃 블록 (템플릿 기반 슬롯 배치)
+  | 'math'         // LaTeX 수식 블록 (KaTeX 렌더링)
 
 
 // -----------------------------------------------

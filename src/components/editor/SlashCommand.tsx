@@ -19,6 +19,9 @@ const COMMANDS = [
       { icon: '🔠', name: '제목 1', description: '가장 큰 제목', type: 'heading1' as BlockType },
       { icon: '🔡', name: '제목 2', description: '중간 크기 제목', type: 'heading2' as BlockType },
       { icon: '🔤', name: '제목 3', description: '작은 제목', type: 'heading3' as BlockType },
+      { icon: 'H4', name: '제목 4', description: '소제목 (H4)', type: 'heading4' as BlockType },
+      { icon: 'H5', name: '제목 5', description: '소제목 (H5)', type: 'heading5' as BlockType },
+      { icon: 'H6', name: '제목 6', description: '최소 제목 (H6)', type: 'heading6' as BlockType },
     ]
   },
   {
@@ -42,6 +45,7 @@ const COMMANDS = [
       { icon: '✏️', name: 'Excalidraw', description: '손그림 스타일 다이어그램을 자유롭게 그립니다', type: 'excalidraw' as BlockType },
       { icon: '🎬', name: '비디오', description: '로컬 비디오 파일을 업로드하여 재생합니다', type: 'video' as BlockType },
       { icon: '📐', name: '레이아웃', description: 'A4 용지 기준 다단 레이아웃 (잡지 편집 스타일)', type: 'layout' as BlockType },
+      { icon: '∑', name: '수식', description: 'LaTeX 수식 블록 — KaTeX 렌더링', type: 'math' as BlockType },
     ]
   },
 ]
