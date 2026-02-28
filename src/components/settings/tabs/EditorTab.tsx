@@ -1,37 +1,40 @@
 // =============================================
 // src/components/settings/tabs/EditorTab.tsx
 // 역할: 편집기 설정 탭 — 글꼴, 크기, 줄간격
+// FONT_PRESETS 기반으로 전체 폰트 목록 표시
 // Python으로 치면: class EditorSettings(SettingsTab): def render_font_picker(): ...
 // =============================================
 
 'use client'
 
 import { useSettingsStore, applyEditorStyle } from '@/store/settingsStore'
+import { FONT_PRESETS, CATEGORY_LABELS, getFontPreset, type FontCategory } from '@/lib/fonts'
 
 // -----------------------------------------------
-// 글꼴 패밀리 옵션
-// Python으로 치면: FONT_OPTIONS = [('sans', 'Sans-serif', '고딕 계열'), ...]
+// 에디터 전체 기본 크기 옵션 (px)
+// 버블메뉴의 인라인 크기(8종)와는 별개 — 에디터 기본값만
+// Python으로 치면: SIZE_OPTIONS: list[int] = [14, 16, 18, 20]
 // -----------------------------------------------
-const FONT_OPTIONS = [
-  { value: 'sans',  label: 'Sans-serif', preview: 'Ag 가나다', desc: '읽기 편한 고딕' },
-  { value: 'serif', label: 'Serif',      preview: 'Ag 가나다', desc: '명조 계열' },
-  { value: 'mono',  label: 'Monospace',  preview: 'Ag 12345', desc: '코드 스타일' },
-] as const
+const SIZE_OPTIONS: number[] = [14, 16, 18, 20]
 
-// 글꼴 크기 옵션
-const SIZE_OPTIONS: Array<14 | 16 | 18 | 20> = [14, 16, 18, 20]
+// 카테고리 표시 순서
+const CATEGORY_ORDER: FontCategory[] = ['sans', 'korean', 'serif', 'mono']
 
 export default function EditorTab() {
   const { fontFamily, fontSize, lineHeight, setFontFamily, setFontSize, setLineHeight } = useSettingsStore()
 
+  // -----------------------------------------------
   // 편집기 스타일 즉시 반영 헬퍼
+  // setXxx: zustand 상태 갱신 (localStorage 저장)
+  // applyEditorStyle: :root CSS 변수 즉시 주입 (화면 즉시 반영)
   // Python으로 치면: def update_and_apply(self, **kwargs): self.update(**kwargs); apply_style()
-  function changeFont(font: 'sans' | 'serif' | 'mono') {
-    setFontFamily(font)
-    applyEditorStyle(font, fontSize, lineHeight)
+  // -----------------------------------------------
+  function changeFont(fontId: string) {
+    setFontFamily(fontId)
+    applyEditorStyle(fontId, fontSize, lineHeight)
   }
 
-  function changeSize(size: 14 | 16 | 18 | 20) {
+  function changeSize(size: number) {
     setFontSize(size)
     applyEditorStyle(fontFamily, size, lineHeight)
   }
@@ -42,49 +45,76 @@ export default function EditorTab() {
     applyEditorStyle(fontFamily, fontSize, rounded)
   }
 
-  // 글꼴 패밀리별 미리보기 폰트
-  const previewFontMap = {
-    sans:  "'Inter', 'Noto Sans KR', sans-serif",
-    serif: "'Georgia', 'Noto Serif KR', serif",
-    mono:  "'JetBrains Mono', 'Fira Code', monospace",
-  }
+  // 현재 선택된 폰트 프리셋 (미리보기에 사용)
+  // Python으로 치면: current_preset = get_preset(self.font_family)
+  const currentPreset = getFontPreset(fontFamily)
+
+  // 카테고리별 폰트 그룹화
+  // Python으로 치면: groups = {cat: [p for p in PRESETS if p.category == cat] for cat in CATEGORIES}
+  const fontGroups = FONT_PRESETS.reduce<Partial<Record<FontCategory, typeof FONT_PRESETS>>>((acc, preset) => {
+    if (!acc[preset.category]) acc[preset.category] = []
+    acc[preset.category]!.push(preset)
+    return acc
+  }, {})
 
   return (
     <div className="p-6 space-y-8">
 
-      {/* 글꼴 패밀리 */}
+      {/* ── 글꼴 패밀리 ───────────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-1">글꼴</h3>
-        <p className="text-xs text-gray-400 mb-4">에디터 본문에 사용할 글꼴 계열</p>
-        <div className="flex gap-3">
-          {FONT_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => changeFont(opt.value)}
-              className={opt.value === fontFamily
-                ? "flex-1 flex flex-col items-start gap-1.5 px-4 py-3 rounded-xl border-2 border-blue-500 bg-blue-50 transition-colors"
-                : "flex-1 flex flex-col items-start gap-1.5 px-4 py-3 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 transition-colors"
-              }
-            >
-              {/* 미리보기 텍스트 */}
-              <span
-                className="text-xl text-gray-800"
-                style={{ fontFamily: previewFontMap[opt.value] }}
-              >
-                {opt.preview}
-              </span>
-              <span className="text-xs font-medium text-gray-600">{opt.label}</span>
-              <span className="text-xs text-gray-400">{opt.desc}</span>
-            </button>
-          ))}
-        </div>
+        <p className="text-xs text-gray-400 mb-4">에디터 본문 전체에 적용할 기본 글꼴 (특정 텍스트만 바꾸려면 드래그 후 버블메뉴 사용)</p>
+
+        {/* 카테고리별 폰트 그리드 */}
+        {CATEGORY_ORDER.map((category) => {
+          const presets = fontGroups[category]
+          if (!presets || presets.length === 0) return null
+
+          return (
+            <div key={category} className="mb-4">
+              {/* 카테고리 구분선 레이블 */}
+              <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">
+                {CATEGORY_LABELS[category]}
+              </p>
+
+              {/* 폰트 카드 그리드 */}
+              {/* Python으로 치면: for preset in presets: render_font_card(preset) */}
+              <div className="flex flex-wrap gap-2">
+                {presets.map((preset) => {
+                  const isSelected = fontFamily === preset.id
+
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => changeFont(preset.id)}
+                      className={isSelected
+                        ? "flex flex-col items-start gap-1 px-3 py-2.5 rounded-xl border-2 border-blue-500 bg-blue-50 transition-colors"
+                        : "flex flex-col items-start gap-1 px-3 py-2.5 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50 transition-colors"
+                      }
+                    >
+                      {/* 폰트로 미리보기 텍스트 렌더링 */}
+                      <span
+                        className="text-base text-gray-800"
+                        style={{ fontFamily: preset.family }}
+                      >
+                        {preset.category === 'korean' ? '가나다 Abc' : 'Abc 123'}
+                      </span>
+                      {/* 폰트 이름 */}
+                      <span className="text-xs font-medium text-gray-600">{preset.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
       </section>
 
-      {/* 글꼴 크기 */}
+      {/* ── 글꼴 크기 ─────────────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-1">글꼴 크기</h3>
-        <p className="text-xs text-gray-400 mb-4">에디터 본문 텍스트 크기 (px)</p>
+        <p className="text-xs text-gray-400 mb-4">에디터 본문 기본 텍스트 크기 (px)</p>
         <div className="flex gap-2">
           {SIZE_OPTIONS.map((size) => (
             <button
@@ -102,7 +132,7 @@ export default function EditorTab() {
         </div>
       </section>
 
-      {/* 줄 간격 */}
+      {/* ── 줄 간격 ───────────────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-1">
           줄 간격
@@ -124,13 +154,13 @@ export default function EditorTab() {
         </div>
       </section>
 
-      {/* 미리보기 */}
+      {/* ── 미리보기 ─────────────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-3">미리보기</h3>
         <div
           className="border border-gray-200 rounded-xl p-4 bg-gray-50 text-gray-800"
           style={{
-            fontFamily: previewFontMap[fontFamily],
+            fontFamily: currentPreset.family,
             fontSize: `${fontSize}px`,
             lineHeight: lineHeight,
           }}

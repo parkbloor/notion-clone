@@ -8,6 +8,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { getFontPreset, DEFAULT_FONT_ID } from '@/lib/fonts'
 
 // -----------------------------------------------
 // 커스텀 레이아웃 템플릿 저장 포맷
@@ -55,13 +56,17 @@ export interface SettingsStore {
   theme: 'light' | 'dark' | 'auto'
 
   // ── 편집기 ──────────────────────────────────
-  // 글꼴 패밀리: sans-serif / 명조 / 고정폭
-  // Python으로 치면: self.font_family = 'sans'
-  fontFamily: 'sans' | 'serif' | 'mono'
-  // 글꼴 크기 (px)
-  fontSize: 14 | 16 | 18 | 20
+  // 글꼴 패밀리: FONT_PRESETS의 id 문자열 (예: 'noto-sans', 'inter', 'mono' ...)
+  // 기본값: DEFAULT_FONT_ID = 'noto-sans'
+  // Python으로 치면: self.font_family: str = DEFAULT_FONT_ID
+  fontFamily: string
+  // 글꼴 크기 (px) — 에디터 전체 기본 크기 (인라인 크기는 BubbleMenu에서 별도)
+  fontSize: number
   // 줄 간격 (1.4 ~ 2.0)
   lineHeight: number
+  // 에디터 본문 최대 너비 (px) — 400~1400, 기본 768 (max-w-3xl 동일)
+  // Python으로 치면: self.editor_max_width: int = 768
+  editorMaxWidth: number
 
   // ── 플러그인 토글 ────────────────────────────
   plugins: PluginSettings
@@ -85,9 +90,13 @@ export interface SettingsStore {
   // ── 액션 ────────────────────────────────────
   // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
   setTheme: (theme: 'light' | 'dark' | 'auto') => void
-  setFontFamily: (font: 'sans' | 'serif' | 'mono') => void
-  setFontSize: (size: 14 | 16 | 18 | 20) => void
+  // font: FONT_PRESETS의 id 문자열
+  setFontFamily: (font: string) => void
+  setFontSize: (size: number) => void
   setLineHeight: (lh: number) => void
+  // 에디터 최대 너비 변경 (하단 슬라이더 + 설정 탭에서 호출)
+  // Python으로 치면: def set_editor_max_width(self, w: int): self.editor_max_width = w
+  setEditorMaxWidth: (width: number) => void
   togglePlugin: (name: keyof PluginSettings) => void
   // 집중 모드 on/off 토글 (Ctrl+Shift+F 또는 버튼)
   // Python으로 치면: def toggle_focus_mode(self): self._focus_mode_active ^= True
@@ -121,22 +130,26 @@ export function applyTheme(theme: 'light' | 'dark' | 'auto') {
 
 // -----------------------------------------------
 // 편집기 CSS 변수 적용 — 글꼴/크기/줄간격을 :root 변수로 주입
-// Python으로 치면: def apply_editor_style(font, size, lh): set_css_vars(...)
+// fontFamily: FONT_PRESETS의 id 문자열 (예: 'noto-sans', 'inter', 'mono')
+// getFontPreset()으로 family 문자열을 조회해 CSS 변수에 주입
+// Python으로 치면: def apply_editor_style(font_id, size, lh): css_vars['--editor-font'] = PRESETS[font_id].family
 // -----------------------------------------------
 export function applyEditorStyle(
-  fontFamily: 'sans' | 'serif' | 'mono',
+  fontFamily: string,
   fontSize: number,
-  lineHeight: number
+  lineHeight: number,
+  editorMaxWidth: number = 768
 ) {
-  const fontMap = {
-    sans:  "'Inter', 'Noto Sans KR', sans-serif",
-    serif: "'Georgia', 'Noto Serif KR', serif",
-    mono:  "'JetBrains Mono', 'Fira Code', monospace",
-  }
+  // FONT_PRESETS에서 id로 폰트 조회 → CSS family 문자열 얻기
+  // 없는 id면 getFontPreset()이 첫 번째 프리셋(시스템 기본)을 반환
+  const preset = getFontPreset(fontFamily)
   const root = document.documentElement
-  root.style.setProperty('--editor-font', fontMap[fontFamily])
+  root.style.setProperty('--editor-font', preset.family)
   root.style.setProperty('--editor-size', `${fontSize}px`)
   root.style.setProperty('--editor-lh',   String(lineHeight))
+  // 에디터 본문 최대 너비 — 하단 슬라이더로 실시간 조절
+  // Python으로 치면: document.root.style['--editor-max-width'] = f'{editor_max_width}px'
+  root.style.setProperty('--editor-max-width', `${editorMaxWidth}px`)
 }
 
 // -----------------------------------------------
@@ -150,9 +163,10 @@ export const useSettingsStore = create<SettingsStore>()(
     immer((set) => ({
       // ── 기본값 ──────────────────────────────
       theme: 'light',
-      fontFamily: 'sans',
+      fontFamily: DEFAULT_FONT_ID,  // 'noto-sans'
       fontSize: 16,
       lineHeight: 1.6,
+      editorMaxWidth: 768,          // px, max-w-3xl(48rem)과 동일한 기본값
       plugins: {
         kanban:      true,
         calendar:    true,
@@ -201,6 +215,12 @@ export const useSettingsStore = create<SettingsStore>()(
       // ── 편집기 줄 간격 변경 ───────────────────
       setLineHeight: (lh) => {
         set((state) => { state.lineHeight = lh })
+      },
+
+      // ── 에디터 최대 너비 변경 (하단 슬라이더) ──
+      // Python으로 치면: def set_editor_max_width(self, w): self.editor_max_width = w
+      setEditorMaxWidth: (width) => {
+        set((state) => { state.editorMaxWidth = width })
       },
 
       // ── 플러그인 ON/OFF 토글 ──────────────────
