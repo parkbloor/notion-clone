@@ -33,6 +33,32 @@ export type BlockType =
   | 'video'        // 로컬 비디오 파일 (자동재생/반복 지원)
   | 'layout'       // A4 다단 레이아웃 블록 (템플릿 기반 슬롯 배치)
   | 'math'         // LaTeX 수식 블록 (KaTeX 렌더링)
+  | 'embed'        // URL 임베드 블록 (YouTube / Vimeo / 일반 iframe)
+  | 'mermaid'      // Mermaid 다이어그램 블록 (flowchart / sequence / gantt 등)
+
+
+// -----------------------------------------------
+// 페이지 속성 타입
+// 날짜 / 상태 / 선택 / 텍스트 4종
+// Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text']
+// -----------------------------------------------
+export type PropertyType = 'date' | 'status' | 'select' | 'text'
+
+// 상태 속성 선택지 (고정)
+// Python으로 치면: STATUS_OPTIONS = ['미시작', '진행 중', '완료', '보류']
+export const STATUS_OPTIONS = ['미시작', '진행 중', '완료', '보류'] as const
+
+// 페이지 속성 하나의 구조
+// Python으로 치면:
+//   @dataclass class PageProperty:
+//       id: str; name: str; type: PropertyType; value: str; options: list[str]
+export interface PageProperty {
+  id: string           // 속성 고유 ID
+  name: string         // 속성 이름 (예: "마감일", "상태")
+  type: PropertyType   // 속성 종류
+  value: string        // 속성 값 (문자열로 통일)
+  options?: string[]   // select 타입 전용 — 선택 가능한 값 목록
+}
 
 
 // -----------------------------------------------
@@ -79,6 +105,9 @@ export interface Page {
   // Python으로 치면: starred: bool = False
   starred?: boolean
   blocks: Block[]      // 이 페이지에 속한 블록 목록
+  // 페이지 속성 목록 (날짜·상태·선택·텍스트) — 없으면 빈 배열로 취급
+  // Python으로 치면: properties: list[PageProperty] = field(default_factory=list)
+  properties?: PageProperty[]
   createdAt: Date      // 생성 시각
   updatedAt: Date      // 마지막 수정 시각
 }

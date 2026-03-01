@@ -1,12 +1,13 @@
 // =============================================
 // src/components/editor/CodeBlockView.tsx
-// 역할: 코드 블록 Tiptap NodeView — 언어 선택 드롭다운 + 코드 내용
+// 역할: 코드 블록 Tiptap NodeView — 언어 선택 드롭다운 + 복사 버튼 + 코드 내용
 // Tiptap의 ReactNodeViewRenderer로 <pre> 안에 직접 주입됨
 // Python으로 치면: class CodeBlockView(NodeView): def render(self): ...
 // =============================================
 
 'use client'
 
+import { useState } from 'react'
 import { NodeViewWrapper, NodeViewContent } from '@tiptap/react'
 
 // -----------------------------------------------
@@ -56,6 +57,10 @@ export default function CodeBlockView({ node, updateAttributes }: CodeBlockViewP
   // 현재 선택된 언어 (없으면 javascript 기본값)
   const language = node.attrs.language ?? 'javascript'
 
+  // 복사 버튼 상태: false = 기본, true = 복사됨 (1.5초 후 원복)
+  // Python으로 치면: self.copied = False
+  const [copied, setCopied] = useState(false)
+
   // -----------------------------------------------
   // 언어 드롭다운 변경 시 노드 속성 업데이트
   // Python으로 치면: def on_language_change(e): node.attrs['language'] = e.target.value
@@ -64,22 +69,41 @@ export default function CodeBlockView({ node, updateAttributes }: CodeBlockViewP
     updateAttributes({ language: e.target.value })
   }
 
+  // -----------------------------------------------
+  // 코드 복사: NodeViewWrapper 내부의 pre > code 텍스트를 클립보드에 복사
+  // Python으로 치면: def copy_code(): clipboard.write(pre.innerText)
+  // -----------------------------------------------
+  function handleCopy(e: React.MouseEvent<HTMLButtonElement>) {
+    // NodeViewWrapper DOM에서 code 텍스트 추출
+    const wrapper = (e.currentTarget as HTMLElement).closest('.code-block-container')
+    const codeText = wrapper?.querySelector('pre code')?.textContent ?? ''
+    navigator.clipboard.writeText(codeText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }
+
+  // 현재 언어 라벨 (드롭다운 값 → 표시용 이름)
+  // Python으로 치면: label = next(l['label'] for l in LANGUAGES if l['value'] == language)
+  const langLabel = LANGUAGES.find(l => l.value === language)?.label ?? language
+
   return (
     // NodeViewWrapper: Tiptap이 이 영역을 에디터 안에서 관리
     // code-block-container: globals.css에서 pre의 상단 모서리를 제거하는 훅
     <NodeViewWrapper className="code-block-container my-2">
 
-      {/* ── 상단 헤더바 — 언어 선택 드롭다운 ────── */}
+      {/* ── 상단 헤더바 — 언어 선택 드롭다운 + 복사 버튼 ────── */}
       {/* contentEditable="false": 이 영역은 편집 불가, 언어 선택만 가능 */}
       <div
         contentEditable={false}
         className="flex items-center justify-between px-3 py-1.5 bg-[#252526] rounded-t-lg border-b border-[#3e3e42]"
       >
-        <span className="text-xs text-gray-500 select-none">코드</span>
+        {/* 왼쪽: 언어 드롭다운 */}
         <select
           value={language}
           onChange={handleLanguageChange}
           className="text-xs bg-[#3c3c3c] text-gray-300 border border-[#555] rounded px-1.5 py-0.5 cursor-pointer outline-none hover:border-gray-400 transition-colors"
+          title="언어 선택"
         >
           {LANGUAGES.map(lang => (
             <option key={lang.value} value={lang.value}>
@@ -87,6 +111,18 @@ export default function CodeBlockView({ node, updateAttributes }: CodeBlockViewP
             </option>
           ))}
         </select>
+
+        {/* 오른쪽: 언어 라벨 + 복사 버튼 */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-600 select-none">{langLabel}</span>
+          <button
+            onClick={handleCopy}
+            title="코드 복사"
+            className="text-xs text-gray-500 hover:text-gray-200 transition-colors px-1.5 py-0.5 rounded hover:bg-[#3c3c3c] select-none"
+          >
+            {copied ? '✓ 복사됨' : '복사'}
+          </button>
+        </div>
       </div>
 
       {/* ── 코드 편집 영역 ────────────────────────

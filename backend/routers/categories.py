@@ -14,13 +14,16 @@ from backend.core import (
     VAULT_DIR,
     CategoryReorderBody,
     CreateCategoryBody,
+    MoveFolderBody,
     RenameCategoryBody,
     assert_inside_vault,
     get_folder_name,
     load_index,
     replace_image_urls_in_page,
+    resolve_content_file,
     sanitize_category_name,
     save_index,
+    save_page_to_disk,
     validate_uuid,
 )
 
@@ -153,17 +156,15 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
             if cid != cat_id:
                 continue
             page_folder = get_folder_name(page_id, index)
-            content_file = VAULT_DIR / new_folder / page_folder / "content.json"
+            content_file = resolve_content_file(VAULT_DIR / new_folder / page_folder)
             if not content_file.exists():
                 continue
             page_data = json.loads(content_file.read_text(encoding="utf-8"))
             old_prefix = f"http://localhost:8000/static/{old_folder}/{page_folder}/"
             new_prefix = f"http://localhost:8000/static/{new_folder}/{page_folder}/"
             replace_image_urls_in_page(page_data, old_prefix, new_prefix)
-            content_file.write_text(
-                json.dumps(page_data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            # 항상 .nct로 저장 (구버전 .json은 save_page_to_disk가 정리)
+            save_page_to_disk(page_data, VAULT_DIR / new_folder / page_folder)
 
         cat["folderName"] = new_folder
 
@@ -235,6 +236,82 @@ def delete_category(cat_id: str):
     save_index(index)
 
     return {"ok": True, "hasPages": False}
+
+
+@router.patch("/categories/{cat_id}/move")
+def move_category(cat_id: str, body: MoveFolderBody):
+    """
+    카테고리(폴더)를 다른 부모로 이동
+    body.parentId = None  → 최상위로 이동
+    body.parentId = str   → 해당 카테고리의 자식으로 이동
+    순환 참조(자신의 하위로 이동) 방지
+    Python으로 치면: category.parentId = body.parentId; save()
+    """
+    # 🔒 UUID 검증
+    validate_uuid(cat_id, "카테고리 ID")
+    if body.parentId is not None:
+        validate_uuid(body.parentId, "대상 부모 카테고리 ID")
+
+    index = load_index()
+    categories = index.get("categories", [])
+
+    # 이동할 카테고리 찾기
+    cat = next((c for c in categories if c["id"] == cat_id), None)
+    if not cat:
+        raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
+
+    # 자기 자신으로 이동 불가
+    if body.parentId == cat_id:
+        raise HTTPException(status_code=400, detail="자기 자신의 자식으로 이동할 수 없습니다")
+
+    # 🔒 순환 참조 방지: body.parentId가 cat_id의 하위 폴더면 거부
+    # Python으로 치면: BFS로 cat_id 하위를 모두 탐색
+    if body.parentId is not None:
+        child_order = index.get("categoryChildOrder", {})
+        queue = list(child_order.get(cat_id, []))
+        while queue:
+            descendant_id = queue.pop()
+            if descendant_id == body.parentId:
+                raise HTTPException(status_code=400, detail="폴더의 하위 폴더로 이동할 수 없습니다")
+            queue.extend(child_order.get(descendant_id, []))
+
+    # 새 부모 카테고리 존재 여부 확인
+    if body.parentId is not None:
+        parent_cat = next((c for c in categories if c["id"] == body.parentId), None)
+        if not parent_cat:
+            raise HTTPException(status_code=404, detail="대상 부모 카테고리를 찾을 수 없습니다")
+
+    old_parent_id = cat.get("parentId")
+    new_parent_id = body.parentId
+
+    # 이미 같은 부모면 무시
+    if old_parent_id == new_parent_id:
+        return {"ok": True, "category": cat}
+
+    child_order = index.setdefault("categoryChildOrder", {})
+
+    # ── 기존 부모에서 제거 ────────────────────────────
+    # Python으로 치면: old_parent.children.remove(cat_id)
+    if old_parent_id is None:
+        index["categoryOrder"] = [cid for cid in index.get("categoryOrder", []) if cid != cat_id]
+    else:
+        if old_parent_id in child_order:
+            child_order[old_parent_id] = [cid for cid in child_order[old_parent_id] if cid != cat_id]
+            if not child_order[old_parent_id]:
+                del child_order[old_parent_id]
+
+    # ── 새 부모에 추가 (맨 뒤) ──────────────────────
+    # Python으로 치면: new_parent.children.append(cat_id)
+    if new_parent_id is None:
+        index.setdefault("categoryOrder", []).append(cat_id)
+    else:
+        child_order.setdefault(new_parent_id, []).append(cat_id)
+
+    # 카테고리 parentId 업데이트
+    cat["parentId"] = new_parent_id
+
+    save_index(index)
+    return {"ok": True, "category": cat}
 
 
 @router.patch("/categories/reorder")

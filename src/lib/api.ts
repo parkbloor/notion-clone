@@ -231,6 +231,17 @@ export const api = {
     })
   },
 
+  // ── 폴더를 다른 부모로 이동 ───────────────────
+  // parentId=null이면 최상위로 이동, str이면 해당 폴더의 자식으로
+  // Python으로 치면: requests.patch(url, json={'parentId': parent_id})
+  moveCategoryToParent: async (categoryId: string, parentId: string | null): Promise<void> => {
+    await fetch(`${BASE_URL}/api/categories/${categoryId}/move`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parentId }),
+    })
+  },
+
   // ── 페이지 순서 변경 ──────────────────────────
   // Python으로 치면: requests.patch(url, json={'order': order})
   reorderPages: async (order: string[]): Promise<void> => {

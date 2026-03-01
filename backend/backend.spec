@@ -74,6 +74,19 @@ a = Analysis(
             'backend.routers.search',
             'backend.routers.system',
             'backend.routers.templates',
+            'backend.routers.ai',
+            # OpenAI SDK
+            'openai',
+            'openai.resources',
+            'openai.resources.chat',
+            'openai.resources.chat.completions',
+            'httpx',
+            # Anthropic (Claude) SDK
+            'anthropic',
+            'anthropic.resources',
+            'anthropic.resources.messages',
+            'anthropic._client',
+            'anthropic.types',
         ]
     ),
 

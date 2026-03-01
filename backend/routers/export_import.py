@@ -15,11 +15,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from backend.core import (
+    CONTENT_EXT,
     VAULT_DIR,
     ImportBody,
     assert_inside_vault,
     load_index,
+    resolve_content_file,
     save_index,
+    save_page_to_disk,
 )
 
 # Python으로 치면: blueprint = Blueprint('export_import', __name__, url_prefix='/api')
@@ -54,9 +57,9 @@ def export_json():
         cat_folder = categories.get(cat_id) if cat_id else None
 
         if cat_folder:
-            content_path = VAULT_DIR / cat_folder / folder_name / "content.json"
+            content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
         else:
-            content_path = VAULT_DIR / folder_name / "content.json"
+            content_path = resolve_content_file(VAULT_DIR / folder_name)
 
         if content_path.exists():
             pages_data.append(json.loads(content_path.read_text(encoding="utf-8")))
@@ -152,10 +155,10 @@ def export_markdown():
             cat_folder = categories.get(cat_id) if cat_id else None
 
             if cat_folder:
-                content_path = VAULT_DIR / cat_folder / folder_name / "content.json"
+                content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
                 zip_path = f"{cat_folder}/{folder_name}.md"
             else:
-                content_path = VAULT_DIR / folder_name / "content.json"
+                content_path = resolve_content_file(VAULT_DIR / folder_name)
                 zip_path = f"{folder_name}.md"
 
             if not content_path.exists():
@@ -204,7 +207,8 @@ def import_json(body: ImportBody):
     try:
         # vault 초기화 (이미지 제외)
         for item in VAULT_DIR.iterdir():
-            if item.name == "_index.json":
+            # 인덱스 파일(.nct / 구버전 .json) 보존
+            if item.name in ("_index.nct", "_index.json"):
                 continue
             if item.is_dir():
                 shutil.rmtree(str(item))
@@ -234,11 +238,8 @@ def import_json(body: ImportBody):
             # 🔒 vault 탈출 방지
             assert_inside_vault(target_dir)
 
-            target_dir.mkdir(parents=True, exist_ok=True)
-            (target_dir / "content.json").write_text(
-                json.dumps(page_data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            # .nct로 저장 (save_page_to_disk가 구버전 .json 자동 삭제)
+            save_page_to_disk(page_data, target_dir)
 
         # 임시 백업 삭제 (성공 시)
         if backup_dir.exists():

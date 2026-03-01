@@ -54,6 +54,8 @@ import ExcalidrawBlock from './ExcalidrawBlock'
 import VideoBlock from './VideoBlock'
 import LayoutBlock from './LayoutBlock'
 import MathBlock from './MathBlock'
+import EmbedBlock, { isEmbedUrl } from './EmbedBlock'
+import MermaidBlock from './MermaidBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
 // ── 찾기/바꾸기 확장 ─────────────────────────
@@ -288,7 +290,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     // Python으로 치면: content = '' if type in ('image', 'toggle', 'layout', ...) else block.content
     // math 블록도 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // Python으로 치면: content = '' if type in ('image', 'toggle', ..., 'math') else block.content
-    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout' || block.type === 'math') ? '' : (block.content || ''),
+    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout' || block.type === 'math' || block.type === 'embed' || block.type === 'mermaid') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -407,6 +409,20 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         }
         return false
       },
+      // ── URL 붙여넣기 자동 임베드 변환 ──────────────────────────────
+      // 빈 블록에 YouTube / Vimeo URL 붙여넣기 → embed 블록으로 자동 전환
+      // Python으로 치면: def handle_paste(view, event): if empty and is_embed_url: convert()
+      handlePaste: (_view, event) => {
+        const text = event.clipboardData?.getData('text/plain')?.trim() ?? ''
+        // 현재 블록이 비어 있는지 확인
+        const isEmpty = _view.state.doc.textContent.length === 0
+        if (isEmpty && isEmbedUrl(text)) {
+          updateBlockType(pageId, block.id, 'embed')
+          updateBlock(pageId, block.id, JSON.stringify({ url: text }))
+          return true
+        }
+        return false
+      },
     },
     immediatelyRender: false,
   })
@@ -447,7 +463,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   function buildContextSections(): ContextMenuSection[] {
     const isTextBlock = ![
       'image', 'toggle', 'kanban', 'admonition',
-      'canvas', 'excalidraw', 'video', 'layout', 'math', 'divider',
+      'canvas', 'excalidraw', 'video', 'layout', 'math', 'divider', 'mermaid',
     ].includes(block.type)
 
     const sections: ContextMenuSection[] = [
@@ -624,7 +640,7 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     // Python으로 치면: if type in ('image', 'toggle', 'layout', ...): return
     // math 블록도 비-Tiptap 블록 — 조기 반환
     // Python으로 치면: if type in ('image', ..., 'math'): return
-    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math') return
+    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -1000,6 +1016,80 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         </div>
         <div className="flex-1">
           <MathBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // Mermaid 다이어그램 블록: MermaidBlock 컴포넌트로 렌더링
+  // content = raw Mermaid 코드 문자열
+  // Python으로 치면: if block.type == 'mermaid': return render(MermaidBlock)
+  // -----------------------------------------------
+  if (block.type === 'mermaid') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <MermaidBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 임베드 블록: EmbedBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { url: "https://..." }
+  // Python으로 치면: if block.type == 'embed': return render(EmbedBlock)
+  // -----------------------------------------------
+  if (block.type === 'embed') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <EmbedBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />

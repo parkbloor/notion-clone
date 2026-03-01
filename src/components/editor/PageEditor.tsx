@@ -19,6 +19,7 @@ import TemplatePanel from './TemplatePanel'
 import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
 import FindReplacePanel from './FindReplacePanel'
+import PropertyPanel from './PropertyPanel'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
 
@@ -133,6 +134,15 @@ function blockToMarkdown(block: Block): string {
       // LaTeX 수식 블록 → 마크다운 수식 펜스($$...$$)로 내보내기
       // Python으로 치면: f'$$\n{latex}\n$$'
       return c.trim() ? `$$\n${c.trim()}\n$$` : ''
+
+    case 'embed': {
+      // 임베드 블록 → 마크다운 링크로 내보내기
+      // Python으로 치면: url = json.loads(c).get('url', ''); f'[임베드]({url})'
+      try {
+        const { url } = JSON.parse(c) as { url?: string }
+        return url ? `[임베드](${url})` : ''
+      } catch { return '' }
+    }
 
     case 'divider':
       return '---'
@@ -798,6 +808,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             </button>
           )}
         </div>
+
+        {/* ── 속성 패널 ──────────────────────────────
+            날짜·상태·선택·텍스트 속성 표시 및 편집
+            Python으로 치면: self.property_panel = PropertyPanel(page_id) */}
+        <PropertyPanel pageId={pageId} />
 
         {/* ── 템플릿 패널 (빈 페이지일 때만 표시) ──────
             블록이 1개이고 내용이 비어 있으면 템플릿 목록 표시

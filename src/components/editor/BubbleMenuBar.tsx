@@ -7,7 +7,9 @@
 'use client'
 
 import { Editor as TiptapEditor } from '@tiptap/react'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSettingsStore } from '@/store/settingsStore'
+import { toast } from 'sonner'
 import { FONT_PRESETS, FONT_SIZE_PRESETS, CATEGORY_LABELS, type FontCategory } from '@/lib/fonts'
 // 정렬 아이콘 — lucide-react 패키지에서 가져옴
 // Python으로 치면: from lucide import AlignLeft, AlignCenter, AlignRight, AlignJustify
@@ -110,7 +112,13 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
   // null        → 모두 닫힘
   // Python으로 치면: open_panel: Literal['text','highlight','font','size'] | None = None
   // -----------------------------------------------
-  const [openPanel, setOpenPanel] = useState<'text' | 'highlight' | 'font' | 'size' | null>(null)
+  const [openPanel, setOpenPanel] = useState<'text' | 'highlight' | 'font' | 'size' | 'ai' | null>(null)
+
+  // AI 요청 처리 중 여부
+  // Python으로 치면: self.ai_loading = False
+  const [aiLoading, setAiLoading] = useState(false)
+
+  const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
 
   // -----------------------------------------------
   // 글자 크기 슬라이더 값 — openPanel이 'size'로 열릴 때 현재 fontSize로 초기화
@@ -228,7 +236,7 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
   // 클릭 직전에 selection을 재캡처 (포커스 유지)
   // Python으로 치면: def toggle_panel(name): self.open_panel = None if open == name else name
   // -----------------------------------------------
-  const togglePanel = (name: 'text' | 'highlight' | 'font' | 'size') => {
+  const togglePanel = (name: 'text' | 'highlight' | 'font' | 'size' | 'ai') => {
     const { from, to } = editor.state.selection
     if (from !== to) savedSelection.current = { from, to }
     setOpenPanel(prev => prev === name ? null : name)
@@ -246,6 +254,154 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
     }
   }
 
+
+  // -----------------------------------------------
+  // AI 스트리밍 요청 — /api/ai/stream (SSE) 호출
+  // 1단계: 선택 삭제(또는 커서 이동) → 에디터 준비
+  // 2단계: SSE 스트림 수신 + 버퍼 파싱
+  // 3단계: 청크 단위로 editor.commands.insertContent() → 실시간 타이핑 효과
+  //         Tiptap history의 newGroupDelay(500ms) 덕분에 빠른 연속 삽입 → 단일 undo 스텝
+  // 에러 시 삽입된 부분 텍스트 롤백 (insertFrom ~ 현재 커서)
+  // Python으로 치면: async def run_ai(action): async for chunk in stream('/ai/stream', ...): editor.insert(chunk)
+  // -----------------------------------------------
+  const runAi = useCallback(async (action: string) => {
+    // Ollama는 API 키 불필요, 나머지는 필수
+    // Python으로 치면: if provider != 'ollama' and not api_key: raise ValueError
+    if (aiProvider !== 'ollama' && !aiApiKey.trim()) {
+      toast.error('AI API 키가 없습니다. 설정 → AI 탭에서 입력해 주세요.')
+      setOpenPanel(null)
+      return
+    }
+
+    // 선택 텍스트 추출 (백엔드 context로 전달)
+    restoreSelection()
+    const { from, to } = editor.state.selection
+    if (from === to) {
+      toast.error('텍스트를 선택해 주세요.')
+      setOpenPanel(null)
+      return
+    }
+    const selectedText = editor.state.doc.textBetween(from, to, '\n')
+
+    // 액션 → 프롬프트 매핑
+    // Python으로 치면: PROMPTS = {'refine': '...', 'summarize': '...', ...}
+    const PROMPTS: Record<string, string> = {
+      refine:       '다음 텍스트를 자연스럽고 명확하게 다듬어 주세요. 원래 의미를 유지하세요.',
+      summarize:    '다음 텍스트를 3줄 이내로 요약해 주세요.',
+      continue:     '다음 텍스트에 이어서 자연스럽게 2~3문장을 추가해 주세요.',
+      translate_ko: '다음 텍스트를 한국어로 번역해 주세요.',
+      translate_en: '다음 텍스트를 영어로 번역해 주세요.',
+    }
+
+    setAiLoading(true)
+    setOpenPanel(null)
+
+    // 삽입 시작 위치 — 에러 롤백 시 사용
+    // Python으로 치면: insert_from = from  # 에디터 준비 후 갱신
+    let insertFrom = from
+
+    try {
+      // Ollama는 base_url 추가
+      const reqBody: Record<string, string> = {
+        provider: aiProvider,
+        model: aiModel,
+        api_key: aiApiKey,
+        prompt: PROMPTS[action] ?? action,
+        context: selectedText,
+      }
+      if (aiProvider === 'ollama') reqBody.base_url = ollamaUrl
+
+      const res = await fetch('http://localhost:8000/api/ai/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(reqBody),
+      })
+
+      // 네트워크 에러 (백엔드 미실행 등) — body가 없으면 JSON으로 폴백
+      if (!res.body) {
+        const data = await res.json().catch(() => ({})) as { detail?: string }
+        toast.error(data.detail ?? 'AI 오류가 발생했습니다.')
+        return
+      }
+
+      // ── 1단계: 에디터 준비 ─────────────────────────────
+      // 계속 쓰기: 커서를 선택 끝으로 이동 + 공백 삽입 (앞 문장과 분리)
+      // 나머지: 선택 텍스트 삭제 → 커서가 from 위치에 남음
+      // Python으로 치면: if action == 'continue': editor.move_cursor(to); editor.insert(' ')
+      //                   else: editor.delete_selection(from, to)
+      if (action === 'continue') {
+        editor.chain().focus().setTextSelection(to).insertContent(' ').run()
+      } else {
+        editor.chain().focus().setTextSelection({ from, to }).deleteSelection().run()
+      }
+      // 실제 커서 위치 읽기 (에디터 연산 후 확정된 위치)
+      insertFrom = editor.state.selection.from
+
+      // ── 2단계: SSE 스트림 수신 + 파싱 ─────────────────
+      // "data: {...}\n\n" 단위로 메시지 분리 → JSON 파싱 → chunk 추출
+      // Python으로 치면: for line in response.iter_lines(): parse_sse(line)
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        // 새로 받은 바이트를 UTF-8로 디코딩 후 버퍼에 추가
+        // stream: true → 멀티바이트 문자(한글 등)가 청크 경계에 걸려도 안전하게 처리
+        buffer += decoder.decode(value, { stream: true })
+
+        // "\n\n"로 완성된 SSE 메시지 분리, 마지막 불완전 청크는 버퍼에 보관
+        // Python으로 치면: parts = buffer.split('\n\n'); buffer = parts.pop()
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6)  // "data: " 제거
+          if (payload === '[DONE]') break
+
+          let msg: { text?: string; error?: string }
+          try {
+            msg = JSON.parse(payload) as { text?: string; error?: string }
+          } catch {
+            continue  // JSON 파싱 실패 → 무시하고 다음 청크
+          }
+
+          // 에러 SSE → 토스트 표시 + 부분 삽입 텍스트 롤백
+          // Python으로 치면: if msg.get('error'): rollback(insert_from, cursor); return
+          if (msg.error) {
+            toast.error(msg.error)
+            const insertEnd = editor.state.selection.from
+            if (insertEnd > insertFrom) {
+              editor.chain().focus()
+                .setTextSelection({ from: insertFrom, to: insertEnd })
+                .deleteSelection()
+                .run()
+            }
+            return
+          }
+
+          // ── 3단계: 청크를 에디터에 즉시 삽입 ────────────
+          // insertContent()는 현재 커서 위치에 삽입 후 커서를 앞으로 이동
+          // 연속 호출 시 자동으로 이어붙여짐 → 타이핑 애니메이션 효과
+          // Tiptap history: 500ms 내 연속 삽입 → 단일 undo 스텝으로 합쳐짐
+          // Python으로 치면: editor.insert_at_cursor(chunk)
+          if (msg.text) {
+            editor.commands.insertContent(msg.text)
+          }
+        }
+      }
+
+      toast.success('AI 처리 완료')
+    } catch {
+      toast.error('서버 연결 실패. 백엔드가 실행 중인지 확인해 주세요.')
+    } finally {
+      setAiLoading(false)
+    }
+  }, [editor, aiProvider, aiModel, aiApiKey, ollamaUrl])  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!visible) return null
 
@@ -511,7 +667,54 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
           </button>
         )}
 
+        <Divider />
+
+        {/* ── AI 버튼 ✨ ──────────────────────────── */}
+        {/* 클릭 시 AI 액션 드롭다운 토글 */}
+        <button
+          title="AI 어시스턴트"
+          disabled={aiLoading}
+          onPointerDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            togglePanel('ai')
+          }}
+          className={openPanel === 'ai'
+            ? 'px-2 py-2 rounded text-sm bg-purple-600 text-white'
+            : 'px-2 py-2 rounded text-sm text-gray-300 hover:bg-purple-700 hover:text-white transition-colors disabled:opacity-40'}
+        >
+          {aiLoading ? '⏳' : '✨'}
+        </button>
+
       </div>
+
+      {/* ── AI 액션 드롭다운 패널 ───────────────────── */}
+      {/* Python으로 치면: if open_panel == 'ai': render_ai_panel() */}
+      {openPanel === 'ai' && (
+        <div className="border-t border-gray-700 py-1">
+          {[
+            { action: 'refine',       label: '✍️ 다듬기',        desc: '문장을 자연스럽게 교정' },
+            { action: 'summarize',    label: '📝 요약',           desc: '3줄 이내로 요약'        },
+            { action: 'continue',     label: '➡️ 계속 쓰기',      desc: '선택 뒤에 이어서 생성' },
+            { action: 'translate_ko', label: '🇰🇷 한국어로 번역', desc: ''                       },
+            { action: 'translate_en', label: '🇺🇸 영어로 번역',   desc: ''                       },
+          ].map(({ action, label, desc }) => (
+            <button
+              key={action}
+              type="button"
+              onPointerDown={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                runAi(action)
+              }}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs text-gray-200 hover:bg-purple-700 hover:text-white transition-colors text-left"
+            >
+              <span>{label}</span>
+              {desc && <span className="text-gray-500 ml-2">{desc}</span>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── 글꼴 선택 패널 ──────────────────────── */}
       {/* 카테고리별 구분선 + 폰트 목록 */}

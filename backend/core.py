@@ -66,8 +66,16 @@ def _load_vault_dir() -> Path:
 VAULT_DIR = _load_vault_dir()
 VAULT_DIR.mkdir(exist_ok=True)
 
+# ── 파일 확장자 ─────────────────────────────────
+# .nct (Notion Clone Template) — 다른 앱이 실수로 열지 못하도록 JSON 대신 사용
+# 내부 포맷은 UTF-8 JSON과 동일, 확장자만 다름
+# Python으로 치면: CONTENT_EXT = '.nct'
+CONTENT_EXT = ".nct"
+
 # 페이지 순서·카테고리를 기록하는 인덱스 파일
-INDEX_FILE = VAULT_DIR / "_index.json"
+INDEX_FILE = VAULT_DIR / "_index.nct"
+# 구버전 호환 — 자동 마이그레이션 (로드 시 .json 폴백, 저장 시 .nct로 전환)
+INDEX_FILE_LEGACY = VAULT_DIR / "_index.json"
 
 # ── 이미지 업로드 제한 ──────────────────────────
 # 허용 이미지 확장자 (소문자만)
@@ -147,6 +155,8 @@ class PageModel(BaseModel):
     # 즐겨찾기 여부
     starred: Optional[bool] = False
     blocks: list[BlockModel]
+    # 페이지 속성 목록 (날짜·상태·선택·텍스트) — 없으면 빈 배열
+    properties: Optional[list[dict]] = []
     createdAt: str
     updatedAt: str
 
@@ -176,6 +186,13 @@ class MoveCategoryBody(BaseModel):
     """페이지 카테고리 이동 요청 바디"""
     # None이면 미분류로 이동
     categoryId: Optional[str] = None
+
+
+class MoveFolderBody(BaseModel):
+    """폴더(카테고리)를 다른 부모로 이동하는 요청 바디"""
+    # None이면 최상위로 이동, str이면 해당 카테고리의 자식으로 이동
+    # Python으로 치면: parent_id: str | None
+    parentId: Optional[str] = None
 
 
 class CategoryReorderBody(BaseModel):
@@ -265,10 +282,11 @@ def make_folder_name(title: str, created_at: str, page_id: str) -> str:
     """
     safe_title = sanitize_title(title)
     try:
-        dt = datetime.fromisoformat(created_at)
+        # 'Z' 접미사(UTC) 처리 — Python 3.10 이하에서 fromisoformat이 'Z' 미지원
+        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
         date_str = dt.strftime("%Y%m%d-%H%M")
     except Exception:
-        date_str = datetime.now().strftime("%Y%m%d-%H%M")
+        date_str = datetime.utcnow().strftime("%Y%m%d-%H%M")
     return f"{safe_title}_{date_str}_{page_id[:8]}"
 
 
@@ -278,11 +296,13 @@ def make_folder_name(title: str, created_at: str, page_id: str) -> str:
 
 def load_index() -> dict:
     """
-    _index.json 로드 (없으면 기본값 반환)
-    Python으로 치면: json.load(open('_index.json')) with 기본값
+    _index.nct 로드 (없으면 구버전 _index.json 폴백, 둘 다 없으면 기본값 반환)
+    Python으로 치면: json.load(open('_index.nct')) with 기본값
     """
-    if INDEX_FILE.exists():
-        data = json.loads(INDEX_FILE.read_text(encoding="utf-8"))
+    # .nct 우선, 없으면 구버전 .json 자동 폴백
+    src = INDEX_FILE if INDEX_FILE.exists() else (INDEX_FILE_LEGACY if INDEX_FILE_LEGACY.exists() else None)
+    if src:
+        data = json.loads(src.read_text(encoding="utf-8"))
         # 기존 버전 호환 — 없는 필드에 기본값 추가
         data.setdefault("folderMap", {})
         data.setdefault("categories", [])
@@ -308,7 +328,7 @@ def load_index() -> dict:
 
 
 def save_index(data: dict) -> None:
-    """_index.json 저장"""
+    """_index.nct 저장 — 구버전 _index.json 있으면 함께 삭제 (마이그레이션)"""
     data.setdefault("folderMap", {})
     data.setdefault("categories", [])
     data.setdefault("categoryMap", {})
@@ -318,6 +338,10 @@ def save_index(data: dict) -> None:
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # 구버전 _index.json 정리 — 저장 성공 후 삭제
+    # Python으로 치면: if old.exists(): old.unlink()
+    if INDEX_FILE_LEGACY.exists():
+        INDEX_FILE_LEGACY.unlink()
 
 
 # -----------------------------------------------
@@ -396,12 +420,28 @@ def replace_image_urls_in_page(page_data: dict, old_prefix: str, new_prefix: str
 # 페이지 파일 헬퍼
 # -----------------------------------------------
 
+def resolve_content_file(page_dir: Path) -> Path:
+    """
+    페이지 content 파일 경로 반환 (읽기용)
+    .nct 파일 우선, 없으면 구버전 .json 폴백
+    Python으로 치면: def resolve_content(dir): return nct if nct.exists() else json
+    """
+    nct = page_dir / f"content{CONTENT_EXT}"
+    if nct.exists():
+        return nct
+    json_path = page_dir / "content.json"
+    if json_path.exists():
+        return json_path
+    # 신규 파일: .nct 경로 반환 (아직 없어도 save가 생성함)
+    return nct
+
+
 def load_page(page_id: str, index: dict) -> Optional[dict]:
     """
-    vault/{경로}/content.json 로드
-    Python으로 치면: json.load(open(f'{path}/content.json'))
+    vault/{경로}/content.nct 로드 (구버전 .json 자동 폴백)
+    Python으로 치면: json.load(open(f'{path}/content.nct'))
     """
-    content_file = get_page_dir(page_id, index) / "content.json"
+    content_file = resolve_content_file(get_page_dir(page_id, index))
     if not content_file.exists():
         return None
     return json.loads(content_file.read_text(encoding="utf-8"))
@@ -409,16 +449,22 @@ def load_page(page_id: str, index: dict) -> Optional[dict]:
 
 def save_page_to_disk(page_data: dict, page_dir: Path) -> None:
     """
-    vault/{경로}/content.json 저장
-    Python으로 치면: json.dump(page, open(path, 'w'))
+    vault/{경로}/content.nct 저장 — 구버전 .json 있으면 함께 삭제 (마이그레이션)
+    Python으로 치면: json.dump(page, open(path + '.nct', 'w'))
     """
     page_dir.mkdir(parents=True, exist_ok=True)
-    (page_dir / "content.json").write_text(
+    nct_path = page_dir / f"content{CONTENT_EXT}"
+    nct_path.write_text(
         json.dumps(page_data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    # 구버전 .json 정리 — 저장 성공 후 삭제
+    json_path = page_dir / "content.json"
+    if json_path.exists():
+        json_path.unlink()
 
 
 def now_iso() -> str:
-    """현재 시각을 ISO 8601 문자열로 반환"""
-    return datetime.now().isoformat()
+    """현재 시각을 UTC ISO 8601 문자열로 반환 (프론트의 toISOString()과 형식 통일)"""
+    now = datetime.utcnow()
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"

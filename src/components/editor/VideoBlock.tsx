@@ -224,7 +224,7 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
         loop={plugins.videoLoop}
         muted={plugins.videoAutoplay}  // autoplay 활성 시 음소거로 시작 (브라우저 정책)
         playsInline
-        className="w-full max-h-[480px] object-contain"
+        className="w-full max-h-120 object-contain"
         onError={() => setUploadError('비디오를 재생할 수 없습니다.')}
       />
 

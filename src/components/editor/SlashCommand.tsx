@@ -46,6 +46,8 @@ const COMMANDS = [
       { icon: '🎬', name: '비디오', description: '로컬 비디오 파일을 업로드하여 재생합니다', type: 'video' as BlockType },
       { icon: '📐', name: '레이아웃', description: 'A4 용지 기준 다단 레이아웃 (잡지 편집 스타일)', type: 'layout' as BlockType },
       { icon: '∑', name: '수식', description: 'LaTeX 수식 블록 — KaTeX 렌더링', type: 'math' as BlockType },
+      { icon: '🔗', name: '임베드', description: 'YouTube · Vimeo · 웹페이지 URL을 iframe으로 삽입합니다', type: 'embed' as BlockType },
+      { icon: '📊', name: 'Mermaid', description: 'flowchart · sequence · gantt 등 텍스트로 다이어그램 작성', type: 'mermaid' as BlockType },
     ]
   },
 ]

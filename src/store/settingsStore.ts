@@ -79,11 +79,39 @@ export interface SettingsStore {
   // Python으로 치면: self._focus_mode_active: bool = False  # volatile
   isFocusMode: boolean
 
+  // ── AI 설정 ─────────────────────────────────
+  // 제공자: 'openai' | 'claude' | 'ollama'
+  // Python으로 치면: self.ai_provider: str = 'openai'
+  aiProvider: string
+  // 모델 ID (예: 'gpt-4o-mini', 'claude-sonnet-4-6', 'llama3.2')
+  aiModel: string
+  // API 키 — localStorage에 저장 (vault 밖이므로 git 유출 없음)
+  aiApiKey: string
+  // Ollama 전용 서버 URL (기본값: http://localhost:11434)
+  // Python으로 치면: self.ollama_url: str = 'http://localhost:11434'
+  ollamaUrl: string
+  setAiProvider: (provider: string) => void
+  setAiModel: (model: string) => void
+  setAiApiKey: (key: string) => void
+  setOllamaUrl: (url: string) => void
+
   // ── 카테고리 사이드바 접힘 여부 (localStorage에 영속) ──
-  // true = 아이콘만 표시(w-12), false = 전체 표시(w-44)
+  // true = 아이콘만 표시(w-12), false = 전체 표시(sidebarWidth px)
   // Python으로 치면: self.sidebar_collapsed: bool = False
   sidebarCollapsed: boolean
   toggleSidebarCollapsed: () => void
+
+  // ── 사이드바 너비 (px) — 마우스 드래그로 조절, localStorage에 영속 ──
+  // min: 160px, max: 480px, 기본: 260px
+  // Python으로 치면: self.sidebar_width: int = 260
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
+
+  // ── 사이드바 폴더/메모 분할 높이 (px) — 수평 드래그로 조절, localStorage에 영속 ──
+  // min: 80px, max: 500px, 기본: 220px
+  // Python으로 치면: self.sidebar_folder_height: int = 220
+  sidebarFolderHeight: number
+  setSidebarFolderHeight: (height: number) => void
 
   // ── 레이아웃 기본값 ──────────────────────────────────────────────────
   // Python으로 치면: self.layout_default_orientation = 'portrait'
@@ -260,10 +288,18 @@ export const useSettingsStore = create<SettingsStore>()(
       isFocusMode: false,
       // 사이드바 접힘 여부 기본값 — false = 전체 표시
       sidebarCollapsed: false,
+      // 사이드바 너비 기본값 — 260px (두 패널 합친 것보다 좁은 통합 너비)
+      sidebarWidth: 260,
+      // 사이드바 폴더/메모 분할 높이 기본값 — 220px
+      sidebarFolderHeight: 220,
       // 레이아웃 기본값 — 빈 문자열 = 새 블록 추가 시 항상 피커 표시
       layoutDefaultOrientation: 'portrait',
       layoutDefaultTemplate: '',
       customLayoutTemplates: [],
+      aiProvider: 'openai',
+      aiModel: 'gpt-4o-mini',
+      aiApiKey: '',
+      ollamaUrl: 'http://localhost:11434',
 
       // ── 테마 변경 ────────────────────────────
       // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
@@ -325,6 +361,24 @@ export const useSettingsStore = create<SettingsStore>()(
         })
       },
 
+      // ── 사이드바 너비 변경 (드래그 핸들) ──────
+      // min: 160, max: 480 범위로 제한
+      // Python으로 치면: def set_sidebar_width(self, w): self.sidebar_width = max(160, min(480, w))
+      setSidebarWidth: (width) => {
+        set((state) => {
+          state.sidebarWidth = Math.max(160, Math.min(480, width))
+        })
+      },
+
+      // ── 사이드바 폴더/메모 분할 높이 변경 (수평 드래그 핸들) ──
+      // min: 80, max: 500 범위로 제한
+      // Python으로 치면: def set_sidebar_folder_height(self, h): self.sidebar_folder_height = max(80, min(500, h))
+      setSidebarFolderHeight: (height) => {
+        set((state) => {
+          state.sidebarFolderHeight = Math.max(80, Math.min(500, height))
+        })
+      },
+
       // ── 레이아웃 기본값 변경 ──────────────────
       // Python으로 치면: def set_layout_defaults(self, orient, tpl): self.layout_default = (orient, tpl)
       setLayoutDefaults: (orientation, template) => {
@@ -349,6 +403,13 @@ export const useSettingsStore = create<SettingsStore>()(
           state.customLayoutTemplates = state.customLayoutTemplates.filter(t => t.id !== id)
         })
       },
+
+      // ── AI 설정 변경 ─────────────────────────
+      // Python으로 치면: def set_ai_provider(self, p): self.ai_provider = p
+      setAiProvider: (provider) => { set((state) => { state.aiProvider = provider }) },
+      setAiModel:    (model)    => { set((state) => { state.aiModel = model }) },
+      setAiApiKey:   (key)      => { set((state) => { state.aiApiKey = key }) },
+      setOllamaUrl:  (url)      => { set((state) => { state.ollamaUrl = url }) },
     })),
     {
       // localStorage 키 이름

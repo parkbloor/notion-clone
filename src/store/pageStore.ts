@@ -7,7 +7,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { toast } from 'sonner'
-import { Block, BlockType, Category, Page, createBlock, createPage } from '@/types/block'
+import { Block, BlockType, Category, Page, PageProperty, createBlock, createPage } from '@/types/block'
 import { api } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
 
@@ -42,7 +42,12 @@ function scheduleSave(
           setState((state) => {
             const idx = state.pages.findIndex(p => p.id === pageId)
             if (idx !== -1) {
-              state.pages[idx] = updatedPage
+              // 백엔드가 알지 못하는 필드(properties 등)는 현재 store 값 유지
+              // Python으로 치면: updated = {**server_page, 'properties': local_page.properties}
+              state.pages[idx] = {
+                ...updatedPage,
+                properties: state.pages[idx].properties,
+              }
             }
           })
         }
@@ -146,6 +151,12 @@ interface PageStore {
   // Python으로 치면: def remove_tag(self, page_id, tag): page.tags.remove(tag)
   removeTagFromPage: (pageId: string, tag: string) => void
 
+  // ── 페이지 속성 액션 ──────────────────────────
+  // Python으로 치면: def set_property(self, page_id, property): page.properties[id] = property
+  setPageProperty: (pageId: string, property: PageProperty) => void
+  // Python으로 치면: def remove_property(self, page_id, property_id): page.properties.remove(id)
+  removePageProperty: (pageId: string, propertyId: string) => void
+
   // ── 즐겨찾기 / 복제 액션 ─────────────────────
   // Python으로 치면: def toggle_star(self, page_id): page.starred = not page.starred
   togglePageStar: (pageId: string) => void
@@ -201,6 +212,9 @@ interface PageStore {
   // 하위 카테고리 순서 변경 → 서버에도 저장
   // Python으로 치면: def reorder_child_categories(self, parent_id, new_order): ...
   reorderChildCategories: (parentId: string, newOrder: string[]) => void
+  // 폴더를 다른 부모 폴더로 이동 (newParentId=null이면 최상위로)
+  // Python으로 치면: async def move_category_to_parent(self, cat_id, new_parent_id): ...
+  moveCategoryToParent: (categoryId: string, newParentId: string | null) => Promise<void>
   // 메모 목록 내 드래그로 순서 변경
   // Python으로 치면: def reorder_pages(self, from_id, to_id): ...
   reorderPages: (fromId: string, toId: string) => void
@@ -417,6 +431,37 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (page && page.tags) {
           page.tags = page.tags.filter(t => t !== tag)
+          page.updatedAt = new Date()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+
+    // ── 페이지 속성 액션 ──────────────────────
+
+    // 속성 추가 또는 수정 (id가 같으면 업데이트, 없으면 추가)
+    // Python으로 치면: def set_property(self, page_id, property): ...
+    setPageProperty: (pageId, property) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        if (!page.properties) page.properties = []
+        const idx = page.properties.findIndex(p => p.id === property.id)
+        if (idx !== -1) page.properties[idx] = property
+        else page.properties.push(property)
+        page.updatedAt = new Date()
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 속성 삭제
+    // Python으로 치면: def remove_property(self, page_id, property_id): ...
+    removePageProperty: (pageId, propertyId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page && page.properties) {
+          page.properties = page.properties.filter(p => p.id !== propertyId)
           page.updatedAt = new Date()
         }
       })
@@ -866,6 +911,47 @@ export const usePageStore = create<PageStore>()(
     reorderChildCategories: (parentId, newOrder) => {
       set((state) => { state.categoryChildOrder[parentId] = newOrder })
       api.reorderChildCategories(parentId, newOrder).catch(() => {})
+    },
+
+    // 폴더를 다른 부모 폴더로 이동 (newParentId=null이면 최상위로)
+    // Python으로 치면: async def move_category_to_parent(self, cat_id, new_parent_id): ...
+    moveCategoryToParent: async (categoryId, newParentId) => {
+      // 낙관적 업데이트: 로컬 상태 먼저 변경
+      set((state) => {
+        const cat = state.categories.find(c => c.id === categoryId)
+        if (!cat) return
+        const oldParentId = cat.parentId ?? null
+
+        // 기존 부모에서 제거
+        if (oldParentId === null) {
+          state.categoryOrder = state.categoryOrder.filter(id => id !== categoryId)
+        } else {
+          const siblings = state.categoryChildOrder[oldParentId] ?? []
+          state.categoryChildOrder[oldParentId] = siblings.filter(id => id !== categoryId)
+          if (state.categoryChildOrder[oldParentId].length === 0) {
+            delete state.categoryChildOrder[oldParentId]
+          }
+        }
+
+        // 새 부모에 추가 (맨 앞)
+        if (newParentId === null) {
+          state.categoryOrder.unshift(categoryId)
+        } else {
+          if (!state.categoryChildOrder[newParentId]) {
+            state.categoryChildOrder[newParentId] = []
+          }
+          state.categoryChildOrder[newParentId].unshift(categoryId)
+        }
+
+        // 카테고리 parentId 업데이트
+        cat.parentId = newParentId ?? undefined
+      })
+
+      try {
+        await api.moveCategoryToParent(categoryId, newParentId)
+      } catch {
+        toast.warning('폴더 이동에 실패했습니다. 새로고침 시 되돌아갈 수 있습니다.')
+      }
     },
 
     // 메모 목록 내 드래그로 순서 변경 → 서버에도 저장

@@ -1,9 +1,8 @@
 // ==============================================
 // src/components/editor/NewPageDialog.tsx
-// 역할: 새 페이지 생성 다이얼로그 — 빈 페이지 or 템플릿 선택
-//   - 서버에서 템플릿 목록 로드
-//   - 빈 페이지 / 마크다운 템플릿 / 그리드 템플릿 구분
-//   - 선택 후 페이지 생성 → 템플릿 적용
+// 역할: 새 페이지 생성 다이얼로그 — 갤러리 카드 그리드 UI
+//   - 빈 페이지 / 마크다운 템플릿 / 그리드 템플릿 카드로 표시
+//   - 선택 → 페이지 생성 → 템플릿 적용
 // Python으로 치면: class NewPageDialog(QDialog): ...
 // ==============================================
 
@@ -15,32 +14,45 @@ import { templateApi, Template } from '@/lib/api'
 import { usePageStore } from '@/store/pageStore'
 import { gridCellsToBlocks, isGridTemplate, GridTemplateContent } from '@/lib/templateGrid'
 
-// NewPageDialog 컴포넌트 props
-// Python으로 치면: def NewPageDialog(category_id, on_close): ...
 interface NewPageDialogProps {
-  categoryId: string | null   // 생성할 카테고리 ID (null = 미분류)
+  categoryId: string | null
   onClose: () => void
+}
+
+// -----------------------------------------------
+// 템플릿 아이콘 → 배경 색상 매핑
+// 아이콘 유형별로 카드 상단 색상을 다르게
+// Python으로 치면: def icon_to_color(icon: str) -> str: ...
+// -----------------------------------------------
+function iconToColor(icon: string): string {
+  const map: Record<string, string> = {
+    '📋': 'from-blue-400 to-blue-500',
+    '📊': 'from-indigo-400 to-indigo-500',
+    '📅': 'from-amber-400 to-amber-500',
+    '📖': 'from-green-400 to-green-500',
+    '🎯': 'from-red-400 to-red-500',
+    '📄': 'from-gray-300 to-gray-400',
+    '✏️': 'from-purple-400 to-purple-500',
+    '💡': 'from-yellow-400 to-yellow-500',
+    '🗒️': 'from-teal-400 to-teal-500',
+    '🔖': 'from-pink-400 to-pink-500',
+  }
+  return map[icon] ?? 'from-gray-400 to-gray-500'
 }
 
 export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProps) {
 
   // 서버에서 불러온 템플릿 목록
-  // Python으로 치면: self.templates: list[Template] = []
   const [templates, setTemplates] = useState<Template[]>([])
-
-  // 로딩 / 적용 중 상태
   const [loading, setLoading] = useState(true)
   const [applying, setApplying] = useState(false)
 
-  // 오버레이 ref (외부 클릭 감지용)
+  // 오버레이 ref (외부 클릭 감지)
   const overlayRef = useRef<HTMLDivElement>(null)
 
-  // 스토어 액션
-  // Python으로 치면: store = get_store()
   const { addPage, applyTemplate, setPageBlocks } = usePageStore()
 
   // ── 마운트 시 템플릿 목록 로드 ───────────────
-  // Python으로 치면: self.templates = await api.get_all()
   useEffect(() => {
     templateApi.getAll()
       .then(setTemplates)
@@ -76,25 +88,20 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
   async function handleTemplate(template: Template) {
     setApplying(true)
     try {
-      // 1. 빈 페이지 생성 (서버에서 ID 발급)
+      // 1. 빈 페이지 생성
       await addPage(template.name, categoryId)
 
       // 2. 생성된 페이지 ID 가져오기
       const pageId = usePageStore.getState().currentPageId
-      if (!pageId) {
-        onClose()
-        return
-      }
+      if (!pageId) { onClose(); return }
 
-      // 3. 템플릿 내용 적용
+      // 3. 템플릿 내용 적용 (그리드 or 마크다운)
       if (isGridTemplate(template.content)) {
-        // 그리드 템플릿 → 셀을 Block[]로 변환 후 적용
         // Python으로 치면: if is_grid_template(content): apply_grid(cells)
         const gridData = JSON.parse(template.content) as GridTemplateContent
         const blocks = gridCellsToBlocks(gridData.cells, gridData.gridCols ?? 12)
         setPageBlocks(pageId, blocks)
       } else if (template.content.trim()) {
-        // 마크다운 템플릿 → 기존 파서 사용
         // Python으로 치면: else: apply_markdown(content)
         applyTemplate(pageId, template.content)
       }
@@ -108,113 +115,125 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
   }
 
   return (
-    // ── 오버레이 배경 ───────────────────────────
-    // Python으로 치면: self.overlay.mousePressEvent = lambda: self.close()
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={e => { if (e.target === overlayRef.current) onClose() }}
     >
-      {/* ── 다이얼로그 박스 ── */}
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden border border-gray-200">
+      {/* ── 다이얼로그 박스 (넓게) ── */}
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border border-gray-200 flex flex-col max-h-[85vh]">
 
         {/* 헤더 */}
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h2 className="text-base font-semibold text-gray-800">새 페이지 만들기</h2>
-          <p className="text-xs text-gray-400 mt-0.5">빈 페이지로 시작하거나 템플릿을 선택하세요</p>
-        </div>
-
-        {/* 본문 */}
-        <div className="max-h-[60vh] overflow-y-auto p-3 space-y-1">
-
-          {/* ── 빈 페이지 옵션 ── */}
-          <button
-            type="button"
-            onClick={handleBlankPage}
-            disabled={applying}
-            className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors text-left disabled:opacity-50 border border-transparent hover:border-gray-200"
-          >
-            <span className="text-2xl w-8 text-center shrink-0">📄</span>
-            <div>
-              <p className="text-sm font-medium text-gray-800">빈 페이지</p>
-              <p className="text-xs text-gray-400">아무 내용 없이 시작합니다</p>
-            </div>
-          </button>
-
-          {/* ── 구분선 ── */}
-          {!loading && templates.length > 0 && (
-            <div className="flex items-center gap-2 py-1">
-              <div className="flex-1 h-px bg-gray-100" />
-              <span className="text-xs text-gray-400">템플릿으로 시작</span>
-              <div className="flex-1 h-px bg-gray-100" />
-            </div>
-          )}
-
-          {/* ── 로딩 중 ── */}
-          {loading && (
-            <div className="flex items-center justify-center py-6">
-              <svg className="w-5 h-5 animate-spin text-gray-400" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              <span className="ml-2 text-sm text-gray-400">템플릿 불러오는 중...</span>
-            </div>
-          )}
-
-          {/* ── 템플릿 목록 ── */}
-          {templates.map(template => {
-            const isGrid = isGridTemplate(template.content)
-            return (
-              <button
-                key={template.id}
-                type="button"
-                onClick={() => handleTemplate(template)}
-                disabled={applying}
-                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-blue-50 transition-colors text-left disabled:opacity-50 border border-transparent hover:border-blue-100"
-              >
-                {/* 아이콘 */}
-                <span className="text-2xl w-8 text-center shrink-0">{template.icon}</span>
-
-                {/* 내용 */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{template.name}</p>
-                  {template.description && (
-                    <p className="text-xs text-gray-400 truncate">{template.description}</p>
-                  )}
-                </div>
-
-                {/* 템플릿 타입 배지 */}
-                <span className={[
-                  'text-xs px-1.5 py-0.5 rounded-md shrink-0',
-                  isGrid
-                    ? 'bg-purple-100 text-purple-600'
-                    : 'bg-gray-100 text-gray-500',
-                ].join(' ')}>
-                  {isGrid ? '그리드' : '마크다운'}
-                </span>
-              </button>
-            )
-          })}
-
-          {/* 템플릿 없음 안내 */}
-          {!loading && templates.length === 0 && (
-            <div className="text-center py-4 text-xs text-gray-400">
-              아직 템플릿이 없습니다. 설정 &gt; 템플릿에서 추가하세요.
-            </div>
-          )}
-
-        </div>
-
-        {/* 하단 버튼 */}
-        <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <div>
+            <h2 className="text-base font-semibold text-gray-800">새 페이지 만들기</h2>
+            <p className="text-xs text-gray-400 mt-0.5">빈 페이지로 시작하거나 템플릿을 선택하세요</p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors text-sm"
           >
-            취소
+            ✕
           </button>
         </div>
+
+        {/* 본문 — 스크롤 가능 */}
+        <div className="flex-1 overflow-y-auto p-4">
+
+          {/* ── 카드 그리드 ── */}
+          {/* Python으로 치면: grid = QGridLayout(); grid.setColumns(3) */}
+          <div className="grid grid-cols-3 gap-3">
+
+            {/* ── 빈 페이지 카드 ── */}
+            <button
+              type="button"
+              onClick={handleBlankPage}
+              disabled={applying}
+              className="flex flex-col rounded-xl overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all text-left group disabled:opacity-50"
+            >
+              {/* 카드 상단 색상 영역 */}
+              <div className="w-full h-20 bg-linear-to-br from-gray-200 to-gray-300 flex items-center justify-center group-hover:from-blue-100 group-hover:to-blue-200 transition-colors">
+                <span className="text-4xl opacity-60">📄</span>
+              </div>
+              {/* 카드 본문 */}
+              <div className="p-3 bg-white flex-1">
+                <p className="text-sm font-semibold text-gray-800">빈 페이지</p>
+                <p className="text-xs text-gray-400 mt-0.5 leading-tight">아무 내용 없이 시작합니다</p>
+              </div>
+            </button>
+
+            {/* ── 로딩 스켈레톤 ── */}
+            {loading && Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex flex-col rounded-xl overflow-hidden border border-gray-100 animate-pulse">
+                <div className="w-full h-20 bg-gray-100" />
+                <div className="p-3 space-y-2">
+                  <div className="h-3 bg-gray-100 rounded w-3/4" />
+                  <div className="h-2 bg-gray-100 rounded w-1/2" />
+                </div>
+              </div>
+            ))}
+
+            {/* ── 템플릿 카드 목록 ── */}
+            {/* Python으로 치면: for template in templates: render_card(template) */}
+            {templates.map(template => {
+              const isGrid = isGridTemplate(template.content)
+              const gradientCls = iconToColor(template.icon)
+              return (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => handleTemplate(template)}
+                  disabled={applying}
+                  className="flex flex-col rounded-xl overflow-hidden border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all text-left group disabled:opacity-50"
+                >
+                  {/* 카드 상단 — 그라디언트 + 큰 아이콘 */}
+                  <div className={`w-full h-20 bg-linear-to-br ${gradientCls} flex items-center justify-center`}>
+                    <span className="text-4xl drop-shadow-sm">{template.icon}</span>
+                  </div>
+                  {/* 카드 본문 */}
+                  <div className="p-3 bg-white flex-1 flex flex-col gap-1">
+                    <p className="text-sm font-semibold text-gray-800 leading-tight">{template.name}</p>
+                    {template.description && (
+                      <p className="text-xs text-gray-400 leading-tight line-clamp-2">{template.description}</p>
+                    )}
+                    {/* 타입 배지 */}
+                    <div className="mt-auto pt-1">
+                      <span className={[
+                        'text-[10px] px-1.5 py-0.5 rounded-md',
+                        isGrid ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-500',
+                      ].join(' ')}>
+                        {isGrid ? '그리드' : '마크다운'}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+
+          </div>
+
+          {/* 템플릿 없을 때 (로딩 완료 후) */}
+          {!loading && templates.length === 0 && (
+            <div className="text-center py-4 text-xs text-gray-400 mt-2">
+              아직 저장된 템플릿이 없습니다.
+            </div>
+          )}
+
+        </div>
+
+        {/* 하단 푸터 */}
+        {applying && (
+          <div className="px-5 py-2 border-t border-gray-100 shrink-0">
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <svg className="w-3.5 h-3.5 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              <span>페이지 생성 중...</span>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

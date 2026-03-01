@@ -10,8 +10,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore, applyTheme, applyEditorStyle, applyThemePreset } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
-import PageList from '@/components/editor/PageList'
 import PageEditor from '@/components/editor/PageEditor'
+import DatabaseView from '@/components/editor/DatabaseView'
 import ShortcutModal from '@/components/editor/ShortcutModal'
 import QuickAddModal from '@/components/editor/QuickAddModal'
 import GlobalSearch from '@/components/editor/GlobalSearch'
@@ -62,6 +62,11 @@ export default function Home() {
   // 커맨드 팔레트 열림 여부 (Ctrl+P)
   // Python으로 치면: self.command_palette_open = False
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+
+  // 데이터베이스 테이블 뷰 활성 여부
+  // true이면 에디터 대신 DatabaseView를 렌더링
+  // Python으로 치면: self.db_view_active = False
+  const [dbViewActive, setDbViewActive] = useState(false)
 
   // 플러그인 설정 + 집중 모드 상태/토글
   // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
@@ -160,11 +165,14 @@ export default function Home() {
     currentPageId,
     pages,
     categoryOrder,
+    categoryChildOrder,
     setCurrentPage,
     addPage,
     loadFromServer,
     movePageToCategory,
     reorderCategories,
+    reorderChildCategories,
+    moveCategoryToParent,
     reorderPages,
     undoPage,
     redoPage,
@@ -303,11 +311,33 @@ export default function Home() {
         movePageToCategory(pageId, targetCategoryId)
       }
     } else if (activeType === 'category' && overType === 'category' && active.id !== over.id) {
-      // 카테고리 순서 변경
-      const oldIndex = categoryOrder.indexOf(active.id as string)
-      const newIndex = categoryOrder.indexOf(over.id as string)
-      if (oldIndex !== -1 && newIndex !== -1) {
-        reorderCategories(arrayMove(categoryOrder, oldIndex, newIndex))
+      // 드래그한 폴더와 드롭 대상 폴더의 parentId 비교
+      const activeParentId = (active.data.current?.parentId ?? null) as string | null
+      const overParentId   = (over.data.current?.parentId   ?? null) as string | null
+
+      if (activeParentId === overParentId) {
+        // 같은 부모 → 순서 변경
+        if (activeParentId === null) {
+          // 최상위 레벨 순서 변경
+          const oldIndex = categoryOrder.indexOf(active.id as string)
+          const newIndex = categoryOrder.indexOf(over.id as string)
+          if (oldIndex !== -1 && newIndex !== -1) {
+            reorderCategories(arrayMove(categoryOrder, oldIndex, newIndex))
+          }
+        } else {
+          // 하위 레벨 순서 변경 (같은 부모 내)
+          // Python으로 치면: siblings = child_order[parent_id]; arrayMove(siblings, old, new)
+          const siblings = categoryChildOrder[activeParentId] ?? []
+          const oldIndex = siblings.indexOf(active.id as string)
+          const newIndex = siblings.indexOf(over.id as string)
+          if (oldIndex !== -1 && newIndex !== -1) {
+            reorderChildCategories(activeParentId, arrayMove(siblings, oldIndex, newIndex))
+          }
+        }
+      } else {
+        // 다른 부모 → over 폴더의 자식으로 이동 (over.id = 새 부모)
+        // Python으로 치면: move_category(active.id, new_parent_id=over.id)
+        moveCategoryToParent(active.id as string, over.id as string)
       }
     } else if (activeType === 'page' && overType === 'page' && active.id !== over.id) {
       // 메모 목록 내 순서 변경
@@ -348,8 +378,13 @@ export default function Home() {
               else: show() */}
         {!isFocusMode && (
           <div className={sidebarOpen ? "flex fixed inset-y-0 left-0 z-40 shadow-2xl md:relative md:z-auto md:shadow-none" : "hidden md:flex"}>
-            <CategorySidebar />
-            <PageList onOpenSettings={() => setSettingsOpen(true)} onCloseMobile={closeMobileSidebar} />
+            {/* 통합 파일 사이드바: 폴더 트리 + 페이지 인라인 + 검색 + 캘린더 + 최근파일 */}
+            <CategorySidebar
+              onOpenSettings={() => setSettingsOpen(true)}
+              onCloseMobile={closeMobileSidebar}
+              dbViewActive={dbViewActive}
+              onToggleDbView={() => setDbViewActive(v => !v)}
+            />
           </div>
         )}
 
@@ -375,7 +410,11 @@ export default function Home() {
         <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0">
           {/* 스크롤 가능한 에디터 영역 (flex-1로 남은 공간 차지) */}
           <div className="flex-1 overflow-y-auto">
-            {currentPageId ? (
+            {/* 데이터베이스 테이블 뷰 (dbViewActive=true일 때) */}
+            {/* Python으로 치면: if db_view_active: render DatabaseView() */}
+            {dbViewActive ? (
+              <DatabaseView onClose={() => setDbViewActive(false)} />
+            ) : currentPageId ? (
               // 페이지가 선택되어 있으면 에디터 렌더링
               <PageEditor pageId={currentPageId} />
             ) : (
@@ -385,9 +424,9 @@ export default function Home() {
               </div>
             )}
           </div>
-          {/* 하단 고정 바: 너비 슬라이더 + 단어수 (페이지 선택 시만 표시) */}
-          {/* Python으로 치면: if current_page_id: render BottomBar(current_page_id) */}
-          {currentPageId && <BottomBar pageId={currentPageId} />}
+          {/* 하단 고정 바: 너비 슬라이더 + 단어수 (에디터 뷰 + 페이지 선택 시만 표시) */}
+          {/* Python으로 치면: if not db_view_active and current_page_id: render BottomBar(current_page_id) */}
+          {!dbViewActive && currentPageId && <BottomBar pageId={currentPageId} />}
         </main>
 
         {/* ── 포모도로 타이머 위젯 (pomodoro 플러그인 ON 시만 표시) ──

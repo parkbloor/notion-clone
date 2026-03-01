@@ -30,6 +30,7 @@ from backend.core import (
     make_folder_name,
     now_iso,
     replace_image_urls_in_page,
+    resolve_content_file,
     save_index,
     save_page_to_disk,
     validate_uuid,
@@ -336,7 +337,7 @@ def move_page_to_category(page_id: str, body: MoveCategoryBody):
         shutil.move(str(old_path), str(new_path))
 
     # 이미지 URL 교체
-    content_file = new_path / "content.json"
+    content_file = resolve_content_file(new_path)
     updated_page = None
     if content_file.exists():
         import json
@@ -344,10 +345,8 @@ def move_page_to_category(page_id: str, body: MoveCategoryBody):
         old_prefix = get_image_url_prefix(page_folder, old_cat_folder)
         new_prefix = get_image_url_prefix(page_folder, new_cat_folder)
         replace_image_urls_in_page(page_data, old_prefix, new_prefix)
-        content_file.write_text(
-            json.dumps(page_data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        # .nct로 저장 (save_page_to_disk가 구버전 .json 자동 삭제)
+        save_page_to_disk(page_data, new_path)
         updated_page = page_data
 
     # categoryMap 업데이트
