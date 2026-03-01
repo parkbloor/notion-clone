@@ -56,6 +56,12 @@ import LayoutBlock from './LayoutBlock'
 import MathBlock from './MathBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
+// ── 찾기/바꾸기 확장 ─────────────────────────
+// SearchHighlight: ProseMirror 데코레이션으로 검색어 하이라이트
+// searchHighlightKey: 검색어 변경 시 Transaction 메타 키로 전달
+// Python으로 치면: from extensions import SearchHighlight, searchHighlightKey
+import { SearchHighlight, searchHighlightKey } from '@/extensions/SearchHighlight'
+import { useFindReplaceStore } from '@/store/findReplaceStore'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -270,6 +276,10 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       // paragraph와 heading 노드에 좌/중/우/양쪽 정렬 속성 추가
       // Python으로 치면: extensions.append(TextAlign(types=['heading', 'paragraph']))
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      // ── 찾기/바꾸기 하이라이트 확장 ───────────────
+      // 검색어와 일치하는 텍스트에 .find-highlight 클래스 추가
+      // Python으로 치면: extensions.append(SearchHighlight)
+      SearchHighlight,
     ],
     // 이미지·토글·칸반·Excalidraw·비디오 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
@@ -405,6 +415,16 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
     if (!editor) return
     applyBlockType(editor, block.type)
   }, [block.type, editor])
+
+  // ── 찾기/바꾸기 스토어 구독 → 검색어 변경 시 각 에디터 플러그인에 전달 ──
+  // Python으로 치면: def on_search_query_change(query, case): editor.dispatch(meta)
+  const { query: searchQuery, caseSensitive: searchCase } = useFindReplaceStore()
+  useEffect(() => {
+    if (!editor) return
+    editor.view.dispatch(
+      editor.view.state.tr.setMeta(searchHighlightKey, { term: searchQuery, caseSensitive: searchCase })
+    )
+  }, [editor, searchQuery, searchCase])
 
   // -----------------------------------------------
   // 우클릭 컨텍스트 메뉴 핸들러

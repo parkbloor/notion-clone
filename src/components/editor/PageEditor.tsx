@@ -18,7 +18,9 @@ import CoverPicker from './CoverPicker'
 import TemplatePanel from './TemplatePanel'
 import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
+import FindReplacePanel from './FindReplacePanel'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useFindReplaceStore } from '@/store/findReplaceStore'
 
 // =============================================
 // 마크다운 내보내기 헬퍼 함수들
@@ -260,6 +262,27 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   const [exportOpen, setExportOpen] = useState(false)
   // 내보내기 메뉴 DOM 참조 (외부 클릭 감지용)
   const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  // ── 찾기/바꾸기 스토어 (Ctrl+H 핸들러용) ──────────
+  // Python으로 치면: self.find_replace = find_replace_store
+  const openFindReplace = useFindReplaceStore((s) => s.open)
+
+  // ── Ctrl+H → 찾기/바꾸기 패널 열기 ──────────────
+  // Python으로 치면: def on_key_down(e): if e.ctrlKey and e.key == 'h': open_find_replace()
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+        e.preventDefault()
+        openFindReplace(false)
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        openFindReplace(false)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [openFindReplace])
 
   // -----------------------------------------------
   // 내보내기 드롭다운 외부 클릭 시 닫기
@@ -834,6 +857,12 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       )}
 
       </div>{/* ── flex 래퍼 닫기 */}
+
+      {/* ── 찾기/바꾸기 플로팅 패널 (Ctrl+H/F로 열림, z-50 fixed) ──
+          isOpen 이 false 면 패널 컴포넌트가 null 반환 → 항상 마운트해도 무방
+          Python으로 치면: if find_replace.is_open: render FindReplacePanel() */}
+      <FindReplacePanel />
+
     </div>
   )
 }

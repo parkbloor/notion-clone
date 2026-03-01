@@ -790,3 +790,23 @@ html[data-theme] .tiptap hr       { border-top-color: var(--border-color) !impor
     overflow: visible !important;
   }
 }
+
+/* ==============================================
+   찾기/바꾸기 하이라이트 스타일
+   .find-highlight: SearchHighlight 확장이 추가하는 데코레이션 클래스
+   .find-highlight-current: 현재 선택된 매치 (FindReplacePanel에서 동적 추가)
+   Python으로 치면: class FindHighlight(HTMLElement): style = 'background: yellow'
+   ============================================== */
+.find-highlight {
+  background-color: #fef08a;   /* yellow-200 */
+  border-radius: 2px;
+  color: inherit;
+}
+
+.find-highlight-current {
+  background-color: #fb923c;   /* orange-400 */
+  border-radius: 2px;
+  color: #fff;
+  outline: 2px solid #ea580c; /* orange-600 */
+  outline-offset: 1px;
+}

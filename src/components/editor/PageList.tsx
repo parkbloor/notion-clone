@@ -11,6 +11,7 @@ import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { Page } from '@/types/block'
 import CalendarWidget from './CalendarWidget'
+import NewPageDialog from './NewPageDialog'
 
 // dnd-kit: 페이지 목록 정렬 + 카테고리로 드래그앤드롭
 // useSortable: 목록 내 순서 변경 + 크로스 패널 드래그 모두 지원
@@ -470,12 +471,18 @@ export default function PageList({ onOpenSettings, onCloseMobile }: PageListProp
     ? '전체보기'
     : categories.find(c => c.id === currentCategoryId)?.name ?? '전체보기'
 
-  // 새 메모 추가 — 현재 보고있는 카테고리에 속하게 생성
+  // 새 페이지 다이얼로그 열림 여부 (빈 페이지 or 템플릿 선택)
+  // Python으로 치면: self.new_page_dialog_open = False
+  const [newPageDialogOpen, setNewPageDialogOpen] = useState(false)
+
+  // 새 메모 버튼 → 다이얼로그 열기 (빈 페이지 or 템플릿 선택)
+  // Python으로 치면: def handle_add_page(self): self.new_page_dialog_open = True
   function handleAddPage() {
-    addPage(undefined, currentCategoryId)
+    setNewPageDialogOpen(true)
   }
 
   return (
+    <>
     <aside className="w-60 h-screen bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
 
       {/* ── 헤더: 현재 카테고리 이름 ──────────────── */}
@@ -663,5 +670,16 @@ export default function PageList({ onOpenSettings, onCloseMobile }: PageListProp
       </div>
 
     </aside>
+
+    {/* ── 새 페이지 다이얼로그 ─────────────────────
+        빈 페이지 or 템플릿 선택 후 생성
+        Python으로 치면: if new_page_dialog_open: render(NewPageDialog) */}
+    {newPageDialogOpen && (
+      <NewPageDialog
+        categoryId={currentCategoryId}
+        onClose={() => setNewPageDialogOpen(false)}
+      />
+    )}
+    </>
   )
 }

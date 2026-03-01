@@ -19,11 +19,11 @@ interface ImageBlockProps {
 
 // -----------------------------------------------
 // content 파싱 헬퍼
-// 새 포맷: JSON { src, width? }
+// 새 포맷: JSON { src, width?, caption? }
 // 구 포맷(legacy): plain data URL 문자열
 // Python으로 치면: def parse_content(s): return json.loads(s) or {'src': s}
 // -----------------------------------------------
-function parseContent(content: string): { src: string; width?: number } {
+function parseContent(content: string): { src: string; width?: number; caption?: string } {
   if (!content) return { src: '' }
   try {
     const parsed = JSON.parse(content)
@@ -53,8 +53,13 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
   // Python으로 치면: is_uploading = False
   const [isUploading, setIsUploading] = useState(false)
 
-  // content에서 src와 저장된 너비 파싱
-  const { src, width: savedWidth } = parseContent(block.content)
+  // content에서 src, 저장된 너비, 캡션 파싱
+  const { src, width: savedWidth, caption: savedCaption } = parseContent(block.content)
+
+  // ── 캡션 로컬 상태 ───────────────────────────────
+  // 로컬 편집 중 caption 값 (blur 시 저장)
+  // Python으로 치면: self.caption_local = saved_caption or ''
+  const [localCaption, setLocalCaption] = useState(savedCaption ?? '')
 
   // -----------------------------------------------
   // 실제 렌더링에 사용할 너비
@@ -71,10 +76,14 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
 
   // -----------------------------------------------
   // content를 JSON으로 직렬화하여 저장
-  // Python으로 치면: def save_content(src, width=None): update_block(..., json.dumps({'src': src, 'width': width}))
+  // caption이 있으면 같이 저장, undefined면 필드 제외
+  // Python으로 치면: def save_content(src, width=None, caption=None): update_block(...)
   // -----------------------------------------------
-  function saveContent(newSrc: string, newWidth?: number) {
-    updateBlock(pageId, block.id, JSON.stringify({ src: newSrc, width: newWidth }))
+  function saveContent(newSrc: string, newWidth?: number, newCaption?: string) {
+    const data: { src: string; width?: number; caption?: string } = { src: newSrc }
+    if (newWidth !== undefined) data.width = newWidth
+    if (newCaption !== undefined && newCaption !== '') data.caption = newCaption
+    updateBlock(pageId, block.id, JSON.stringify(data))
   }
 
   // -----------------------------------------------
@@ -91,7 +100,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
     try {
       // 서버에 실제 파일로 저장 → URL만 반환받아 블록에 저장
       const url = await api.uploadImage(pageId, file)
-      saveContent(url, savedWidth)
+      saveContent(url, savedWidth, localCaption || undefined)
     } catch {
       // 업로드 실패 시 에러 표시만 — base64 fallback 제거
       toast.error('이미지 업로드에 실패했습니다. 서버 연결을 확인해 주세요.')
@@ -156,7 +165,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
       const finalWidth = Math.max(100, startWidth + (ev.clientX - startX))
       setLocalWidth(finalWidth)
       setIsResizing(false)
-      saveContent(src, finalWidth)
+      saveContent(src, finalWidth, localCaption || undefined)
     }
 
     document.addEventListener('mousemove', onMouseMove)
@@ -267,6 +276,24 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
 
         {/* 숨겨진 파일 인풋 (교체용) */}
         <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+      </div>
+
+      {/* ── 캡션 입력란 ─────────────────────────────
+          이미지 바로 아래에 표시, 중앙 정렬
+          blur 시 스토어에 저장 (onChange는 로컬 상태만 업데이트)
+          Python으로 치면: caption_input = LineEdit(placeholder='설명 추가...')  */}
+      <div
+        className="block"
+        style={displayWidth ? { width: `${displayWidth}px` } : { maxWidth: '100%' }}
+      >
+        <input
+          type="text"
+          value={localCaption}
+          onChange={(e) => setLocalCaption(e.target.value)}
+          onBlur={() => saveContent(src, savedWidth, localCaption || undefined)}
+          placeholder="설명 추가..."
+          className="w-full text-center text-xs text-gray-400 bg-transparent border-none outline-none placeholder:text-gray-300 focus:placeholder:text-gray-400 mt-1 py-0.5"
+        />
       </div>
     </>
   )

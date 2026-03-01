@@ -157,6 +157,9 @@ interface PageStore {
   // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입 (템플릿 적용)
   // Python으로 치면: def apply_template(self, page_id, markdown_content): ...
   applyTemplate: (pageId: string, markdownContent: string) => void
+  // Block 배열을 직접 받아서 페이지 블록을 교체 (그리드 템플릿 적용용)
+  // Python으로 치면: def set_page_blocks(self, page_id, blocks): page.blocks = blocks
+  setPageBlocks: (pageId: string, blocks: Block[]) => void
   addBlock: (pageId: string, afterBlockId?: string) => void
   updateBlock: (pageId: string, blockId: string, content: string) => void
   updateBlockType: (pageId: string, blockId: string, type: BlockType) => void
@@ -655,6 +658,26 @@ export const usePageStore = create<PageStore>()(
       scheduleSave(pageId, get, set)
     },
 
+
+    // -----------------------------------------------
+    // Block 배열을 직접 받아서 페이지 블록 전체를 교체
+    // 그리드 템플릿 적용 시 사용
+    // Python으로 치면: def set_page_blocks(self, page_id, blocks): page.blocks = blocks
+    // -----------------------------------------------
+    setPageBlocks: (pageId, blocks) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        // immer draft: splice로 교체 (직접 대입 시 변경 추적 안 됨)
+        // Python으로 치면: page.blocks[:] = blocks
+        page.blocks.splice(0, page.blocks.length, ...blocks)
+        page.updatedAt = new Date()
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
 
     // ── 블록 히스토리 액션 ─────────────────────
 

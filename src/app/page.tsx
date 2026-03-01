@@ -15,6 +15,7 @@ import PageEditor from '@/components/editor/PageEditor'
 import ShortcutModal from '@/components/editor/ShortcutModal'
 import QuickAddModal from '@/components/editor/QuickAddModal'
 import GlobalSearch from '@/components/editor/GlobalSearch'
+import CommandPalette from '@/components/editor/CommandPalette'
 import SettingsModal from '@/components/settings/SettingsModal'
 import PomodoroWidget from '@/components/editor/PomodoroWidget'
 import BottomBar from '@/components/editor/BottomBar'
@@ -58,6 +59,10 @@ export default function Home() {
   // Python으로 치면: self.search_open = False
   const [searchOpen, setSearchOpen] = useState(false)
 
+  // 커맨드 팔레트 열림 여부 (Ctrl+P)
+  // Python으로 치면: self.command_palette_open = False
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+
   // 플러그인 설정 + 집중 모드 상태/토글
   // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
   const { plugins, isFocusMode, toggleFocusMode } = useSettingsStore()
@@ -95,6 +100,23 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleSearchKey)
     return () => window.removeEventListener('keydown', handleSearchKey)
+  }, [])
+
+  // -----------------------------------------------
+  // Ctrl+P 단축키 → 커맨드 팔레트 열기/닫기
+  // Python으로 치면:
+  //   def on_key_down(event):
+  //       if event.ctrl and event.key == 'p': toggle_command_palette()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleCommandPaletteKey(e: KeyboardEvent) {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault()
+        setCommandPaletteOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleCommandPaletteKey)
+    return () => window.removeEventListener('keydown', handleCommandPaletteKey)
   }, [])
 
   // -----------------------------------------------
@@ -406,6 +428,18 @@ export default function Home() {
             Python으로 치면: if search_open: render(GlobalSearch) */}
         {searchOpen && (
           <GlobalSearch onClose={() => setSearchOpen(false)} />
+        )}
+
+        {/* ── 커맨드 팔레트 (Ctrl+P) ─────────────────────
+            페이지 이동 + 빠른 액션 클라이언트 사이드 검색
+            Python으로 치면: if command_palette_open: render(CommandPalette) */}
+        {commandPaletteOpen && (
+          <CommandPalette
+            onClose={() => setCommandPaletteOpen(false)}
+            onOpenSettings={() => { setCommandPaletteOpen(false); setSettingsOpen(true) }}
+            onOpenShortcuts={() => { setCommandPaletteOpen(false); setShortcutOpen(true) }}
+            onOpenSearch={() => { setCommandPaletteOpen(false); setSearchOpen(true) }}
+          />
         )}
 
       </div>

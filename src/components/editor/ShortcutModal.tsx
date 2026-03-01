@@ -49,7 +49,10 @@ const SHORTCUT_GROUPS = [
   {
     group: '탐색 · 링크',
     items: [
+      { keys: ['Ctrl', 'P'], label: '커맨드 팔레트 열기' },
       { keys: ['Ctrl', 'K'], label: '전체 검색 열기' },
+      { keys: ['Ctrl', 'F'], label: '찾기 패널 열기' },
+      { keys: ['Ctrl', 'H'], label: '찾기/바꾸기 패널 열기' },
       { keys: ['@'], label: '페이지/블록 멘션 팝업' },
       { keys: ['[['], label: '페이지 링크 팝업' },
       { keys: ['Escape'], label: '팝업·메뉴 닫기' },

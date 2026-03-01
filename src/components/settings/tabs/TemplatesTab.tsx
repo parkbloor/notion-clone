@@ -10,6 +10,8 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { templateApi, Template } from '@/lib/api'
+import { isGridTemplate } from '@/lib/templateGrid'
+import TemplateEditorModal from '@/components/editor/TemplateEditorModal'
 
 // ── 새 템플릿 초기값 ──────────────────────────
 // Python으로 치면: EMPTY_FORM = {'name': '', 'icon': '📄', ...}
@@ -36,6 +38,11 @@ export default function TemplatesTab() {
 
   // 저장 중 여부 (버튼 비활성화용)
   const [saving, setSaving] = useState(false)
+
+  // 비주얼 템플릿 에디터 모달 상태
+  // Python으로 치면: self.visual_editor_open = False; self.editing_visual_template = None
+  const [visualEditorOpen, setVisualEditorOpen] = useState(false)
+  const [editingVisualTemplate, setEditingVisualTemplate] = useState<Template | undefined>(undefined)
 
   // -----------------------------------------------
   // 컴포넌트 마운트 시 템플릿 목록 불러오기
@@ -116,7 +123,36 @@ export default function TemplatesTab() {
     setForm(EMPTY_FORM)
   }
 
+  // 비주얼 에디터 저장 콜백 — 템플릿 목록에 반영
+  // Python으로 치면: def on_visual_save(saved): update_list(saved)
+  function handleVisualSave(saved: Template) {
+    setTemplates(prev => {
+      const idx = prev.findIndex(t => t.id === saved.id)
+      if (idx !== -1) {
+        // 기존 수정
+        const next = [...prev]
+        next[idx] = saved
+        return next
+      }
+      // 신규 추가
+      return [...prev, saved]
+    })
+    setVisualEditorOpen(false)
+    setEditingVisualTemplate(undefined)
+  }
+
   return (
+    <>
+    {/* 비주얼 그리드 템플릿 에디터 모달 */}
+    {/* Python으로 치면: if visual_editor_open: render(TemplateEditorModal) */}
+    {visualEditorOpen && (
+      <TemplateEditorModal
+        initialTemplate={editingVisualTemplate}
+        onSave={handleVisualSave}
+        onClose={() => { setVisualEditorOpen(false); setEditingVisualTemplate(undefined) }}
+      />
+    )}
+
     <div className="p-6 space-y-4">
 
       {/* 헤더 */}
@@ -127,15 +163,26 @@ export default function TemplatesTab() {
             마크다운으로 템플릿을 작성하면 새 페이지에 자동으로 블록이 채워집니다
           </p>
         </div>
-        {/* 새 템플릿 버튼 — 편집 중이 아닐 때만 표시 */}
+        {/* 새 템플릿 버튼들 — 편집 중이 아닐 때만 표시 */}
         {editingId === null && (
-          <button
-            type="button"
-            onClick={() => { setEditingId('new'); setForm(EMPTY_FORM) }}
-            className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-          >
-            + 새 템플릿
-          </button>
+          <div className="flex gap-2">
+            {/* 마크다운 템플릿 */}
+            <button
+              type="button"
+              onClick={() => { setEditingId('new'); setForm(EMPTY_FORM) }}
+              className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+            >
+              + 마크다운 템플릿
+            </button>
+            {/* 비주얼 그리드 템플릿 */}
+            <button
+              type="button"
+              onClick={() => { setEditingVisualTemplate(undefined); setVisualEditorOpen(true) }}
+              className="px-3 py-1.5 text-xs bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+            >
+              🎨 비주얼 템플릿
+            </button>
+          </div>
         )}
       </div>
 
@@ -240,14 +287,32 @@ export default function TemplatesTab() {
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0 ml-3">
-                <button
-                  type="button"
-                  onClick={() => startEdit(t)}
-                  disabled={editingId !== null && editingId !== t.id}
-                  className="px-2.5 py-1 text-xs text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-30"
-                >
-                  편집
-                </button>
+                {/* 그리드 템플릿 배지 */}
+                {isGridTemplate(t.content) && (
+                  <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-600 rounded-md">
+                    그리드
+                  </span>
+                )}
+                {/* 비주얼 편집 버튼 (그리드 템플릿만) */}
+                {isGridTemplate(t.content) ? (
+                  <button
+                    type="button"
+                    onClick={() => { setEditingVisualTemplate(t); setVisualEditorOpen(true) }}
+                    disabled={editingId !== null}
+                    className="px-2.5 py-1 text-xs text-purple-600 bg-purple-50 rounded-md hover:bg-purple-100 transition-colors disabled:opacity-30"
+                  >
+                    비주얼 편집
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => startEdit(t)}
+                    disabled={editingId !== null && editingId !== t.id}
+                    className="px-2.5 py-1 text-xs text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-30"
+                  >
+                    편집
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => handleDelete(t.id, t.name)}
@@ -315,5 +380,6 @@ export default function TemplatesTab() {
       </div>
 
     </div>
+    </>
   )
 }
