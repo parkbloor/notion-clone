@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { Undo2, Redo2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
@@ -217,6 +217,15 @@ function pageToMarkdown(page: Page): string {
   return lines.join('\n')
 }
 
+// ── 섹션 접기: 헤딩 레벨 맵 ──────────────────────
+// heading 타입 → 레벨 숫자 (1=최상위, 6=최하위)
+// 레벨 추론: H{n}이 접히면 다음 H{m≤n} 등장 전까지 하위 블록 모두 숨김
+// Python으로 치면: HEADING_LEVEL = {'heading1': 1, ..., 'heading6': 6}
+const HEADING_LEVEL: Record<string, number> = {
+  heading1: 1, heading2: 2, heading3: 3,
+  heading4: 4, heading5: 5, heading6: 6,
+}
+
 // ── dnd-kit 임포트 ────────────────────────────
 import {
   DndContext,
@@ -259,6 +268,22 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   // 플러그인 설정 + 집중 모드 상태/토글 구독
   // Python으로 치면: self.plugins = settings_store.plugins
   const { plugins, isFocusMode, toggleFocusMode } = useSettingsStore()
+
+  // ── 섹션 접기 상태 ───────────────────────────
+  // 접힌 heading 블록 ID 집합 — 접힌 헤딩의 하위 블록들은 렌더링에서 제외
+  // Python으로 치면: self.collapsed_sections: set[str] = set()
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+
+  // 특정 헤딩 ID 접기/펼치기 토글
+  // Python으로 치면: collapsed.symmetric_difference_update({block_id})
+  const toggleSection = useCallback((blockId: string) => {
+    setCollapsedSections(prev => {
+      const next = new Set(prev)
+      if (next.has(blockId)) next.delete(blockId)
+      else next.add(blockId)
+      return next
+    })
+  }, [])
 
   // ── UI 상태 ──────────────────────────────────
   // 이모지 피커 열림 여부
@@ -833,14 +858,66 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             strategy={verticalListSortingStrategy}
           >
             <div className="space-y-0.5">
-              {page.blocks.map((block) => (
-                <Editor
-                  key={block.id}
-                  block={block}
-                  pageId={pageId}
-                  isLast={page.blocks.length === 1}
-                />
-              ))}
+              {(() => {
+                // ── 섹션 접기 가시성 계산 ──────────────────────────────────
+                // collapsedSections 기반으로 각 블록의 표시 여부와 접기 버튼 메타 계산
+                // hiddenUntilLevel: null=표시 중 / 숫자=해당 레벨 이하 헤딩 등장까지 숨김
+                // Python으로 치면: visible, meta = compute_visibility(blocks, collapsed)
+                const visibility: Array<{
+                  hidden: boolean       // 이 블록을 숨길지 여부
+                  hasChild: boolean     // 하위 블록이 있는지 (접기 버튼 표시 여부)
+                }> = []
+
+                let hiddenUntilLevel: number | null = null
+
+                page.blocks.forEach((block, index) => {
+                  const level = HEADING_LEVEL[block.type]
+
+                  // 가시성 판단
+                  let hidden = false
+                  if (hiddenUntilLevel !== null) {
+                    if (level !== undefined && level <= hiddenUntilLevel) {
+                      // 동급 또는 상위 헤딩 → 숨김 종료, 이 블록은 표시
+                      hiddenUntilLevel = null
+                      if (collapsedSections.has(block.id)) hiddenUntilLevel = level
+                    } else {
+                      // 하위 헤딩 또는 비헤딩 → 숨김
+                      hidden = true
+                    }
+                  } else {
+                    if (level !== undefined && collapsedSections.has(block.id)) {
+                      hiddenUntilLevel = level
+                    }
+                  }
+
+                  // 자식 존재 여부: 바로 다음 블록이 하위 레벨 헤딩이거나 비헤딩이면 자식 있음
+                  // Python으로 치면: has_child = index+1 < len(blocks) and next_level > level
+                  let hasChild = false
+                  if (level !== undefined && index + 1 < page.blocks.length) {
+                    const nextBlock = page.blocks[index + 1]
+                    const nextLevel = HEADING_LEVEL[nextBlock.type]
+                    hasChild = nextLevel === undefined || nextLevel > level
+                  }
+
+                  visibility.push({ hidden, hasChild })
+                })
+
+                return page.blocks.map((block, index) => {
+                  const { hidden, hasChild } = visibility[index]
+                  return (
+                    <div key={block.id} className={hidden ? 'hidden' : undefined}>
+                      <Editor
+                        block={block}
+                        pageId={pageId}
+                        isLast={page.blocks.length === 1}
+                        hasSectionChildren={hasChild}
+                        isSectionCollapsed={collapsedSections.has(block.id)}
+                        onToggleSectionCollapse={() => toggleSection(block.id)}
+                      />
+                    </div>
+                  )
+                })
+              })()}
             </div>
           </SortableContext>
         </DndContext>

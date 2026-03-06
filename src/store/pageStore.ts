@@ -109,6 +109,10 @@ interface PageStore {
   // ── 페이지 상태 ──────────────────────────────
   pages: Page[]
   currentPageId: string | null
+  // 탭 시스템 — 열린 탭 ID 목록 (순서 유지)
+  // Python으로 치면: self.open_tabs: list[str] = []
+  openTabs: string[]
+  closeTab: (id: string) => void
 
   // ── 카테고리 상태 ─────────────────────────────
   categories: Category[]
@@ -232,6 +236,9 @@ export const usePageStore = create<PageStore>()(
     // ── 초기 상태 ──────────────────────────────
     pages: [createPage('첫 번째 페이지')],
     currentPageId: null,
+    // 탭 시스템 — 열린 탭 ID 목록 (순서 유지, 중복 없음)
+    // Python으로 치면: self.open_tabs: list[str] = []
+    openTabs: [],
     categories: [],
     categoryMap: {},
     categoryOrder: [],
@@ -277,6 +284,11 @@ export const usePageStore = create<PageStore>()(
         set((state) => {
           state.pages = data.pages
           state.currentPageId = data.currentPageId ?? data.pages[0]?.id ?? null
+          // 열린 탭 초기화: 서버 로드 시 현재 페이지만 포함
+          // Python으로 치면: self.open_tabs = [current_page_id] if current_page_id else []
+          if (state.currentPageId) {
+            state.openTabs = [state.currentPageId]
+          }
           state.categories = data.categories ?? []
           state.categoryMap = data.categoryMap ?? {}
           state.categoryOrder = data.categoryOrder ?? []
@@ -326,10 +338,39 @@ export const usePageStore = create<PageStore>()(
       }
     },
 
-    // 현재 페이지 전환 → 서버에 currentPageId 저장
+    // 현재 페이지 전환 → 탭 목록에 추가 → 서버에 currentPageId 저장
+    // Python으로 치면: def set_current_page(self, id): self.current_page_id = id; self.open_tabs.add(id)
     setCurrentPage: (id) => {
-      set((state) => { state.currentPageId = id })
+      set((state) => {
+        state.currentPageId = id
+        // 탭 목록에 없으면 끝에 추가 (중복 방지)
+        if (!state.openTabs.includes(id)) {
+          state.openTabs.push(id)
+        }
+      })
       api.setCurrentPage(id).catch(() => {})
+    },
+
+    // 탭 닫기 — 닫은 탭이 현재 활성 탭이면 이전 탭으로 전환
+    // Python으로 치면: def close_tab(self, id): open_tabs.remove(id); switch_to_prev()
+    closeTab: (id) => {
+      set((state) => {
+        const idx = state.openTabs.indexOf(id)
+        state.openTabs = state.openTabs.filter(t => t !== id)
+        // 닫은 탭이 현재 활성 탭이면 이전/다음 탭으로 전환
+        if (state.currentPageId === id) {
+          if (state.openTabs.length > 0) {
+            // 이전 탭 (없으면 현재 위치의 탭)
+            const nextIdx = Math.max(0, idx - 1)
+            state.currentPageId = state.openTabs[nextIdx] ?? state.openTabs[0]
+          } else {
+            // 모든 탭이 닫히면 첫 번째 페이지를 새 탭으로 열기
+            const fallbackId = state.pages[0]?.id ?? null
+            state.currentPageId = fallbackId
+            if (fallbackId) state.openTabs = [fallbackId]
+          }
+        }
+      })
     },
 
     // 최근 파일 목록 업데이트
@@ -361,13 +402,20 @@ export const usePageStore = create<PageStore>()(
     deletePage: (pageId) => {
       set((state) => {
         state.pages = state.pages.filter(p => p.id !== pageId)
+        // 탭 목록에서도 제거
+        // Python으로 치면: open_tabs = [t for t in open_tabs if t != page_id]
+        state.openTabs = state.openTabs.filter(id => id !== pageId)
         if (state.currentPageId === pageId) {
-          state.currentPageId = state.pages.length > 0 ? state.pages[0].id : null
+          // 이전 탭으로 전환하거나 남은 첫 페이지로 전환
+          state.currentPageId = state.openTabs.length > 0
+            ? state.openTabs[state.openTabs.length - 1]
+            : state.pages.length > 0 ? state.pages[0].id : null
         }
         if (state.pages.length === 0) {
           const newPage = createPage('첫 번째 페이지')
           state.pages.push(newPage)
           state.currentPageId = newPage.id
+          state.openTabs = [newPage.id]
         }
         // categoryMap에서도 제거
         delete state.categoryMap[pageId]

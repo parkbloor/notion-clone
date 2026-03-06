@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore, applyTheme, applyEditorStyle, applyThemePreset } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
@@ -19,6 +19,8 @@ import CommandPalette from '@/components/editor/CommandPalette'
 import SettingsModal from '@/components/settings/SettingsModal'
 import PomodoroWidget from '@/components/editor/PomodoroWidget'
 import BottomBar from '@/components/editor/BottomBar'
+import TabBar from '@/components/editor/TabBar'
+import { X } from 'lucide-react'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
 // Python으로 치면: from dnd import DndContext, arrayMove
@@ -67,6 +69,14 @@ export default function Home() {
   // true이면 에디터 대신 DatabaseView를 렌더링
   // Python으로 치면: self.db_view_active = False
   const [dbViewActive, setDbViewActive] = useState(false)
+
+  // ── 스플릿 뷰 상태 ─────────────────────────────
+  // splitPageId: 오른쪽 패널에 표시할 페이지 ID (null = 스플릿 없음)
+  // splitRatio: 왼쪽:오른쪽 비율 (0.2~0.8, 기본 0.5)
+  // Python으로 치면: self.split_page_id = None; self.split_ratio = 0.5
+  const [splitPageId, setSplitPageId] = useState<string | null>(null)
+  const [splitRatio, setSplitRatio] = useState(0.5)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
 
   // 플러그인 설정 + 집중 모드 상태/토글
   // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
@@ -143,6 +153,33 @@ export default function Home() {
   }, [plugins.focusMode, toggleFocusMode])
 
   // -----------------------------------------------
+  // 집중 모드 진입 시 스플릿 뷰 자동 해제
+  // Python으로 치면: if is_focus_mode: self.split_page_id = None
+  // -----------------------------------------------
+  useEffect(() => {
+    if (isFocusMode) setSplitPageId(null)
+  }, [isFocusMode])
+
+  // -----------------------------------------------
+  // 스플릿 핸들 드래그로 좌우 비율 조절 (0.2~0.8 범위 제한)
+  // Python으로 치면:
+  //   def on_split_resize_start(e):
+  //       self.is_resizing = True; attach_mousemove_handler()
+  // -----------------------------------------------
+  function handleSplitResizeStart(e: React.MouseEvent) {
+    e.preventDefault()
+    const onMove = (ev: MouseEvent) => {
+      const rect = splitContainerRef.current?.getBoundingClientRect()
+      if (!rect) return
+      setSplitRatio(Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left) / rect.width)))
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', () => {
+      document.removeEventListener('mousemove', onMove)
+    }, { once: true })
+  }
+
+  // -----------------------------------------------
   // 앱 초기화 시 저장된 테마 + 편집기 스타일 복원
   // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
   // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
@@ -164,6 +201,7 @@ export default function Home() {
   const {
     currentPageId,
     pages,
+    openTabs,
     categoryOrder,
     categoryChildOrder,
     setCurrentPage,
@@ -269,6 +307,30 @@ export default function Home() {
       setCurrentPage(pages[0].id)
     }
   }, [currentPageId, pages.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // Ctrl+\ 단축키 → 스플릿 뷰 토글
+  // 스플릿 없음: 현재 탭 이외의 마지막 탭을 오른쪽 패널로 열기
+  // 스플릿 있음: 스플릿 닫기
+  // Python으로 치면:
+  //   def on_key_down(e):
+  //       if e.ctrl and e.code == 'Backslash': toggle_split()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleSplitKey(e: KeyboardEvent) {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'Backslash') {
+        e.preventDefault()
+        setSplitPageId(prev => {
+          if (prev) return null
+          // 현재 페이지 이외의 마지막 탭을 오른쪽에 열기
+          const others = openTabs.filter(id => id !== currentPageId)
+          return others[others.length - 1] ?? null
+        })
+      }
+    }
+    window.addEventListener('keydown', handleSplitKey)
+    return () => window.removeEventListener('keydown', handleSplitKey)
+  }, [openTabs, currentPageId])
 
   // ── dnd-kit 드래그 센서 ───────────────────────────────────
   // PointerSensor: 데스크탑 마우스 — 8px 이상 이동해야 드래그 시작
@@ -384,6 +446,7 @@ export default function Home() {
               onCloseMobile={closeMobileSidebar}
               dbViewActive={dbViewActive}
               onToggleDbView={() => setDbViewActive(v => !v)}
+              onSplitPage={(id) => setSplitPageId(prev => prev === id ? null : id)}
             />
           </div>
         )}
@@ -404,26 +467,87 @@ export default function Home() {
         )}
 
         {/* ── 에디터 패널 ──────────────────────────
-            flex-col: BottomBar를 하단에 고정하기 위해 세로 flex
+            flex-col: TabBar + 에디터 + BottomBar를 세로로 배치
             min-h-0: flex-col 자식이 넘치지 않도록 최소 높이 제한
-            Python으로 치면: main_panel = VBox([scrollable_area, bottom_bar]) */}
+            Python으로 치면: main_panel = VBox([tab_bar, scrollable_area, bottom_bar]) */}
         <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0">
-          {/* 스크롤 가능한 에디터 영역 (flex-1로 남은 공간 차지) */}
-          <div className="flex-1 overflow-y-auto">
-            {/* 데이터베이스 테이블 뷰 (dbViewActive=true일 때) */}
-            {/* Python으로 치면: if db_view_active: render DatabaseView() */}
-            {dbViewActive ? (
-              <DatabaseView onClose={() => setDbViewActive(false)} />
-            ) : currentPageId ? (
-              // 페이지가 선택되어 있으면 에디터 렌더링
-              <PageEditor pageId={currentPageId} />
-            ) : (
-              // 선택된 페이지가 없으면 안내 문구
-              <div className="flex items-center justify-center h-full text-gray-400">
-                <p>왼쪽에서 메모를 선택하세요</p>
-              </div>
+          {/* ── 크롬 스타일 탭 바 ───────────────────
+              집중 모드 시 숨김 / 탭 없으면 자동 미표시
+              onSplit: 탭의 ⊞ 버튼 클릭 시 스플릿 뷰 활성화
+              Python으로 치면: if not is_focus_mode: render TabBar(on_split=set_split_page_id) */}
+          {!isFocusMode && (
+            <TabBar
+              onSplit={(id) => setSplitPageId(prev => prev === id ? null : id)}
+              splitPageId={splitPageId}
+            />
+          )}
+
+          {/* ── 에디터 + 스플릿 컨테이너 ─────────────
+              스플릿 없음: 왼쪽 패널만 전체 너비
+              스플릿 있음: 왼쪽 + 1px 핸들 + 오른쪽 패널
+              Python으로 치면: HBox([left_pane, handle?, right_pane?]) */}
+          <div ref={splitContainerRef} className="flex-1 flex overflow-hidden min-h-0">
+
+            {/* ── 왼쪽 패널 (항상 표시) ──────────── */}
+            <div
+              className="overflow-y-auto min-w-0"
+              style={{ flex: splitPageId ? `${splitRatio * 100} 1 0%` : '1 1 0%' }}
+            >
+              {dbViewActive ? (
+                <DatabaseView onClose={() => setDbViewActive(false)} />
+              ) : currentPageId ? (
+                <PageEditor pageId={currentPageId} />
+              ) : (
+                <div className="flex items-center justify-center h-full text-gray-400">
+                  <p>왼쪽에서 메모를 선택하세요</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── 드래그 리사이즈 핸들 (스플릿 시만 표시) ── */}
+            {/* Python으로 치면: if split_page_id: render ResizeHandle() */}
+            {splitPageId && (
+              <div
+                onMouseDown={handleSplitResizeStart}
+                className="w-px shrink-0 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors"
+                title="드래그하여 크기 조절"
+              />
             )}
+
+            {/* ── 오른쪽 패널 (스플릿 시만 표시) ─── */}
+            {/* Python으로 치면: if split_page_id: render RightPane(split_page_id) */}
+            {splitPageId && (() => {
+              const splitPage = pages.find(p => p.id === splitPageId)
+              return (
+                <div
+                  className="flex flex-col min-w-0 border-l border-gray-200"
+                  style={{ flex: `${(1 - splitRatio) * 100} 1 0%` }}
+                >
+                  {/* 오른쪽 패널 헤더: 페이지 제목 + 닫기 버튼 */}
+                  {/* Python으로 치면: HBox([icon, title, close_btn]) */}
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 border-b border-gray-200 shrink-0">
+                    <span className="text-sm shrink-0">{splitPage?.icon || '📄'}</span>
+                    <span className="text-xs font-medium text-gray-600 truncate flex-1">
+                      {splitPage?.title || '제목 없음'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSplitPageId(null)}
+                      className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                      title="분할 뷰 닫기 (Ctrl+\)"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  {/* 오른쪽 패널 에디터 */}
+                  <div className="flex-1 overflow-y-auto">
+                    <PageEditor pageId={splitPageId} />
+                  </div>
+                </div>
+              )
+            })()}
           </div>
+
           {/* 하단 고정 바: 너비 슬라이더 + 단어수 (에디터 뷰 + 페이지 선택 시만 표시) */}
           {/* Python으로 치면: if not db_view_active and current_page_id: render BottomBar(current_page_id) */}
           {!dbViewActive && currentPageId && <BottomBar pageId={currentPageId} />}

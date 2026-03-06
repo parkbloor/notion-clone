@@ -58,6 +58,7 @@ import EmbedBlock, { isEmbedUrl } from './EmbedBlock'
 import MermaidBlock from './MermaidBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
+import { ChevronRight, ChevronDown } from 'lucide-react'
 // ── 찾기/바꾸기 확장 ─────────────────────────
 // SearchHighlight: ProseMirror 데코레이션으로 검색어 하이라이트
 // searchHighlightKey: 검색어 변경 시 Transaction 메타 키로 전달
@@ -76,6 +77,11 @@ interface EditorProps {
   block: Block
   pageId: string
   isLast: boolean
+  // 섹션 접기/펼치기 — heading 블록에서만 사용
+  // Python으로 치면: self.is_section_collapsed = False
+  isSectionCollapsed?: boolean
+  hasSectionChildren?: boolean
+  onToggleSectionCollapse?: () => void
 }
 
 // -----------------------------------------------
@@ -104,7 +110,7 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading6: 6,
 }
 
-export default function Editor({ block, pageId, isLast }: EditorProps) {
+export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse }: EditorProps) {
 
   const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, pages, setCurrentPage } = usePageStore()
 
@@ -155,6 +161,11 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
   // null = 닫힘, { x, y } = 해당 viewport 좌표에 메뉴 표시
   // Python으로 치면: self.ctx_menu_pos: tuple | None = None
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+
+  // LaTeX 붙여넣기 감지 상태
+  // 블록 수식($$...$$)이 감지되면 latex 문자열 저장 → 변환 여부 묻는 UI 표시
+  // Python으로 치면: self.latex_candidate: str | None = None
+  const [latexCandidate, setLatexCandidate] = useState<string | null>(null)
 
   const checkSlash = useCallback((editor: TiptapEditor) => {
     const { state } = editor
@@ -409,18 +420,38 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
         }
         return false
       },
-      // ── URL 붙여넣기 자동 임베드 변환 ──────────────────────────────
-      // 빈 블록에 YouTube / Vimeo URL 붙여넣기 → embed 블록으로 자동 전환
-      // Python으로 치면: def handle_paste(view, event): if empty and is_embed_url: convert()
+      // ── URL / LaTeX 붙여넣기 처리 ──────────────────────────────
+      // 우선순위: (1) embed URL → 자동 변환, (2) LaTeX 블록 수식 감지 → 사용자 확인
+      // Python으로 치면: def handle_paste(view, event): ...
       handlePaste: (_view, event) => {
-        const text = event.clipboardData?.getData('text/plain')?.trim() ?? ''
-        // 현재 블록이 비어 있는지 확인
+        const text = event.clipboardData?.getData('text/plain') ?? ''
+        const trimmed = text.trim()
         const isEmpty = _view.state.doc.textContent.length === 0
-        if (isEmpty && isEmbedUrl(text)) {
+
+        // (1) 빈 블록에 embed URL 붙여넣기 → 자동 변환
+        if (isEmpty && isEmbedUrl(trimmed)) {
           updateBlockType(pageId, block.id, 'embed')
-          updateBlock(pageId, block.id, JSON.stringify({ url: text }))
+          updateBlock(pageId, block.id, JSON.stringify({ url: trimmed }))
           return true
         }
+
+        // (2) LaTeX 블록 수식 감지: $$...$$  (멀티라인 포함)
+        // \begin{...} 환경도 $$ 없이 붙여넣으면 $$ 래핑 후 제안
+        // Python으로 치면: match = re.match(r'^\$\$([\s\S]+?)\$\$$', text.strip())
+        const blockMathMatch = trimmed.match(/^\$\$([\s\S]+?)\$\$$/)
+        const envMatch = !blockMathMatch && trimmed.match(/^\\begin\{[\s\S]+\\end\{[^}]+\}$/)
+
+        if (blockMathMatch || envMatch) {
+          // $$ 래퍼 제거 후 순수 LaTeX만 저장
+          const latexInner = blockMathMatch
+            ? blockMathMatch[1].trim()
+            : trimmed
+
+          // 붙여넣기는 정상 진행 (텍스트로 삽입), 변환 제안 UI만 띄움
+          setLatexCandidate(latexInner)
+          return false  // Tiptap 기본 붙여넣기 동작 허용 (텍스트 삽입)
+        }
+
         return false
       },
     },
@@ -1116,6 +1147,23 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       className="group relative flex items-start px-2 py-0.5"
       onContextMenu={handleContextMenu}
     >
+      {/* ── 섹션 접기/펼치기 버튼 (heading 블록 + 하위 블록이 있을 때만 표시) ──
+          hover 시 나타남, 클릭 시 하위 섹션 전체 접힘/펼침
+          Python으로 치면: if is_heading and has_children: render_collapse_btn() */}
+      {hasSectionChildren && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleSectionCollapse?.() }}
+          title={isSectionCollapsed ? '섹션 펼치기' : '섹션 접기'}
+          className="opacity-0 group-hover:opacity-100 shrink-0 flex items-center justify-center w-4 h-4 mt-1 mr-0.5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all"
+        >
+          {isSectionCollapsed
+            ? <ChevronRight size={12} />
+            : <ChevronDown size={12} />
+          }
+        </button>
+      )}
+
       {/* ── + 블록 메뉴 버튼 ─────────────────────── */}
       {/* BlockMenu: hover 시 + 버튼 표시 → 클릭하면 위/아래 추가·복제·삭제 메뉴 */}
       <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1215,6 +1263,40 @@ export default function Editor({ block, pageId, isLast }: EditorProps) {
       {/* 우클릭 컨텍스트 메뉴 — position:fixed이므로 DOM 위치와 무관 */}
       {contextMenu && (
         <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+      )}
+
+      {/* LaTeX 붙여넣기 감지 배너
+          $$ ... $$ 또는 \begin{...} 패턴 감지 시 표시
+          [수식 블록으로 변환] 클릭 → math 블록으로 전환하고 텍스트 삭제
+          [텍스트 유지] 클릭 → 그대로 유지하고 닫기
+          Python으로 치면: if latex_candidate: show_conversion_prompt()
+      */}
+      {latexCandidate && (
+        <div className="absolute left-8 right-0 bottom-full mb-1 z-50 flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2 shadow-md text-xs">
+          <span className="text-amber-600">∑</span>
+          <span className="flex-1 text-amber-800 font-medium">LaTeX 수식이 감지되었습니다</span>
+          <button
+            type="button"
+            onClick={() => {
+              // 현재 블록 내용을 모두 지우고 math 블록으로 변환
+              // Python으로 치면: block.type = 'math'; block.content = latex_candidate
+              editor?.commands.clearContent()
+              updateBlockType(pageId, block.id, 'math')
+              updateBlock(pageId, block.id, latexCandidate)
+              setLatexCandidate(null)
+            }}
+            className="shrink-0 px-2 py-0.5 bg-amber-500 text-white rounded hover:bg-amber-600 transition-colors"
+          >
+            수식 변환
+          </button>
+          <button
+            type="button"
+            onClick={() => setLatexCandidate(null)}
+            className="shrink-0 px-2 py-0.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
+          >
+            텍스트 유지
+          </button>
+        </div>
       )}
     </div>
   )

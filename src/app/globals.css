@@ -85,49 +85,87 @@
 
 /* -----------------------------------------------
    Heading 스타일
+   레벨별 시인성: 좌측 컬러 바 + 크기 + 스타일로 구분
+   H1: 파란색 굵은 바 (4px) — 최상위 섹션
+   H2: 인디고 중간 바 (3px) — 주요 섹션
+   H3: 연보라 얇은 바 (2px) — 소섹션
+   H4: 굵은 글씨 + 미세 자간 — 단락 소제목
+   H5: 이탤릭 회색 — 보조 소제목
+   H6: 소문자 대문자화 + 회색 — 최소 제목
+   Python으로 치면: HEADING_STYLES = {1: blue_bar, 2: indigo_bar, ...}
    ----------------------------------------------- */
+
+/* H1 — 파란색 좌측 바 4px, 배경 미세 틴트 */
 .tiptap h1 {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.3;
-  margin: 1rem 0 0.5rem;
+  margin: 1.4rem 0 0.6rem;
+  padding-left: 0.75rem;
+  border-left: 4px solid #3b82f6;
+  color: #111827;
 }
 
+/* H2 — 인디고 좌측 바 3px */
 .tiptap h2 {
   font-size: 1.5rem;
   font-weight: 600;
   line-height: 1.3;
-  margin: 0.8rem 0 0.4rem;
+  margin: 1.1rem 0 0.45rem;
+  padding-left: 0.625rem;
+  border-left: 3px solid #818cf8;
+  color: #1e293b;
 }
 
+/* H3 — 연보라 좌측 바 2px */
 .tiptap h3 {
   font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.3;
-  margin: 0.6rem 0 0.3rem;
+  margin: 0.9rem 0 0.35rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid #c4b5fd;
+  color: #374151;
 }
 
+/* H4 — 굵은 글씨 + 자간, 테두리 없음 */
 .tiptap h4 {
   font-size: 1.1rem;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1.3;
-  margin: 0.5rem 0 0.25rem;
+  margin: 0.7rem 0 0.3rem;
+  color: #4b5563;
+  letter-spacing: 0.02em;
 }
 
+/* H5 — 이탤릭 회색 */
 .tiptap h5 {
   font-size: 1rem;
   font-weight: 600;
+  font-style: italic;
   line-height: 1.3;
-  margin: 0.4rem 0 0.2rem;
-}
-
-.tiptap h6 {
-  font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.3;
-  margin: 0.3rem 0 0.15rem;
+  margin: 0.6rem 0 0.25rem;
   color: #6b7280;
 }
+
+/* H6 — 소문자 → 대문자, 가장 작고 흐림 */
+.tiptap h6 {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.5rem 0 0.2rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* 다크 모드 heading 색상 보정 */
+html.dark .tiptap h1 { color: #f3f4f6; border-left-color: #60a5fa; }
+html.dark .tiptap h2 { color: #e5e7eb; border-left-color: #a5b4fc; }
+html.dark .tiptap h3 { color: #d1d5db; border-left-color: #ddd6fe; }
+html.dark .tiptap h4 { color: #9ca3af; }
+html.dark .tiptap h5 { color: #6b7280; }
+html.dark .tiptap h6 { color: #4b5563; }
 
 /* -----------------------------------------------
    목록 스타일

@@ -95,6 +95,29 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
   // Shift+Enter: 줄바꿈 허용 (다음 블록 추가 방지)
   // Python으로 치면: def on_key_down(self, key): if key == 'Escape': self.cancel()
   // -----------------------------------------------
+  // -----------------------------------------------
+  // textarea 붙여넣기 처리
+  // $$...$$ 래퍼 또는 \begin{...}...\end{...} 환경을 붙여넣으면
+  // $$ 구분자를 자동 제거해 순수 LaTeX만 남김
+  // Python으로 치면: def on_paste(e): text = strip_delimiters(e.clipboard_text)
+  // -----------------------------------------------
+  function handlePasteOnTextarea(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const raw = e.clipboardData.getData('text/plain')
+    if (!raw) return
+
+    // $$...$$  (멀티라인 포함) — $$ 래퍼 제거
+    const blockMatch = raw.trim().match(/^\$\$([\s\S]+?)\$\$$/)
+    // \begin{...}...\end{...} 단독 — 그대로 사용 (래퍼 없음)
+    const envMatch = !blockMatch && raw.trim().match(/^\\begin\{[\s\S]+\\end\{[^}]+\}$/)
+
+    if (blockMatch || envMatch) {
+      e.preventDefault()
+      const stripped = blockMatch ? blockMatch[1].trim() : raw.trim()
+      setLatex(stripped)
+    }
+    // 기타 패턴은 기본 붙여넣기 허용
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Escape') {
       e.preventDefault()
@@ -122,6 +145,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
           onChange={(e) => setLatex(e.target.value)}
           onBlur={handleBlur}
           onKeyDown={handleKeyDown}
+          onPaste={handlePasteOnTextarea}
           placeholder="\sqrt{x^2 + y^2} \quad \frac{d}{dx}\sin(x) = \cos(x)"
           rows={2}
           spellCheck={false}

@@ -47,6 +47,13 @@ const DEPTH_STYLES = [
   { dot: 'bg-teal-400', folder: 'text-teal-500', normal: 'text-teal-600 hover:bg-teal-50', selected: 'bg-teal-100 text-teal-900', over: 'bg-teal-200 text-teal-900' },
 ] as const
 
+// -----------------------------------------------
+// 트리 가이드 라인 색상 — DEPTH_STYLES 색계열의 연한 버전
+// depth D 폴더의 자식 범위를 잇는 수직선 색상
+// Python으로 치면: GUIDE_COLORS = {0: gray, 1: blue, 2: violet, 3+: teal}
+// -----------------------------------------------
+const GUIDE_COLORS = ['#e5e7eb', '#bfdbfe', '#ddd6fe', '#99f6e4'] as const
+
 
 // -----------------------------------------------
 // HTML 태그 제거 — 페이지 검색용 텍스트 추출
@@ -105,9 +112,13 @@ interface PageInlineMenuProps {
   onClose: () => void
   onDelete: () => void
   onDuplicate: () => void
+  // fixed 포지셔닝 좌표 — overflow:hidden 사이드바에서 팝업이 잘리는 문제 해결
+  // Python으로 치면: (anchor_x, anchor_y) = button.get_bounding_rect()
+  anchorX: number
+  anchorY: number
 }
 
-function PageInlineMenu({ page, onClose, onDelete, onDuplicate }: PageInlineMenuProps) {
+function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY }: PageInlineMenuProps) {
   const { categories, categoryMap, movePageToCategory } = usePageStore()
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -151,8 +162,14 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate }: PageInlineMenu
   return (
     <div
       ref={menuRef}
-      className="absolute right-0 top-6 z-50 bg-white border border-gray-200 rounded-lg shadow-lg py-1"
-      style={{ width: showSaveForm ? '210px' : '176px' }}
+      className="fixed z-9999 bg-white border border-gray-200 rounded-lg shadow-lg py-1"
+      style={{
+        width: showSaveForm ? '210px' : '176px',
+        // 버튼 우측 하단에 팝업 표시, 화면 오른쪽 벗어나지 않도록 left 기준 배치
+        // Python으로 치면: popup.x = min(anchor_x, screen_width - popup_width)
+        left: `${anchorX}px`,
+        top: `${anchorY}px`,
+      }}
     >
       {showSaveForm ? (
         /* ── 템플릿 저장 폼 ── */
@@ -255,12 +272,15 @@ interface DraggablePageRowProps {
   onSelect: () => void
   onDelete: () => void
   onDuplicate: () => void
+  // 분할 뷰 콜백 — Ctrl+클릭 시 오른쪽 패널에 열기
+  // Python으로 치면: on_split_page: Callable | None = None
+  onSplitPage?: () => void
   // 검색 중일 때 카테고리 이름 표시
   searchCategoryName?: string | null
 }
 
 function DraggablePageRow({
-  page, depth, isSelected, collapsed, onSelect, onDelete, onDuplicate, searchCategoryName,
+  page, depth, isSelected, collapsed, onSelect, onDelete, onDuplicate, onSplitPage, searchCategoryName,
 }: DraggablePageRowProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: page.id,
@@ -270,13 +290,22 @@ function DraggablePageRow({
   const [menuOpen, setMenuOpen] = useState(false)
   const handleCloseMenu = useCallback(() => setMenuOpen(false), [])
 
+  // 팝업 표시 좌표 — fixed 포지셔닝으로 overflow 클리핑 우회
+  // Python으로 치면: self.menu_anchor = (x, y)
+  const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 })
+
   // 접힘 모드: 아이콘만 표시
   if (collapsed) {
     return (
       <div ref={setNodeRef}>
         <button
-          onClick={onSelect}
-          title={page.title || '제목 없음'}
+          onClick={(e) => {
+            // Ctrl+클릭 → 분할 뷰로 열기
+            // Python으로 치면: if e.ctrl and on_split_page: on_split_page()
+            if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(); return }
+            onSelect()
+          }}
+          title={page.title || '제목 없음 (Ctrl+클릭: 분할 뷰)'}
           className={isSelected
             ? "w-full flex items-center justify-center py-1.5 rounded-md text-base bg-gray-200"
             : "w-full flex items-center justify-center py-1.5 rounded-md text-base text-gray-500 hover:bg-gray-100"}
@@ -307,9 +336,14 @@ function DraggablePageRow({
         ⠿
       </span>
 
-      {/* 페이지 선택 버튼 */}
+      {/* 페이지 선택 버튼 (Ctrl+클릭: 분할 뷰로 열기) */}
+      {/* Python으로 치면: if e.ctrl and on_split_page: on_split_page() else: on_select() */}
       <button
-        onClick={onSelect}
+        onClick={(e) => {
+          if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(); return }
+          onSelect()
+        }}
+        title={`${page.title || '제목 없음'} (Ctrl+클릭: 분할 뷰)`}
         className={isSelected
           ? "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left bg-blue-100 text-blue-900"
           : "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left text-gray-600 hover:bg-gray-100 transition-colors"}
@@ -332,7 +366,14 @@ function DraggablePageRow({
       <div className="absolute right-1 top-1/2 -translate-y-1/2">
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); setMenuOpen(v => !v) }}
+          onClick={(e) => {
+            e.stopPropagation()
+            // 버튼 우측 하단 좌표를 fixed 팝업 기준점으로 사용
+            // Python으로 치면: rect = e.currentTarget.get_bounding_client_rect()
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            setMenuAnchor({ x: rect.right - 176, y: rect.bottom + 4 })
+            setMenuOpen(v => !v)
+          }}
           className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-all text-xs"
           title="옵션"
         >
@@ -344,6 +385,8 @@ function DraggablePageRow({
             onClose={handleCloseMenu}
             onDelete={onDelete}
             onDuplicate={onDuplicate}
+            anchorX={menuAnchor.x}
+            anchorY={menuAnchor.y}
           />
         )}
       </div>
@@ -631,6 +674,9 @@ export interface CategorySidebarProps {
   dbViewActive?: boolean
   // 데이터베이스 테이블 뷰 토글 콜백
   onToggleDbView?: () => void
+  // 분할 뷰: Ctrl+클릭 시 오른쪽 패널에 열기
+  // Python으로 치면: def on_split_page(self, page_id): ...
+  onSplitPage?: (pageId: string) => void
 }
 
 
@@ -638,7 +684,7 @@ export interface CategorySidebarProps {
 // CategorySidebar (통합 파일 사이드바) — 메인 컴포넌트
 // -----------------------------------------------
 export default function CategorySidebar({
-  onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView,
+  onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView, onSplitPage,
 }: CategorySidebarProps) {
 
   // ── 페이지 스토어 ────────────────────────────
@@ -908,7 +954,25 @@ export default function CategorySidebar({
         {/* 펼침 상태: 이 폴더의 페이지 (인라인) + 하위 폴더 (재귀) */}
         {/* Python으로 치면: if is_expanded: render pages then child folders */}
         {isExpanded && !sidebarCollapsed && (
-          <>
+          // ── 자식 영역 래퍼 ─────────────────────────────────
+          // position: relative → 트리 가이드 라인(absolute)의 기준점
+          // Python으로 치면: children_area = RelativeDiv(guide_line + children)
+          <div className="relative">
+
+            {/* 트리 가이드 라인 — 이 폴더의 자식 범위를 수직선으로 시각화
+                left = depth * 12 + 6: 이 depth 인덴트 단위의 중앙 (12px step 기준)
+                depth 0 → 6px, depth 1 → 18px, depth 2 → 30px
+                pointer-events-none: 클릭 이벤트 통과 (행 클릭 방해 안 함)
+                Python으로 치면: guide = AbsDiv(left=depth*12+6, w=1px, h=100%) */}
+            <div
+              className="absolute top-0 bottom-0 pointer-events-none"
+              style={{
+                left: `${depth * 12 + 6}px`,
+                width: '1px',
+                backgroundColor: GUIDE_COLORS[Math.min(depth, 3)],
+              }}
+            />
+
             {/* 폴더 내 페이지 인라인 표시 */}
             {pagesInCat.map(page => (
               <DraggablePageRow
@@ -920,6 +984,7 @@ export default function CategorySidebar({
                 onSelect={() => handleSelectPage(page.id)}
                 onDelete={() => deletePage(page.id)}
                 onDuplicate={() => duplicatePage(page.id)}
+                onSplitPage={() => onSplitPage?.(page.id)}
               />
             ))}
             {/* 폴더에 페이지 인라인 추가 인풋 */}
@@ -954,7 +1019,7 @@ export default function CategorySidebar({
                 {childFolderIds.map(childId => renderFolder(childId, depth + 1))}
               </SortableContext>
             )}
-          </>
+          </div>
         )}
       </div>
     )
@@ -1166,6 +1231,7 @@ export default function CategorySidebar({
                     onSelect={() => handleSelectPage(page.id)}
                     onDelete={() => deletePage(page.id)}
                     onDuplicate={() => duplicatePage(page.id)}
+                    onSplitPage={() => onSplitPage?.(page.id)}
                     searchCategoryName={catName}
                   />
                 )
@@ -1217,6 +1283,7 @@ export default function CategorySidebar({
                     onSelect={() => handleSelectPage(page.id)}
                     onDelete={() => deletePage(page.id)}
                     onDuplicate={() => duplicatePage(page.id)}
+                    onSplitPage={() => onSplitPage?.(page.id)}
                   />
                 ))}
               </>
@@ -1270,7 +1337,10 @@ export default function CategorySidebar({
                 <button
                   key={pageId}
                   type="button"
-                  onClick={() => handleSelectPage(pageId)}
+                  onClick={(e) => {
+                    if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(pageId); return }
+                    handleSelectPage(pageId)
+                  }}
                   className={currentPageId === pageId
                     ? "w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-left bg-gray-200 text-gray-900"
                     : "w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-left text-gray-500 hover:bg-gray-100 transition-colors"}
