@@ -14,6 +14,9 @@ import { FONT_PRESETS, FONT_SIZE_PRESETS, CATEGORY_LABELS, type FontCategory } f
 // 정렬 아이콘 — lucide-react 패키지에서 가져옴
 // Python으로 치면: from lucide import AlignLeft, AlignCenter, AlignRight, AlignJustify
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react'
+// 화살표 연결 대기 전역 스토어
+// Python으로 치면: from store.arrow_store import use_arrow_store
+import { useArrowStore } from '@/store/arrowStore'
 
 
 // -----------------------------------------------
@@ -686,6 +689,80 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
           {aiLoading ? '⏳' : '✨'}
         </button>
 
+        <Divider />
+
+        {/* ── 화살표 버튼 ↗ ────────────────────── */}
+        {/* 클릭: 선택 텍스트에 시작 마크 적용 → 연결 대기 모드 진입 */}
+        {/* Python으로 치면: btn.on_click(start_arrow_connect_mode) */}
+        <button
+          title="단어 연결 화살표 (클릭: 시작점 지정 후 끝점 클릭으로 연결)"
+          onPointerDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (!editor.schema.marks['arrowMark']) {
+              toast.error('페이지를 새로고침(F5)한 후 다시 시도해 주세요.')
+              return
+            }
+            restoreSelection()
+            const { from, to } = editor.state.selection
+            if (from === to) return
+
+            // 새 arrowId 생성 + 시작 마크 적용
+            const arrowId = crypto.randomUUID()
+            editor.chain().focus()
+              .setMark('arrowMark', {
+                arrowId, isStart: true,
+                color: 'blue', opacity: 1,
+                arrowType: 'margin', xPosition: 0,
+                startHead: false, endHead: true,
+              })
+              .run()
+
+            // 시작 앵커 좌표: 선택 범위 첫 번째 rect의 left + 수직 중앙
+            // Python으로 치면: anchor = (rects[0].left, rects[0].top + height/2)
+            const sel = window.getSelection()
+            let anchorX = 0
+            let anchorY = 0
+            if (sel && sel.rangeCount > 0) {
+              const rects = sel.getRangeAt(0).getClientRects()
+              if (rects.length > 0) {
+                anchorX = rects[0].left
+                anchorY = rects[0].top + rects[0].height / 2
+              }
+            }
+
+            // 연결 대기 모드 진입 (ArrowLayer가 고무줄 선 + 원 핸들 렌더링)
+            useArrowStore.getState().setConnecting({
+              arrowId, color: 'blue', opacity: 1,
+              arrowType: 'margin', xPosition: 0,
+              startHead: false, endHead: true,
+              anchorX, anchorY,
+            })
+            setVisible(false)  // 버블 메뉴 숨김
+          }}
+          style={{ width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0, border: 'none', cursor: 'pointer', background: editor.isActive('arrowMark') ? '#2563eb' : 'transparent', color: editor.isActive('arrowMark') ? '#fff' : '#d1d5db' }}
+        >
+          ↗
+        </button>
+
+        {/* 화살표 마커 제거 버튼 — 선택 텍스트에 arrowMark가 있을 때만 표시 */}
+        {/* Python으로 치면: if editor.is_active('arrowMark'): show_remove_btn() */}
+        {editor.isActive('arrowMark') && (
+          <button
+            title="화살표 마커 제거"
+            onPointerDown={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              restoreSelection()
+              editor.chain().focus().unsetMark('arrowMark').run()
+              forceUpdate(n => n + 1)
+            }}
+            style={{ width: '26px', height: '26px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, flexShrink: 0, border: 'none', cursor: 'pointer', background: 'transparent', color: '#f87171' }}
+          >
+            ✕
+          </button>
+        )}
+
       </div>
 
       {/* ── AI 액션 드롭다운 패널 ───────────────────── */}
@@ -715,6 +792,7 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
           ))}
         </div>
       )}
+
 
       {/* ── 글꼴 선택 패널 ──────────────────────── */}
       {/* 카테고리별 구분선 + 폰트 목록 */}

@@ -79,6 +79,13 @@ export interface Block {
   children: Block[]    // 자식 블록 목록 (토글 안에 들어가는 블록들)
   createdAt: Date      // 생성 시각
   updatedAt: Date      // 마지막 수정 시각
+  // ── 캔버스 모드 전용 필드 ──────────────────────
+  // 캔버스 모드에서 블록의 절대 위치와 크기 (그리드 20px 기준)
+  // Python으로 치면: canvas_x: int | None = None
+  canvasX?: number     // X 좌표 (px)
+  canvasY?: number     // Y 좌표 (px)
+  canvasW?: number     // 너비 (px, 기본값 400)
+  canvasH?: number     // 높이 (px, 내용에 따라 자동 갱신)
 }
 
 
@@ -110,6 +117,9 @@ export interface Page {
   properties?: PageProperty[]
   createdAt: Date      // 생성 시각
   updatedAt: Date      // 마지막 수정 시각
+  // 캔버스 모드 여부 — true이면 블록을 절대 좌표로 배치
+  // Python으로 치면: canvas_mode: bool = False
+  canvasMode?: boolean
 }
 
 

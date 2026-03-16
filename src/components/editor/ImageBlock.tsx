@@ -34,7 +34,7 @@ function parseContent(content: string): { src: string; width?: number; caption?:
 }
 
 export default function ImageBlock({ block, pageId }: ImageBlockProps) {
-  const { updateBlock } = usePageStore()
+  const { updateBlock, updateBlockCanvas } = usePageStore()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   // 이미지 컨테이너 DOM 참조 — 리사이즈 시 실제 렌더링 너비 측정용
@@ -77,6 +77,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
   // -----------------------------------------------
   // content를 JSON으로 직렬화하여 저장
   // caption이 있으면 같이 저장, undefined면 필드 제외
+  // 캔버스 모드에서는 canvasW도 동기화 (블록 컨테이너 크기 반영)
   // Python으로 치면: def save_content(src, width=None, caption=None): update_block(...)
   // -----------------------------------------------
   function saveContent(newSrc: string, newWidth?: number, newCaption?: string) {
@@ -84,6 +85,11 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
     if (newWidth !== undefined) data.width = newWidth
     if (newCaption !== undefined && newCaption !== '') data.caption = newCaption
     updateBlock(pageId, block.id, JSON.stringify(data))
+    // 캔버스 모드에서 이미지 너비 변경 시 캔버스 블록 컨테이너 너비도 동기화
+    // Python으로 치면: if block.canvas_x is not None and new_width: update_canvas(w=new_width)
+    if (newWidth !== undefined && block.canvasX !== undefined) {
+      updateBlockCanvas(pageId, block.id, { w: newWidth })
+    }
   }
 
   // -----------------------------------------------
@@ -144,17 +150,20 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
     e.preventDefault()
     e.stopPropagation()
 
-    // 리사이즈 시작 시점의 실제 렌더링 너비를 DOM에서 측정
+    // 리사이즈 시작 시점의 실제 렌더링 너비, 부모 최대 너비 측정
     const imgEl = containerRef.current?.querySelector('img') as HTMLImageElement | null
     const startWidth = imgEl ? imgEl.offsetWidth : (savedWidth ?? 400)
+    // 부모 너비를 상한으로 사용 (본문 초과 방지)
+    // Python으로 치면: max_width = container.parent.offsetWidth or float('inf')
+    const maxWidth = containerRef.current?.parentElement?.offsetWidth ?? Infinity
     const startX = e.clientX
 
     setLocalWidth(startWidth)
     setIsResizing(true)
 
-    // mousemove: delta만큼 너비 업데이트 (최소 100px)
+    // mousemove: delta만큼 너비 업데이트 (최소 100px, 최대 부모 너비)
     function onMouseMove(ev: MouseEvent) {
-      const newWidth = Math.max(100, startWidth + (ev.clientX - startX))
+      const newWidth = Math.min(maxWidth, Math.max(100, startWidth + (ev.clientX - startX)))
       setLocalWidth(newWidth)
     }
 
@@ -162,7 +171,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
     function onMouseUp(ev: MouseEvent) {
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
-      const finalWidth = Math.max(100, startWidth + (ev.clientX - startX))
+      const finalWidth = Math.min(maxWidth, Math.max(100, startWidth + (ev.clientX - startX)))
       setLocalWidth(finalWidth)
       setIsResizing(false)
       saveContent(src, finalWidth, localCaption || undefined)
@@ -225,8 +234,8 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
           max-w-full: 부모 너비를 초과하지 않음 */}
       <div
         ref={containerRef}
-        className="relative group/img my-1 inline-block max-w-full"
-        style={displayWidth ? { width: `${displayWidth}px` } : {}}
+        className="relative group/img my-1 inline-block"
+        style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : 'auto' }}
       >
         <img
           src={src}
@@ -284,7 +293,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
           Python으로 치면: caption_input = LineEdit(placeholder='설명 추가...')  */}
       <div
         className="block"
-        style={displayWidth ? { width: `${displayWidth}px` } : { maxWidth: '100%' }}
+        style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : '100%' }}
       >
         <input
           type="text"

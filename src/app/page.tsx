@@ -20,6 +20,7 @@ import SettingsModal from '@/components/settings/SettingsModal'
 import PomodoroWidget from '@/components/editor/PomodoroWidget'
 import BottomBar from '@/components/editor/BottomBar'
 import TabBar from '@/components/editor/TabBar'
+import GraphView from '@/components/editor/GraphView'
 import { X } from 'lucide-react'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
@@ -69,6 +70,10 @@ export default function Home() {
   // true이면 에디터 대신 DatabaseView를 렌더링
   // Python으로 치면: self.db_view_active = False
   const [dbViewActive, setDbViewActive] = useState(false)
+
+  // 그래프 뷰 오버레이 열림 여부 (Ctrl+G)
+  // Python으로 치면: self.graph_view_open = False
+  const [graphViewOpen, setGraphViewOpen] = useState(false)
 
   // ── 스플릿 뷰 상태 ─────────────────────────────
   // splitPageId: 오른쪽 패널에 표시할 페이지 ID (null = 스플릿 없음)
@@ -205,6 +210,7 @@ export default function Home() {
     categoryOrder,
     categoryChildOrder,
     setCurrentPage,
+    setOpenTabs,
     addPage,
     loadFromServer,
     movePageToCategory,
@@ -298,6 +304,54 @@ export default function Home() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
+  // 세션 저장 — 탭/스플릿 상태 변경 시 localStorage에 기록
+  // Python으로 치면: def on_state_change(): local_storage.save(session)
+  // -----------------------------------------------
+  useEffect(() => {
+    if (openTabs.length === 0) return
+    try {
+      localStorage.setItem('notion-clone-session', JSON.stringify({
+        openTabs,
+        currentPageId,
+        splitPageId,
+        splitRatio,
+      }))
+    } catch {}
+  }, [openTabs, currentPageId, splitPageId, splitRatio])
+
+  // -----------------------------------------------
+  // 세션 복원 — pages 최초 로드 후 1회 실행
+  // 삭제된 페이지 ID는 필터링 후 유효한 것만 복원
+  // Python으로 치면: def restore_session(): if not restored: load_from_storage()
+  // -----------------------------------------------
+  const sessionRestoredRef = useRef(false)
+  useEffect(() => {
+    if (pages.length === 0 || sessionRestoredRef.current) return
+    sessionRestoredRef.current = true
+    try {
+      const raw = localStorage.getItem('notion-clone-session')
+      if (!raw) return
+      const session = JSON.parse(raw) as {
+        openTabs: string[]
+        currentPageId: string | null
+        splitPageId: string | null
+        splitRatio: number
+      }
+      const pageIds = new Set(pages.map(p => p.id))
+
+      // 유효한 탭만 복원 (삭제된 페이지 제외)
+      const validTabs = (session.openTabs ?? []).filter(id => pageIds.has(id))
+      if (validTabs.length > 0) setOpenTabs(validTabs)
+
+      // 스플릿 뷰 복원
+      if (session.splitPageId && pageIds.has(session.splitPageId)) {
+        setSplitPageId(session.splitPageId)
+        setSplitRatio(session.splitRatio ?? 0.5)
+      }
+    } catch {}
+  }, [pages.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
   // 서버 로드 후 currentPageId가 없으면 첫 번째 페이지 자동 선택
   // 렌더 중 직접 호출하면 React 경고 + API 에러 발생 → useEffect로 이동
   // Python으로 치면: asyncio.ensure_future(select_first_page_if_none())
@@ -307,6 +361,23 @@ export default function Home() {
       setCurrentPage(pages[0].id)
     }
   }, [currentPageId, pages.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // Ctrl+G 단축키 → 그래프 뷰 오버레이 열기/닫기
+  // Python으로 치면:
+  //   def on_key_down(e):
+  //       if e.ctrl and e.key == 'g': toggle_graph_view()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleGraphKey(e: KeyboardEvent) {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        setGraphViewOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleGraphKey)
+    return () => window.removeEventListener('keydown', handleGraphKey)
+  }, [])
 
   // -----------------------------------------------
   // Ctrl+\ 단축키 → 스플릿 뷰 토글
@@ -447,6 +518,7 @@ export default function Home() {
               dbViewActive={dbViewActive}
               onToggleDbView={() => setDbViewActive(v => !v)}
               onSplitPage={(id) => setSplitPageId(prev => prev === id ? null : id)}
+              onOpenGraphView={() => setGraphViewOpen(true)}
             />
           </div>
         )}
@@ -603,6 +675,13 @@ export default function Home() {
             onOpenShortcuts={() => { setCommandPaletteOpen(false); setShortcutOpen(true) }}
             onOpenSearch={() => { setCommandPaletteOpen(false); setSearchOpen(true) }}
           />
+        )}
+
+        {/* ── 그래프 뷰 오버레이 (Ctrl+G) ──────────────
+            전체 화면으로 페이지 링크 관계를 노드 그래프로 표시
+            Python으로 치면: if graph_view_open: render(GraphView) */}
+        {graphViewOpen && (
+          <GraphView onClose={() => setGraphViewOpen(false)} />
         )}
 
       </div>

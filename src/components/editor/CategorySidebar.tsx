@@ -18,6 +18,7 @@ import CalendarWidget from './CalendarWidget'
 import NewPageDialog from './NewPageDialog'
 import { toast } from 'sonner'
 import { templateApi } from '@/lib/api'
+import ContextMenu from './ContextMenu'
 
 // dnd-kit: 폴더 정렬 + 페이지→폴더 드래그 이동
 import {
@@ -28,7 +29,7 @@ import {
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 // 테이블 뷰 + 폴더 아이콘 (depth별 색상 적용을 위해 Lucide Folder 사용)
-import { Table2, Folder } from 'lucide-react'
+import { Table2, Folder, ChevronsDown, ChevronsUp, GitFork } from 'lucide-react'
 
 
 // -----------------------------------------------
@@ -119,8 +120,9 @@ interface PageInlineMenuProps {
 }
 
 function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY }: PageInlineMenuProps) {
-  const { categories, categoryMap, movePageToCategory } = usePageStore()
   const menuRef = useRef<HTMLDivElement>(null)
+  // 즐겨찾기 토글 — 메뉴 내부에서 직접 스토어 접근
+  const { togglePageStar } = usePageStore()
 
   // 템플릿 저장 폼 표시 여부
   const [showSaveForm, setShowSaveForm] = useState(false)
@@ -137,8 +139,6 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
-
-  const pageCategoryId = categoryMap[page.id] ?? null
 
   // 템플릿으로 저장
   async function handleSaveAsTemplate() {
@@ -162,9 +162,12 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
   return (
     <div
       ref={menuRef}
-      className="fixed z-9999 bg-white border border-gray-200 rounded-lg shadow-lg py-1"
+      className="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-1"
       style={{
         width: showSaveForm ? '210px' : '176px',
+        // z-9999는 Tailwind v4에서 생성되지 않으므로 인라인으로 직접 지정
+        // Python으로 치면: popup.z_index = 9999
+        zIndex: 9999,
         // 버튼 우측 하단에 팝업 표시, 화면 오른쪽 벗어나지 않도록 left 기준 배치
         // Python으로 치면: popup.x = min(anchor_x, screen_width - popup_width)
         left: `${anchorX}px`,
@@ -207,32 +210,16 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
         </div>
       ) : (
         <>
-          {/* 카테고리로 이동 섹션 */}
-          <div className="px-3 py-1 text-[10px] text-gray-400 font-medium uppercase">폴더로 이동</div>
-          {pageCategoryId !== null && (
+          <div>
+            {/* 즐겨찾기 토글 */}
             <button
-              onClick={() => { movePageToCategory(page.id, null); onClose() }}
+              onClick={() => { togglePageStar(page.id); onClose() }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
             >
-              <span>📋</span><span>미분류</span>
+              <span>{page.starred ? '★' : '☆'}</span>
+              <span>{page.starred ? '즐겨찾기 해제' : '즐겨찾기 추가'}</span>
             </button>
-          )}
-          {categories.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => { movePageToCategory(page.id, cat.id); onClose() }}
-              className={pageCategoryId === cat.id
-                ? "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-blue-600 bg-blue-50"
-                : "w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
-              }
-            >
-              <span>📁</span>
-              <span className="truncate">{cat.name}</span>
-              {pageCategoryId === cat.id && <span className="ml-auto text-blue-500">✓</span>}
-            </button>
-          ))}
-          {/* 구분선 + 복제 + 템플릿 저장 + 삭제 */}
-          <div className="border-t border-gray-100 mt-1 pt-1">
+            <div className="my-1 border-t border-gray-100" />
             <button
               onClick={() => { onDuplicate(); onClose() }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
@@ -243,8 +230,9 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
               onClick={() => setShowSaveForm(true)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
             >
-              <span>⭐</span><span>템플릿으로 저장</span>
+              <span>📑</span><span>템플릿으로 저장</span>
             </button>
+            <div className="my-1 border-t border-gray-100" />
             <button
               onClick={() => { onDelete(); onClose() }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-red-500 hover:bg-red-50"
@@ -336,12 +324,24 @@ function DraggablePageRow({
         ⠿
       </span>
 
-      {/* 페이지 선택 버튼 (Ctrl+클릭: 분할 뷰로 열기) */}
+      {/* 페이지 선택 버튼 (Ctrl+클릭: 분할 뷰로 열기, 우클릭: 컨텍스트 메뉴) */}
       {/* Python으로 치면: if e.ctrl and on_split_page: on_split_page() else: on_select() */}
       <button
         onClick={(e) => {
           if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(); return }
           onSelect()
+        }}
+        onContextMenu={(e) => {
+          // 우클릭 → 커서 위치에 PageInlineMenu 팝업 표시
+          // 화면 오른쪽 끝 초과 방지: 메뉴 너비(176px) 고려해 보정
+          // Python으로 치면: x = min(e.clientX, screen_width - 176 - 8)
+          e.preventDefault()
+          e.stopPropagation()
+          const menuW = 176
+          const safeX = Math.min(e.clientX, window.innerWidth - menuW - 8)
+          const safeY = Math.min(e.clientY, window.innerHeight - 240)
+          setMenuAnchor({ x: safeX, y: safeY })
+          setMenuOpen(true)
         }}
         title={`${page.title || '제목 없음'} (Ctrl+클릭: 분할 뷰)`}
         className={isSelected
@@ -363,6 +363,7 @@ function DraggablePageRow({
       </button>
 
       {/* "•••" 컨텍스트 메뉴 버튼 (hover 시만 표시) */}
+      {/* transform 있는 div 밖에 PageInlineMenu 렌더링 — fixed가 transform 기준으로 위치 잡히는 CSS 버그 방지 */}
       <div className="absolute right-1 top-1/2 -translate-y-1/2">
         <button
           type="button"
@@ -371,7 +372,9 @@ function DraggablePageRow({
             // 버튼 우측 하단 좌표를 fixed 팝업 기준점으로 사용
             // Python으로 치면: rect = e.currentTarget.get_bounding_client_rect()
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            setMenuAnchor({ x: rect.right - 176, y: rect.bottom + 4 })
+            const menuW = 176
+            const safeX = Math.min(rect.right, window.innerWidth - menuW - 8)
+            setMenuAnchor({ x: safeX - menuW, y: rect.bottom + 4 })
             setMenuOpen(v => !v)
           }}
           className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-all text-xs"
@@ -379,17 +382,18 @@ function DraggablePageRow({
         >
           •••
         </button>
-        {menuOpen && (
-          <PageInlineMenu
-            page={page}
-            onClose={handleCloseMenu}
-            onDelete={onDelete}
-            onDuplicate={onDuplicate}
-            anchorX={menuAnchor.x}
-            anchorY={menuAnchor.y}
-          />
-        )}
       </div>
+      {/* PageInlineMenu: -translate-y-1/2 div 밖에 위치해야 position:fixed가 뷰포트 기준으로 동작 */}
+      {menuOpen && (
+        <PageInlineMenu
+          page={page}
+          onClose={handleCloseMenu}
+          onDelete={onDelete}
+          onDuplicate={onDuplicate}
+          anchorX={menuAnchor.x}
+          anchorY={menuAnchor.y}
+        />
+      )}
     </div>
   )
 }
@@ -428,6 +432,10 @@ function CategoryRowUI({
 }: CategoryRowUIProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(category.name)
+
+  // ── 우클릭 컨텍스트 메뉴 상태 ──────────────────
+  // Python으로 치면: self.ctx_menu_pos: tuple[int,int] | None = None
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
 
   function handleRenameSubmit() {
     const trimmed = editValue.trim()
@@ -476,6 +484,13 @@ function CategoryRowUI({
         <button
           onClick={onSelect}
           onDoubleClick={() => { setIsEditing(true); setEditValue(category.name) }}
+          onContextMenu={(e) => {
+            // 우클릭 시 브라우저 기본 메뉴 차단 → 커스텀 컨텍스트 메뉴 표시
+            // Python으로 치면: def on_right_click(e): e.prevent_default(); show_ctx_menu(e.x, e.y)
+            e.preventDefault()
+            e.stopPropagation()
+            setCtxMenu({ x: e.clientX, y: e.clientY })
+          }}
           className={isOver ? overBtn : isSelected ? selectedBtn : normalBtn}
           title="더블클릭으로 이름 변경"
           style={{ opacity: isDragging ? 0.4 : 1 }}
@@ -554,6 +569,58 @@ function CategoryRowUI({
             ✕
           </button>
         </div>
+      )}
+
+      {/* ── 폴더 우클릭 컨텍스트 메뉴 ─────────────────────────────────── */}
+      {/* Python으로 치면: if ctx_menu: render ContextMenu at (x, y) */}
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          sections={[
+            {
+              id: 'folder-info',
+              title: category.name,
+              actions: [],
+            },
+            {
+              id: 'folder-actions',
+              actions: [
+                {
+                  id: 'rename',
+                  label: '이름 바꾸기',
+                  icon: '✏️',
+                  onClick: () => { setIsEditing(true); setEditValue(category.name) },
+                },
+                {
+                  id: 'add-page',
+                  label: '메모 추가',
+                  icon: '📄',
+                  onClick: onAddPage,
+                },
+                {
+                  id: 'add-child',
+                  label: '하위 폴더 추가',
+                  icon: '📁',
+                  onClick: onAddChild,
+                },
+              ],
+            },
+            {
+              id: 'folder-danger',
+              actions: [
+                {
+                  id: 'delete',
+                  label: '폴더 삭제',
+                  icon: '🗑️',
+                  danger: true,
+                  onClick: onDelete,
+                },
+              ],
+            },
+          ]}
+        />
       )}
     </div>
   )
@@ -677,6 +744,9 @@ export interface CategorySidebarProps {
   // 분할 뷰: Ctrl+클릭 시 오른쪽 패널에 열기
   // Python으로 치면: def on_split_page(self, page_id): ...
   onSplitPage?: (pageId: string) => void
+  // 그래프 뷰 오버레이 열기 콜백
+  // Python으로 치면: def on_open_graph(self): ...
+  onOpenGraphView?: () => void
 }
 
 
@@ -684,7 +754,7 @@ export interface CategorySidebarProps {
 // CategorySidebar (통합 파일 사이드바) — 메인 컴포넌트
 // -----------------------------------------------
 export default function CategorySidebar({
-  onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView, onSplitPage,
+  onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView, onSplitPage, onOpenGraphView,
 }: CategorySidebarProps) {
 
   // ── 페이지 스토어 ────────────────────────────
@@ -718,9 +788,26 @@ export default function CategorySidebar({
   } = useSettingsStore()
 
   // ── 컴포넌트 상태 ────────────────────────────
-  // 펼쳐진 폴더 ID 집합 (Set에 있으면 펼쳐진 상태)
-  // Python으로 치면: expanded_folder_ids: set[str] = set()
-  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => new Set())
+  // 펼쳐진 폴더 ID 집합 — localStorage에서 복원, 변경 시 자동 저장
+  // Python으로 치면: expanded_folder_ids: set[str] = load_from_storage()
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set())
+
+  // 마운트 시 localStorage에서 복원 (typeof window 체크 없이 useEffect로 안전하게)
+  // Python으로 치면: def on_mount(self): self.expanded = storage.load('expanded_folders')
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('notion-clone-expanded-folders')
+      if (raw) setExpandedFolderIds(new Set(JSON.parse(raw) as string[]))
+    } catch {}
+  }, [])
+
+  // expandedFolderIds 변경 시 localStorage에 저장
+  // Python으로 치면: def on_expanded_change(self): storage.save('expanded_folders', list(self.expanded))
+  useEffect(() => {
+    try {
+      localStorage.setItem('notion-clone-expanded-folders', JSON.stringify([...expandedFolderIds]))
+    } catch {}
+  }, [expandedFolderIds])
 
   // 검색어 — 입력 시 전체 페이지 전문 검색
   const [searchQuery, setSearchQuery] = useState('')
@@ -728,6 +815,10 @@ export default function CategorySidebar({
 
   // 캘린더 날짜 필터 (YYYY-MM-DD 또는 null)
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
+
+  // 태그 필터 — 선택된 태그 집합 (비어있으면 필터 없음)
+  // Python으로 치면: selected_tags: set[str] = set()
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
 
   // 최상위 폴더 추가 인풋
   const [isAddingTopFolder, setIsAddingTopFolder] = useState(false)
@@ -779,6 +870,10 @@ export default function CategorySidebar({
     data: { type: 'category', categoryId: null },
   })
 
+  // ── 모든 페이지의 고유 태그 목록 (정렬) ───────
+  // Python으로 치면: all_tags = sorted(set(t for p in pages for t in (p.tags or [])))
+  const allTags = [...new Set(pages.flatMap(p => p.tags ?? []))].sort()
+
   // ── 검색 결과 ────────────────────────────────
   // 검색어가 있을 때만 전체 페이지 필터링 (null이면 검색 모드 아님)
   // Python으로 치면: filtered = None if not query else [p for p in pages if ...]
@@ -804,8 +899,17 @@ export default function CategorySidebar({
         })
       : null
 
-  // 검색/날짜 필터 활성 여부
-  const isFiltering = filteredSearchPages !== null
+  // ── 태그 필터 적용 ────────────────────────────
+  // selectedTags가 있으면 검색/날짜 결과(또는 전체)에 추가 필터 적용 (OR 조건: 어느 한 태그라도 포함)
+  // Python으로 치면: if selected_tags: base = [p for p in base if any(t in p.tags for t in selected_tags)]
+  const displayPages: Page[] | null = selectedTags.size > 0
+    ? (filteredSearchPages ?? pages).filter(p =>
+        [...selectedTags].some(tag => (p.tags ?? []).includes(tag))
+      )
+    : filteredSearchPages
+
+  // 검색/날짜/태그 필터 활성 여부
+  const isFiltering = displayPages !== null
 
   // ── 폴더 내 페이지 목록 헬퍼 ──────────────────
   // 특정 카테고리에 속하는 페이지 반환
@@ -821,6 +925,16 @@ export default function CategorySidebar({
       if (next.has(catId)) { next.delete(catId) } else { next.add(catId) }
       return next
     })
+  }
+
+  // ── 전체 폴더 펼치기/접기 ───────────────────────
+  // Python으로 치면: def expand_all(): expanded = set(all_cat_ids)
+  function expandAllFolders() {
+    setExpandedFolderIds(new Set(categories.map(c => c.id)))
+  }
+  // Python으로 치면: def collapse_all(): expanded = set()
+  function collapseAllFolders() {
+    setExpandedFolderIds(new Set())
   }
 
   // ── 폴더 삭제 처리 ──────────────────────────
@@ -1123,6 +1237,36 @@ export default function CategorySidebar({
             메모
           </span>
 
+          {/* 전체 펼치기 버튼 */}
+          <button
+            type="button"
+            onClick={expandAllFolders}
+            title="폴더 전체 펼치기"
+            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
+          >
+            <ChevronsDown size={13} />
+          </button>
+
+          {/* 전체 접기 버튼 */}
+          <button
+            type="button"
+            onClick={collapseAllFolders}
+            title="폴더 전체 접기"
+            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
+          >
+            <ChevronsUp size={13} />
+          </button>
+
+          {/* 그래프 뷰 버튼 (Ctrl+G) */}
+          <button
+            type="button"
+            onClick={onOpenGraphView}
+            title="그래프 뷰 (Ctrl+G)"
+            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
+          >
+            <GitFork size={13} />
+          </button>
+
           {/* 데이터베이스 테이블 뷰 버튼 */}
           <button
             type="button"
@@ -1182,6 +1326,34 @@ export default function CategorySidebar({
           </div>
         </div>
 
+        {/* ── 태그 필터 칩 ─────────────────────────── */}
+        {/* 전체 페이지에서 수집한 고유 태그를 클릭 가능한 칩으로 표시 */}
+        {/* Python으로 치면: tag_chips = [Chip(t, selected=t in selected_tags) for t in all_tags] */}
+        {allTags.length > 0 && (
+          <div className="px-2 py-1.5 border-b border-gray-100">
+            <div className="flex flex-wrap gap-1">
+              {allTags.map(tag => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => {
+                    setSelectedTags(prev => {
+                      const next = new Set(prev)
+                      if (next.has(tag)) { next.delete(tag) } else { next.add(tag) }
+                      return next
+                    })
+                  }}
+                  className={selectedTags.has(tag)
+                    ? "px-2 py-0.5 text-[10px] rounded-full bg-blue-500 text-white transition-colors"
+                    : "px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"}
+                >
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── 캘린더 위젯 (플러그인 ON일 때만) ────── */}
         {plugins.calendar && (
           <CalendarWidget
@@ -1205,18 +1377,36 @@ export default function CategorySidebar({
           </div>
         )}
 
+        {/* ── 태그 필터 활성 안내 ─────────────────── */}
+        {selectedTags.size > 0 && (
+          <div className="px-2 py-1 flex items-center gap-1 bg-purple-50 border-b border-purple-100">
+            <span className="text-xs text-purple-600 flex-1">{selectedTags.size}개 태그 필터 적용 중</span>
+            <button
+              type="button"
+              onClick={() => setSelectedTags(new Set())}
+              className="text-xs text-purple-400 hover:text-purple-600"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* ── 트리 / 검색 결과 / 두 섹션 레이아웃 ─────────────────────────── */}
         {isFiltering ? (
           /* ── 검색/날짜 필터 결과 — 단일 스크롤 영역 ── */
           <nav className="flex-1 overflow-y-auto px-1.5 py-2">
-            {filteredSearchPages!.length === 0 ? (
+            {displayPages!.length === 0 ? (
               <div className="px-2 py-4 text-center">
                 <p className="text-xs text-gray-400">
-                  {searchQuery.trim() ? `"${searchQuery}" 검색 결과 없음` : '해당 날짜에 메모가 없습니다'}
+                  {searchQuery.trim()
+                    ? `"${searchQuery}" 검색 결과 없음`
+                    : selectedTags.size > 0
+                      ? '선택한 태그에 해당하는 메모가 없습니다'
+                      : '해당 날짜에 메모가 없습니다'}
                 </p>
               </div>
             ) : (
-              filteredSearchPages!.map(page => {
+              displayPages!.map(page => {
                 const catId = categoryMap[page.id] ?? null
                 const catName = catId
                   ? (categories.find(c => c.id === catId)?.name ?? null)
@@ -1242,6 +1432,31 @@ export default function CategorySidebar({
           /* ── 단일 파일 트리 (폴더 + 인라인 페이지) ── */
           /* Python으로 치면: nav = ScrollView([all_files_tree]) */
           <nav className="flex-1 overflow-y-auto px-1.5 py-2">
+
+            {/* ── 즐겨찾기 섹션 (starred 페이지가 있을 때만) ────────
+                사이드바 상단에 ★ 고정 목록 표시
+                Python으로 치면: if starred_pages: render StarredSection() */}
+            {pages.filter(p => p.starred).length > 0 && (
+              <>
+                <div className="px-2 py-0.5 text-[10px] text-yellow-500 font-medium uppercase tracking-wide flex items-center gap-1">
+                  <span>★</span><span>즐겨찾기</span>
+                </div>
+                {pages.filter(p => p.starred).map(page => (
+                  <DraggablePageRow
+                    key={`star-${page.id}`}
+                    page={page}
+                    depth={0}
+                    isSelected={currentPageId === page.id}
+                    collapsed={false}
+                    onSelect={() => handleSelectPage(page.id)}
+                    onDelete={() => deletePage(page.id)}
+                    onDuplicate={() => duplicatePage(page.id)}
+                    onSplitPage={() => onSplitPage?.(page.id)}
+                  />
+                ))}
+                <div className="border-t border-gray-200 my-1" />
+              </>
+            )}
 
             {/* 전체보기 — 드롭 대상 (미분류로 페이지 이동) */}
             <div ref={setAllRef}>

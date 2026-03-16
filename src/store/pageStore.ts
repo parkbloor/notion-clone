@@ -113,6 +113,9 @@ interface PageStore {
   // Python으로 치면: self.open_tabs: list[str] = []
   openTabs: string[]
   closeTab: (id: string) => void
+  // 세션 복원용 — 저장된 탭 목록을 한 번에 덮어쓰기
+  // Python으로 치면: def restore_open_tabs(self, ids): self.open_tabs = ids
+  setOpenTabs: (ids: string[]) => void
 
   // ── 카테고리 상태 ─────────────────────────────
   categories: Category[]
@@ -167,6 +170,18 @@ interface PageStore {
   // 페이지와 모든 블록을 복제, 원본 바로 아래에 삽입
   // Python으로 치면: def duplicate_page(self, page_id): pages.insert(idx+1, copy(page))
   duplicatePage: (pageId: string) => void
+
+  // ── 캔버스 모드 액션 ──────────────────────────
+  // 페이지의 캔버스 모드를 토글 (문서 ↔ 캔버스)
+  // Python으로 치면: def toggle_canvas_mode(self, page_id): page.canvas_mode = not page.canvas_mode
+  toggleCanvasMode: (pageId: string) => void
+  // 캔버스 Y/X 좌표 기준으로 page.blocks 순서 재정렬
+  // 캔버스 모드 → 일반 모드 전환 시 호출 → 캔버스 배치 순서가 문서 순서에 반영됨
+  // Python으로 치면: def sort_blocks_by_canvas(self, page_id): page.blocks.sort(key=lambda b: (b.canvas_y, b.canvas_x))
+  sortBlocksByCanvas: (pageId: string) => void
+  // 특정 블록의 캔버스 위치/크기 업데이트
+  // Python으로 치면: def update_block_canvas(self, page_id, block_id, x, y, w, h): ...
+  updateBlockCanvas: (pageId: string, blockId: string, canvas: { x?: number; y?: number; w?: number; h?: number }) => void
 
   // ── 블록 액션 ─────────────────────────────────
   // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입 (템플릿 적용)
@@ -373,6 +388,12 @@ export const usePageStore = create<PageStore>()(
       })
     },
 
+    // 세션 복원용 탭 목록 일괄 설정
+    // Python으로 치면: def set_open_tabs(self, ids): self.open_tabs = ids
+    setOpenTabs: (ids) => {
+      set((state) => { state.openTabs = ids })
+    },
+
     // 최근 파일 목록 업데이트
     // 맨 앞에 추가, 중복 제거, 최대 10개 유지, localStorage 동기화
     // Python으로 치면:
@@ -563,6 +584,60 @@ export const usePageStore = create<PageStore>()(
         if (catId !== undefined) state.categoryMap[newId] = catId
       })
       scheduleSave(newId, get, set)
+    },
+
+
+    // ── 캔버스 모드 액션 ──────────────────────────
+
+    // 페이지의 캔버스 모드를 토글 → 디바운스 저장
+    // Python으로 치면: def toggle_canvas_mode(self, page_id): page.canvas_mode = not page.canvas_mode
+    toggleCanvasMode: (pageId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        page.canvasMode = !page.canvasMode
+        page.updatedAt = new Date()
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 캔버스 Y/X 좌표 기준으로 page.blocks 순서 재정렬
+    // 캔버스 모드 → 일반 모드 전환 시 호출 → 캔버스 배치 순서가 문서 순서에 반영됨
+    // 위→아래(canvasY), 같은 행은 좌→우(canvasX) 순
+    // canvasY 없는 블록은 뒤로 (배치 안 된 블록은 문서 끝에 유지)
+    // Python으로 치면: page.blocks.sort(key=lambda b: (b.canvas_y ?? inf, b.canvas_x ?? inf))
+    sortBlocksByCanvas: (pageId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        page.blocks.sort((a, b) => {
+          const ay = a.canvasY ?? Infinity
+          const by = b.canvasY ?? Infinity
+          if (ay !== by) return ay - by
+          return (a.canvasX ?? Infinity) - (b.canvasX ?? Infinity)
+        })
+        page.updatedAt = new Date()
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 특정 블록의 캔버스 위치/크기 업데이트 (드래그/리사이즈 완료 시 호출)
+    // Python으로 치면: def update_block_canvas(self, page_id, block_id, canvas): ...
+    updateBlockCanvas: (pageId, blockId, canvas) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const block = page.blocks.find(b => b.id === blockId)
+        if (!block) return
+        // 전달된 필드만 업데이트 (undefined인 필드는 건드리지 않음)
+        // Python으로 치면: block.__dict__.update({k: v for k, v in canvas.items() if v is not None})
+        if (canvas.x !== undefined) block.canvasX = canvas.x
+        if (canvas.y !== undefined) block.canvasY = canvas.y
+        if (canvas.w !== undefined) block.canvasW = canvas.w
+        if (canvas.h !== undefined) block.canvasH = canvas.h
+        block.updatedAt = new Date()
+      })
+      scheduleSave(pageId, get, set)
     },
 
 

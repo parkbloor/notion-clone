@@ -13,6 +13,7 @@ import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
 import { Block, Page } from '@/types/block'
 import Editor from './Editor'
+import CanvasPageEditor from './CanvasPageEditor'
 import EmojiPicker from './EmojiPicker'
 import CoverPicker from './CoverPicker'
 import TemplatePanel from './TemplatePanel'
@@ -22,6 +23,13 @@ import FindReplacePanel from './FindReplacePanel'
 import PropertyPanel from './PropertyPanel'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
+import { groupBlocksIntoRows, getColumnFlexValues, hasCanvasLayout } from '@/lib/canvasLayout'
+// ArrowLayer: 화살표 마크가 있는 단어 쌍을 SVG 곡선으로 연결하는 오버레이
+// Python으로 치면: from components import ArrowLayer
+import ArrowLayer from './ArrowLayer'
+// ArrowContextMenu: 화살표 우클릭 설정 메뉴
+// Python으로 치면: from components import ArrowContextMenu
+import ArrowContextMenu from './ArrowContextMenu'
 
 // =============================================
 // 마크다운 내보내기 헬퍼 함수들
@@ -258,16 +266,32 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     updatePageIcon, updatePageCover, updatePageCoverPosition,
     addTagToPage, removeTagFromPage,
     undoPage, redoPage, canUndo, canRedo,
-    applyTemplate,
+    applyTemplate, togglePageStar, toggleCanvasMode, sortBlocksByCanvas,
+    pages,
   } = usePageStore()
 
   // historyVersion 구독 → undo/redo 실행 시 버튼 활성화 상태 자동 갱신
   // Python으로 치면: self.history_version = store.history_version  # reactive
   const historyVersion = usePageStore((state) => state.historyVersion)
 
-  // 플러그인 설정 + 집중 모드 상태/토글 구독
-  // Python으로 치면: self.plugins = settings_store.plugins
-  const { plugins, isFocusMode, toggleFocusMode } = useSettingsStore()
+  // 플러그인 설정 + 집중 모드 상태/토글 + 에디터 최대 너비 구독
+  // editorMaxWidth를 직접 구독해서 CSS 변수 의존 없이 정확한 너비 적용
+  // Python으로 치면: self.plugins = settings_store.plugins; self.editor_max_width = settings_store.editor_max_width
+  const { plugins, isFocusMode, toggleFocusMode, editorMaxWidth } = useSettingsStore()
+
+  // ── 읽기 모드 상태 ──────────────────────────
+  // true이면 에디터 전체가 편집 불가 (실수 수정 방지 + 집중 읽기)
+  // Python으로 치면: self.read_mode = False
+  const [readMode, setReadMode] = useState(false)
+
+  // ── 호버 미리보기 상태 ─────────────────────
+  // 링크 위에 마우스를 올리면 해당 페이지 팝업 표시
+  // Python으로 치면: self.hover_preview: { x, y, pageId } | None = None
+  const [hoverPreview, setHoverPreview] = useState<{ x: number; y: number; pageId: string } | null>(null)
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ── 에디터 콘텐츠 영역 ref (호버 감지용) ──────
+  const contentAreaRef = useRef<HTMLDivElement>(null)
 
   // ── 섹션 접기 상태 ───────────────────────────
   // 접힌 heading 블록 ID 집합 — 접힌 헤딩의 하위 블록들은 렌더링에서 제외
@@ -351,6 +375,32 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   }
 
   // -----------------------------------------------
+  // HTML 내보내기 — 백엔드 API 호출 → base64 임베딩 단일 HTML 파일 다운로드
+  // Python으로 치면: def export_html(): fetch('/api/export/html/{id}') → download
+  // -----------------------------------------------
+  async function handleExportHtml() {
+    if (!page) return
+    setExportOpen(false)
+    try {
+      const res = await fetch(`http://localhost:8000/api/export/html/${page.id}`)
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '')
+        throw new Error(`서버 오류 ${res.status}: ${detail}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${page.title || '제목없음'}.html`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('HTML 내보내기 오류:', err)
+      alert(`HTML 내보내기 실패: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  // -----------------------------------------------
   // PDF 내보내기 — window.print() 브라우저 인쇄 다이얼로그
   // 인쇄 전: body에 'is-printing' 클래스 추가 → CSS에서 레이아웃 재정의
   // 인쇄 후: afterprint 이벤트로 클래스 자동 제거
@@ -369,6 +419,58 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       window.print()
     }, 50)
   }
+
+  // -----------------------------------------------
+  // 호버 미리보기: 에디터 내 #page-{id} 링크 위에 마우스를 올리면 팝업 표시
+  // Python으로 치면: editor_area.on_mouseover = lambda e: show_preview_if_link(e)
+  // -----------------------------------------------
+  useEffect(() => {
+    const area = contentAreaRef.current
+    if (!area) return
+
+    function onMouseOver(e: MouseEvent) {
+      // a[href^="#page-"] 요소 찾기
+      const anchor = (e.target as HTMLElement).closest('a[href^="#page-"]') as HTMLAnchorElement | null
+      if (!anchor) return
+      const href = anchor.getAttribute('href') ?? ''
+      const match = href.match(/^#page-([a-f0-9-]{36})$/)
+      if (!match) return
+      const linkedPageId = match[1]
+
+      // 이미 표시 중인 같은 페이지면 무시
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+      hoverTimeoutRef.current = setTimeout(() => {
+        const rect = anchor.getBoundingClientRect()
+        setHoverPreview({
+          x: Math.min(rect.left, window.innerWidth - 300),
+          y: rect.bottom + 6,
+          pageId: linkedPageId,
+        })
+      }, 200)
+    }
+
+    function onMouseOut(e: MouseEvent) {
+      const anchor = (e.target as HTMLElement).closest('a[href^="#page-"]')
+      if (!anchor) return
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+      // relatedTarget이 미리보기 팝업 안이면 유지
+      const related = (e as MouseEvent).relatedTarget as HTMLElement | null
+      if (related?.closest('[data-hover-preview]')) return
+      setHoverPreview(null)
+    }
+
+    area.addEventListener('mouseover', onMouseOver)
+    area.addEventListener('mouseout', onMouseOut)
+    return () => {
+      area.removeEventListener('mouseover', onMouseOver)
+      area.removeEventListener('mouseout', onMouseOut)
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
+    }
+  }, [pageId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 페이지 변경 시 읽기 모드 초기화
+  // Python으로 치면: def on_page_change(self): self.read_mode = False
+  useEffect(() => { setReadMode(false) }, [pageId])
 
   // ── 태그 UI 상태 ─────────────────────────────
   // 태그 인풋 표시 여부
@@ -646,9 +748,9 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       <div className="flex items-start">
       {/* 본문 콘텐츠 래퍼 — 모바일: px-4, 태블릿: px-8, 데스크탑: px-16 */}
       {/* Python으로 치면: padding = 'px-16' if desktop else 'px-4' */}
-      {/* max-w는 --editor-max-width CSS 변수로 제어 (하단 슬라이더 + settingsStore) */}
-      {/* Python으로 치면: content_body.max_width = css_var('--editor-max-width') */}
-      <div className="content-body flex-1 min-w-0 mr-auto px-4 sm:px-8 md:px-16 pb-8" style={{ maxWidth: 'var(--editor-max-width, 768px)' }}>
+      {/* max-w는 settingsStore.editorMaxWidth를 직접 구독해서 적용 (CSS 변수 의존 제거) */}
+      {/* Python으로 치면: content_body.max_width = settings_store.editor_max_width */}
+      <div ref={contentAreaRef} className="content-body flex-1 min-w-0 mr-auto px-4 sm:px-8 md:px-16 pb-8" style={{ maxWidth: `${editorMaxWidth}px` }}>
 
         {/* ── undo/redo + 내보내기 버튼 (우측 상단) ──────
             historyVersion 구독 → 버튼 활성화 상태 자동 갱신
@@ -676,6 +778,53 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             title="다시 실행 (Ctrl+Y)"
           >
             <Redo2 size={14} />
+          </button>
+
+          {/* 즐겨찾기 토글 버튼 */}
+          {/* Python으로 치면: star_btn.on_click = lambda: toggle_star(page_id) */}
+          <button
+            type="button"
+            onClick={() => togglePageStar(pageId)}
+            title={page.starred ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+            className={page.starred
+              ? "p-1.5 text-yellow-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-md transition-colors"
+              : "p-1.5 text-gray-300 hover:text-yellow-400 hover:bg-yellow-50 rounded-md transition-colors"}
+          >
+            {page.starred ? '★' : '☆'}
+          </button>
+
+          {/* 읽기 모드 토글 버튼 */}
+          {/* Python으로 치면: read_btn.on_click = lambda: self.read_mode = not self.read_mode */}
+          <button
+            type="button"
+            onClick={() => setReadMode(v => !v)}
+            title={readMode ? '편집 모드로 전환' : '읽기 모드로 전환'}
+            className={readMode
+              ? "flex items-center gap-1 px-2 py-1 text-xs text-green-600 bg-green-50 hover:bg-green-100 rounded-md transition-colors"
+              : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
+          >
+            <span>{readMode ? '👁' : '✏️'}</span>
+            <span>{readMode ? '읽기 중' : '편집'}</span>
+          </button>
+
+          {/* 캔버스 모드 토글 버튼 */}
+          {/* Python으로 치면: canvas_btn.on_click = lambda: toggle_canvas_mode(page_id) */}
+          <button
+            type="button"
+            onClick={() => {
+              // 캔버스 → 일반 모드로 전환 시: canvasY/X 순으로 블록 재정렬 후 토글
+              // → 캔버스에서 옆으로/위아래로 재배치한 순서가 문서 모드에 반영됨
+              // Python으로 치면: if canvas_mode: sort_blocks(); toggle_mode()
+              if (page.canvasMode) sortBlocksByCanvas(pageId)
+              toggleCanvasMode(pageId)
+            }}
+            title={page.canvasMode ? '문서 모드로 전환' : '캔버스 모드로 전환'}
+            className={page.canvasMode
+              ? "flex items-center gap-1 px-2 py-1 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-md transition-colors"
+              : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
+          >
+            <span>⊞</span>
+            <span>{page.canvasMode ? '캔버스' : '캔버스'}</span>
           </button>
 
           {/* 집중 모드 종료 버튼 (집중 모드 플러그인 ON + 집중 모드 활성 시만 표시) */}
@@ -737,6 +886,18 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                     <div className="text-xs text-gray-400">브라우저 인쇄 다이얼로그</div>
                   </div>
                 </button>
+                {/* HTML 내보내기 */}
+                <button
+                  type="button"
+                  onClick={handleExportHtml}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span>🌐</span>
+                  <div>
+                    <div className="font-medium text-xs">HTML로 저장</div>
+                    <div className="text-xs text-gray-400">이미지 포함 단일 파일</div>
+                  </div>
+                </button>
               </div>
             )}
           </div>
@@ -764,19 +925,38 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           )}
         </div>
 
+        {/* 읽기 모드 배너 */}
+        {/* Python으로 치면: if read_mode: render ReadModeBanner() */}
+        {readMode && (
+          <div className="mb-3 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 print-hide">
+            <span className="text-green-600 text-xs">👁 읽기 모드 — 편집 불가</span>
+            <button
+              type="button"
+              onClick={() => setReadMode(false)}
+              className="ml-auto text-xs text-green-500 hover:text-green-700 underline"
+            >
+              편집 모드로 전환
+            </button>
+          </div>
+        )}
+
         {/* ── 페이지 제목 입력 ─────────────────────── */}
         <input
           type="text"
           value={page.title}
+          readOnly={readMode}
           placeholder="제목 없음"
-          onChange={(e) => updatePageTitle(pageId, e.target.value)}
+          onChange={(e) => { if (!readMode) updatePageTitle(pageId, e.target.value) }}
           onKeyDown={(e) => {
+            if (readMode) return
             if (e.key === 'Enter') {
               e.preventDefault()
               addBlock(pageId)
             }
           }}
-          className="w-full text-4xl font-bold bg-transparent border-none outline-none placeholder:text-gray-300 text-gray-900 mb-3"
+          className={readMode
+            ? "w-full text-4xl font-bold bg-transparent border-none outline-none placeholder:text-gray-300 text-gray-900 mb-3 cursor-default select-text"
+            : "w-full text-4xl font-bold bg-transparent border-none outline-none placeholder:text-gray-300 text-gray-900 mb-3"}
         />
 
         {/* ── 태그 영역 ─────────────────────────────
@@ -847,6 +1027,117 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         )}
 
         {/* ── 블록 목록 렌더링 ─────────────────────── */}
+        {/* canvasMode ON일 때만 캔버스 레이아웃 사용
+            OFF 시 일반 문서 모드로 복귀 — canvasX/Y/W/H는 메타데이터로 보존됨
+            다시 ON하면 이전 배치 그대로 복원
+            Python으로 치면: use_canvas = page.canvas_mode */}
+        {page.canvasMode ? (
+          <CanvasPageEditor page={page} readMode={readMode} editMode={true} />
+        ) : hasCanvasLayout(page.blocks) ? (
+
+          // ── 캔버스 레이아웃 행 렌더링 ─────────────────────────────────────
+          // canvasY/X 좌표 기반으로 블록을 행(row)으로 묶어 렌더링
+          // 같은 행의 블록 2개+ → flex-row로 나란히, 너비는 canvasW 비율
+          // DnD 없음 — 레이아웃 변경은 캔버스 모드에서
+          // Python으로 치면: for row in group_blocks_into_rows(blocks): render_row(row)
+          (() => {
+            const rows = groupBlocksIntoRows(page.blocks)
+            // 플랫 블록 목록으로 섹션 접기 가시성 계산 (행 순서로 반영됨)
+            // Python으로 치면: flat_blocks = [b for row in rows for b in row]
+            const flatBlocks = rows.flat()
+            const visibilityMap = new Map<string, { hidden: boolean; hasChild: boolean }>()
+            let hiddenUntilLevel: number | null = null
+
+            flatBlocks.forEach((block, index) => {
+              const level = HEADING_LEVEL[block.type]
+              let hidden = false
+              if (hiddenUntilLevel !== null) {
+                if (level !== undefined && level <= hiddenUntilLevel) {
+                  hiddenUntilLevel = null
+                  if (collapsedSections.has(block.id)) hiddenUntilLevel = level
+                } else {
+                  hidden = true
+                }
+              } else {
+                if (level !== undefined && collapsedSections.has(block.id)) {
+                  hiddenUntilLevel = level
+                }
+              }
+              let hasChild = false
+              if (level !== undefined && index + 1 < flatBlocks.length) {
+                const nextLevel = HEADING_LEVEL[flatBlocks[index + 1].type]
+                hasChild = nextLevel === undefined || nextLevel > level
+              }
+              visibilityMap.set(block.id, { hidden, hasChild })
+            })
+
+            return (
+              <div className="space-y-1">
+                {rows.map((row, rowIndex) => {
+                  // 단독 행 → 기존 방식 그대로 렌더링
+                  // Python으로 치면: if len(row) == 1: render_block(row[0])
+                  if (row.length === 1) {
+                    const block = row[0]
+                    const { hidden, hasChild } = visibilityMap.get(block.id) ?? { hidden: false, hasChild: false }
+                    return (
+                      <div key={block.id} className={hidden ? 'hidden' : undefined}>
+                        <Editor
+                          block={block}
+                          pageId={pageId}
+                          isLast={page.blocks.length === 1}
+                          hasSectionChildren={hasChild}
+                          isSectionCollapsed={collapsedSections.has(block.id)}
+                          onToggleSectionCollapse={() => toggleSection(block.id)}
+                          readMode={readMode}
+                        />
+                      </div>
+                    )
+                  }
+
+                  // 다중 블록 행 → flex-row로 나란히 렌더링
+                  // 너비 비율은 canvasW 기반 (캔버스에서 조절한 크기 반영)
+                  // Python으로 치면: for block, width in zip(row, get_column_flex_values(row)): render_col(block, width)
+                  const flexValues = getColumnFlexValues(row)
+                  return (
+                    <div key={`row-${rowIndex}`} className="flex items-start">
+                      {row.map((block, colIndex) => {
+                        const { hidden, hasChild } = visibilityMap.get(block.id) ?? { hidden: false, hasChild: false }
+                        // 두 번째 열부터 왼쪽에 얇은 구분선 표시
+                        // Python으로 치면: border = 'border-l' if col_index > 0 else ''
+                        const colClass = hidden
+                          ? 'hidden'
+                          : colIndex > 0
+                            ? 'min-w-0 pl-3 border-l border-gray-200'
+                            : 'min-w-0'
+                        return (
+                          <div
+                            key={block.id}
+                            className={colClass}
+                            style={{ flex: flexValues[colIndex] }}
+                          >
+                            <Editor
+                              block={block}
+                              pageId={pageId}
+                              isLast={page.blocks.length === 1}
+                              hasSectionChildren={hasChild}
+                              isSectionCollapsed={collapsedSections.has(block.id)}
+                              onToggleSectionCollapse={() => toggleSection(block.id)}
+                              readMode={readMode}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()
+
+        ) : (
+        // ── 일반 문서 모드 렌더링 (캔버스 레이아웃 없음) ──────────────────
+        // 기존 dnd-kit 세로 정렬 방식 그대로
+        // Python으로 치면: for block in page.blocks: render_block(block)
         <DndContext
           id="dnd-blocks"
           sensors={sensors}
@@ -864,24 +1155,20 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                 // hiddenUntilLevel: null=표시 중 / 숫자=해당 레벨 이하 헤딩 등장까지 숨김
                 // Python으로 치면: visible, meta = compute_visibility(blocks, collapsed)
                 const visibility: Array<{
-                  hidden: boolean       // 이 블록을 숨길지 여부
-                  hasChild: boolean     // 하위 블록이 있는지 (접기 버튼 표시 여부)
+                  hidden: boolean
+                  hasChild: boolean
                 }> = []
 
                 let hiddenUntilLevel: number | null = null
 
                 page.blocks.forEach((block, index) => {
                   const level = HEADING_LEVEL[block.type]
-
-                  // 가시성 판단
                   let hidden = false
                   if (hiddenUntilLevel !== null) {
                     if (level !== undefined && level <= hiddenUntilLevel) {
-                      // 동급 또는 상위 헤딩 → 숨김 종료, 이 블록은 표시
                       hiddenUntilLevel = null
                       if (collapsedSections.has(block.id)) hiddenUntilLevel = level
                     } else {
-                      // 하위 헤딩 또는 비헤딩 → 숨김
                       hidden = true
                     }
                   } else {
@@ -889,16 +1176,12 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                       hiddenUntilLevel = level
                     }
                   }
-
-                  // 자식 존재 여부: 바로 다음 블록이 하위 레벨 헤딩이거나 비헤딩이면 자식 있음
-                  // Python으로 치면: has_child = index+1 < len(blocks) and next_level > level
                   let hasChild = false
                   if (level !== undefined && index + 1 < page.blocks.length) {
                     const nextBlock = page.blocks[index + 1]
                     const nextLevel = HEADING_LEVEL[nextBlock.type]
                     hasChild = nextLevel === undefined || nextLevel > level
                   }
-
                   visibility.push({ hidden, hasChild })
                 })
 
@@ -913,6 +1196,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                         hasSectionChildren={hasChild}
                         isSectionCollapsed={collapsedSections.has(block.id)}
                         onToggleSectionCollapse={() => toggleSection(block.id)}
+                        readMode={readMode}
                       />
                     </div>
                   )
@@ -921,12 +1205,15 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             </div>
           </SortableContext>
         </DndContext>
+        )}
 
-        {/* ── 빈 영역 클릭 시 새 블록 추가 ────────── */}
-        <div
-          className="min-h-32 cursor-text"
-          onClick={() => addBlock(pageId)}
-        />
+        {/* ── 빈 영역 클릭 시 새 블록 추가 (문서 모드만) ── */}
+        {!page.canvasMode && (
+          <div
+            className="min-h-32 cursor-text"
+            onClick={() => addBlock(pageId)}
+          />
+        )}
 
         {/* 백링크 패널 — 이 페이지를 참조하는 다른 페이지 목록 표시
             백링크가 없으면 BacklinkPanel 자체가 null 반환 → 섹션 안 보임
@@ -954,6 +1241,60 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           isOpen 이 false 면 패널 컴포넌트가 null 반환 → 항상 마운트해도 무방
           Python으로 치면: if find_replace.is_open: render FindReplacePanel() */}
       <FindReplacePanel />
+
+      {/* ── 화살표 SVG 오버레이 ────────────────────────────────────────
+          blocks 변경 시 자동으로 [data-arrow-id] DOM 재스캔 후 곡선 갱신
+          Python으로 치면: render ArrowLayer(dep=page.blocks) */}
+      <ArrowLayer dep={page.blocks} />
+      {/* 화살표 우클릭 설정 메뉴 — arrowStore.contextMenu 구독, fixed 오버레이 */}
+      <ArrowContextMenu />
+
+      {/* ── 호버 미리보기 팝업 ────────────────────────────────────────
+          [[링크]] / @멘션 위에 마우스를 올리면 해당 페이지 미리보기 팝업 표시
+          position: fixed로 뷰포트 기준 배치 (overflow 클리핑 우회)
+          Python으로 치면: if hover_preview: render HoverPreviewPopup() */}
+      {hoverPreview && (() => {
+        const previewPage = pages.find(p => p.id === hoverPreview.pageId)
+        if (!previewPage) return null
+        // 첫 3개 비어있지 않은 블록의 텍스트 추출
+        const snippets = previewPage.blocks
+          .map(b => b.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .slice(0, 3)
+        return (
+          <div
+            data-hover-preview="true"
+            className="fixed w-72 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 pointer-events-auto"
+            style={{ zIndex: 9998, left: hoverPreview.x, top: Math.min(hoverPreview.y, window.innerHeight - 160) }}
+            onMouseEnter={() => { if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current) }}
+            onMouseLeave={() => setHoverPreview(null)}
+          >
+            {/* 아이콘 + 제목 */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-xl shrink-0">{previewPage.icon}</span>
+              <span className="font-semibold text-gray-800 text-sm truncate">{previewPage.title || '제목 없음'}</span>
+            </div>
+            {/* 본문 스니펫 */}
+            {snippets.length > 0 ? (
+              <div className="space-y-0.5">
+                {snippets.map((s, i) => (
+                  <p key={i} className="text-xs text-gray-500 line-clamp-1">{s}</p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 italic">내용 없음</p>
+            )}
+            {/* 태그 */}
+            {(previewPage.tags ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {previewPage.tags!.map(tag => (
+                  <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full">#{tag}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
     </div>
   )

@@ -848,3 +848,40 @@ html[data-theme] .tiptap hr       { border-top-color: var(--border-color) !impor
   outline: 2px solid #ea580c; /* orange-600 */
   outline-offset: 1px;
 }
+
+/* ==============================================
+   화살표 마커 스타일
+   .arrow-marker: ArrowMark 확장이 생성하는 span 요소
+   data-arrow-role="start" → 왼쪽에 화살표 아이콘(::before)
+   data-arrow-role="end"   → 오른쪽에 원형 아이콘(::after)
+   Python으로 치면: class ArrowMarker(HTMLElement): style = 'border-bottom: dashed'
+   ============================================== */
+.arrow-marker {
+  border-radius: 2px;
+  transition: background-color 0.15s;
+}
+
+/* 마커 위에 마우스 올릴 때 배경 반투명 하이라이트 */
+.arrow-marker:hover {
+  background-color: rgba(59, 130, 246, 0.08);
+}
+
+/* ● 클릭 네비게이션으로 이동 시 잠깐 하이라이트 */
+@keyframes arrow-flash {
+  0%   { background-color: transparent; }
+  25%  { background-color: rgba(59, 130, 246, 0.35); }
+  100% { background-color: transparent; }
+}
+.arrow-marker-flash {
+  animation: arrow-flash 0.7s ease;
+}
+
+/* 시작점/끝점: 텍스트 앞에만 원형 아이콘, 화살표 색상 일치 */
+.arrow-marker::before {
+  content: "●";
+  font-size: 0.55em;
+  vertical-align: super;
+  margin-right: 1px;
+  opacity: 0.8;
+  color: var(--arrow-color, #3b82f6);
+}

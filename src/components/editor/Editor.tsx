@@ -64,6 +64,10 @@ import { ChevronRight, ChevronDown } from 'lucide-react'
 // searchHighlightKey: 검색어 변경 시 Transaction 메타 키로 전달
 // Python으로 치면: from extensions import SearchHighlight, searchHighlightKey
 import { SearchHighlight, searchHighlightKey } from '@/extensions/SearchHighlight'
+// ── 화살표 마크 확장 ──────────────────────────
+// ArrowMark: 단어/문구에 화살표 마커(start/end) 속성 부착
+// Python으로 치면: from extensions import ArrowMark
+import { ArrowMark } from '@/extensions/ArrowMark'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
 
 // ── dnd-kit 임포트 ────────────────────────────
@@ -82,6 +86,9 @@ interface EditorProps {
   isSectionCollapsed?: boolean
   hasSectionChildren?: boolean
   onToggleSectionCollapse?: () => void
+  // 읽기 모드 — true이면 Tiptap 에디터 편집 불가
+  // Python으로 치면: self.read_mode = False
+  readMode?: boolean
 }
 
 // -----------------------------------------------
@@ -110,7 +117,7 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading6: 6,
 }
 
-export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse }: EditorProps) {
+export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode }: EditorProps) {
 
   const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, pages, setCurrentPage } = usePageStore()
 
@@ -293,6 +300,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       // 검색어와 일치하는 텍스트에 .find-highlight 클래스 추가
       // Python으로 치면: extensions.append(SearchHighlight)
       SearchHighlight,
+      // ── 화살표 마크 확장 ──────────────────────────
+      // 단어/문구에 arrowId/isStart/color 속성을 data-* 속성으로 저장
+      // ArrowLayer가 해당 DOM을 스캔해 SVG 화살표 렌더링
+      // Python으로 치면: extensions.append(ArrowMark)
+      ArrowMark,
     ],
     // 이미지·토글·칸반·Excalidraw·비디오 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
@@ -353,6 +365,86 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
             // Shift+Tab: 일반·번호 목록 내어쓰기 (한 단계 위로)
             // Python으로 치면: if in_list: lift_list_item()
             if (editor && (editor.isActive('bulletList') || editor.isActive('orderedList'))) {
+
+              // ── 중첩 리스트 감지 ──────────────────────────────────────────
+              // 커서 위치에서 위로 올라가며 listItem → list → 조부모 listItem 찾기
+              // 조부모 listItem이 있으면 = 중첩 리스트 (orderedList inside bulletList 등)
+              // Python으로 치면: grandparent_li = find_ancestor(cursor, 'listItem', skip=2)
+              const { $from } = editor.state.selection
+              const schema = editor.schema
+              let listItemDepth = -1   // 현재 listItem depth
+              let listDepth = -1       // 현재 listItem을 감싼 list depth
+              let grandListItemDepth = -1  // 조부모 listItem depth
+
+              for (let d = $from.depth; d >= 1; d--) {
+                const n = $from.node(d)
+                if (n.type === schema.nodes.listItem) {
+                  if (listItemDepth === -1) {
+                    listItemDepth = d
+                  } else if (listDepth !== -1 && grandListItemDepth === -1) {
+                    grandListItemDepth = d
+                    break
+                  }
+                } else if (
+                  (n.type === schema.nodes.bulletList || n.type === schema.nodes.orderedList) &&
+                  listItemDepth !== -1 && listDepth === -1
+                ) {
+                  listDepth = d
+                }
+              }
+
+              // ── 중첩 케이스: 커스텀 트랜잭션 ────────────────────────────
+              // 표준 liftListItem은 중첩 시 depth 계산 오류로 전체가 풀려버림
+              // 직접 tr로: 현재 항목 삭제 → 조부모 listItem 바로 뒤에 새 listItem 삽입
+              // Python으로 치면: manual_lift(item, target_depth=grandparent_li_depth)
+              if (grandListItemDepth !== -1) {
+                editor.chain().focus().command(({ state, dispatch }) => {
+                  if (!dispatch) return true
+                  const { $from: $f } = state.selection
+                  const tr = state.tr
+
+                  // 현재 listItem 범위
+                  const itemStart = $f.before(listItemDepth)
+                  const itemEnd   = $f.after(listItemDepth)
+                  const currentItem = state.doc.nodeAt(itemStart)
+                  if (!currentItem) return false
+
+                  // 부모 list 범위 (항목이 하나뿐일 때 list 자체를 삭제하기 위해)
+                  const parentList  = $f.node(listDepth)
+                  const listStart   = $f.before(listDepth)
+                  const listEnd     = $f.after(listDepth)
+
+                  // 조부모 listItem 끝 위치 = 새 listItem이 들어갈 위치
+                  const grandItemEnd = $f.after(grandListItemDepth)
+
+                  // 새로 삽입할 listItem — 기존 내용 그대로 유지
+                  // Python으로 치면: new_item = ListItem(content=current_item.content)
+                  const newItem = state.schema.nodes.listItem.create(
+                    null,
+                    currentItem.content
+                  )
+
+                  if (parentList.childCount === 1) {
+                    // 부모 list에 항목이 하나뿐 → list 자체를 삭제
+                    tr.delete(listStart, listEnd)
+                    // 삭제 후 grandItemEnd 위치가 앞당겨지므로 보정
+                    const insertPos = grandItemEnd - (listEnd - listStart)
+                    tr.insert(insertPos, newItem)
+                  } else {
+                    // 현재 항목만 삭제 → 나머지 항목들은 자동으로 재번호 매김
+                    tr.delete(itemStart, itemEnd)
+                    // 삭제 후 grandItemEnd 보정
+                    const insertPos = grandItemEnd - (itemEnd - itemStart)
+                    tr.insert(insertPos, newItem)
+                  }
+
+                  dispatch(tr.scrollIntoView())
+                  return true
+                }).run()
+                return true
+              }
+
+              // ── 최상위 리스트: 기존 동작 유지 ────────────────────────────
               editor.chain().focus().liftListItem('listItem').run()
               return true
             }
@@ -463,6 +555,22 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     applyBlockType(editor, block.type)
   }, [block.type, editor])
 
+  // ── ArrowLayer 연결을 위한 에디터 참조 DOM에 저장 ──
+  // ArrowLayer의 caretRangeFromPoint → posAtDOM 변환 시 에디터 인스턴스 필요
+  // Python으로 치면: editor.view.dom.__tiptap_editor = editor
+  useEffect(() => {
+    if (!editor) return
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(editor.view.dom as any).__tiptapEditor = editor
+  }, [editor])
+
+  // ── 읽기 모드 변경 → Tiptap editable 업데이트 ──
+  // Python으로 치면: if read_mode: editor.set_editable(False) else: editor.set_editable(True)
+  useEffect(() => {
+    if (!editor) return
+    editor.setEditable(!readMode)
+  }, [editor, readMode])
+
   // ── 찾기/바꾸기 스토어 구독 → 검색어 변경 시 각 에디터 플러그인에 전달 ──
   // Python으로 치면: def on_search_query_change(query, case): editor.dispatch(meta)
   const { query: searchQuery, caseSensitive: searchCase } = useFindReplaceStore()
@@ -569,10 +677,12 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       editor.chain().deleteRange({ from: from - slashMatch[0].length, to: from }).run()
     }
     updateBlockType(pageId, block.id, type)
-    // 이미지 타입으로 전환 시 기존 텍스트 내용 초기화
-    // 그래야 ImageBlock이 업로드 UI를 표시함
-    // Python으로 치면: if type == 'image': block.content = ''
-    if (type === 'image') {
+    // 이미지·비디오 타입으로 전환 시 기존 텍스트 내용 초기화
+    // 그래야 ImageBlock/VideoBlock이 업로드 UI를 표시함
+    // 초기화 안 하면 Tiptap HTML(<p>...</p>)이 content로 남아
+    // parseContent 실패 시 src = '<p>...</p>' → "재생 불가" 에러 발생
+    // Python으로 치면: if type in ('image', 'video'): block.content = ''
+    if (type === 'image' || type === 'video') {
       updateBlock(pageId, block.id, '')
     }
     // 토글 타입으로 전환 시 content를 JSON 포맷으로 초기화
@@ -665,20 +775,105 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     setMentionMenu(prev => ({ ...prev, isOpen: false }))
   }
 
+  // ── 리스트 타입 분리 변환 헬퍼 ──────────────────────────────────────
+  // bulletList ↔ orderedList 전환 시 커서 앞 항목은 기존 타입 유지,
+  // 커서부터 끝까지만 새 타입으로 분리 (옵션 B 동작)
+  // Python으로 치면: def split_and_convert_list(editor, target_type): ...
+  function convertListType(editor: TiptapEditor, targetType: 'bulletList' | 'orderedList'): boolean {
+    return editor.chain().focus().command(({ state, dispatch }) => {
+      const { $from } = state.selection
+      const schema = state.schema
+
+      // 커서에서 위로 올라가며 listItem → 부모 list 탐색
+      // Python으로 치면: list_item_d, list_d = find_list_ancestors($from)
+      let listItemDepth = -1
+      let listDepth = -1
+
+      for (let d = $from.depth; d >= 1; d--) {
+        const n = $from.node(d)
+        if (n.type === schema.nodes.listItem && listItemDepth === -1) {
+          listItemDepth = d
+        } else if (
+          (n.type === schema.nodes.bulletList || n.type === schema.nodes.orderedList) &&
+          listItemDepth !== -1 && listDepth === -1
+        ) {
+          listDepth = d
+          break
+        }
+      }
+
+      // 리스트 안에 없으면 → 기존 toggle 동작에 위임 (false 반환)
+      if (listDepth === -1) return false
+
+      const parentList = $from.node(listDepth)
+      const targetListType = schema.nodes[targetType]
+
+      // 이미 같은 타입이면 → toggle off 동작에 위임 (false 반환)
+      if (parentList.type === targetListType) return false
+
+      // 부모 list 안에서 현재 listItem의 인덱스
+      // Python으로 치면: item_index = parent_list.index_of(current_item)
+      const itemIndex = $from.index(listDepth)
+
+      if (!dispatch) return true
+
+      const tr = state.tr
+      const listStart = $from.before(listDepth)
+      const listEnd   = $from.after(listDepth)
+
+      if (itemIndex === 0) {
+        // 첫 항목(또는 유일 항목): 리스트 전체를 새 타입으로 변환
+        // Python으로 치면: new_list = targetType(children=parent_list.children)
+        const newList = targetListType.create(parentList.attrs, parentList.content)
+        tr.replaceWith(listStart, listEnd, newList)
+      } else {
+        // 중간/끝 항목: 커서 앞은 기존 타입 유지, 커서부터 끝은 새 타입으로 분리
+        // Python으로 치면: before, after = split_at(parent_list, item_index)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const beforeItems: any[] = []
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const afterItems: any[] = []
+
+        parentList.forEach((child, _offset, index) => {
+          if (index < itemIndex) beforeItems.push(child)
+          else                   afterItems.push(child)
+        })
+
+        const beforeList = parentList.type.create(parentList.attrs, beforeItems)
+        const afterList  = targetListType.create(null, afterItems)
+
+        // 원래 list 하나를 두 list로 교체
+        tr.replaceWith(listStart, listEnd, [beforeList, afterList])
+      }
+
+      dispatch(tr.scrollIntoView())
+      return true
+    }).run()
+  }
+
   function applyBlockType(editor: TiptapEditor, type: BlockType) {
     if (!editor) return
     // 이미지·토글·레이아웃 등 비-Tiptap 블록은 조기 반환
     // Python으로 치면: if type in ('image', 'toggle', 'layout', ...): return
     // math 블록도 비-Tiptap 블록 — 조기 반환
     // Python으로 치면: if type in ('image', ..., 'math'): return
-    if (type === 'image' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid') return
+    // video, embed도 비-Tiptap 블록 — content를 JSON으로 직접 관리하므로 조기 반환
+    // 빠트리면 setParagraph()가 호출돼 onUpdate → updateBlock('<p></p>') 로 content 덮어쓰기 위험
+    if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
     } else if (type === 'bulletList') {
-      editor.chain().focus().toggleBulletList().run()
+      // 리스트 안에서 호출 시: 커서부터 끝만 분리 변환 (옵션 B)
+      // 리스트 밖에서 호출 시: 기존 toggle 동작 (false 반환 → fallback)
+      // Python으로 치면: converted = convert_list_type(editor, 'bulletList')
+      if (!convertListType(editor, 'bulletList')) {
+        editor.chain().focus().toggleBulletList().run()
+      }
     } else if (type === 'orderedList') {
-      editor.chain().focus().toggleOrderedList().run()
+      if (!convertListType(editor, 'orderedList')) {
+        editor.chain().focus().toggleOrderedList().run()
+      }
     } else if (type === 'taskList') {
       editor.chain().focus().toggleTaskList().run()
     } else if (type === 'code') {

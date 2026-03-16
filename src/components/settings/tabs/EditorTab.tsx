@@ -21,28 +21,29 @@ const SIZE_OPTIONS: number[] = [14, 16, 18, 20]
 const CATEGORY_ORDER: FontCategory[] = ['sans', 'korean', 'serif', 'mono']
 
 export default function EditorTab() {
-  const { fontFamily, fontSize, lineHeight, setFontFamily, setFontSize, setLineHeight } = useSettingsStore()
+  const { fontFamily, fontSize, lineHeight, editorMaxWidth, setFontFamily, setFontSize, setLineHeight } = useSettingsStore()
 
   // -----------------------------------------------
   // 편집기 스타일 즉시 반영 헬퍼
   // setXxx: zustand 상태 갱신 (localStorage 저장)
   // applyEditorStyle: :root CSS 변수 즉시 주입 (화면 즉시 반영)
+  // editorMaxWidth를 항상 같이 전달해야 --editor-max-width 변수가 768px로 초기화되지 않음
   // Python으로 치면: def update_and_apply(self, **kwargs): self.update(**kwargs); apply_style()
   // -----------------------------------------------
   function changeFont(fontId: string) {
     setFontFamily(fontId)
-    applyEditorStyle(fontId, fontSize, lineHeight)
+    applyEditorStyle(fontId, fontSize, lineHeight, editorMaxWidth)
   }
 
   function changeSize(size: number) {
     setFontSize(size)
-    applyEditorStyle(fontFamily, size, lineHeight)
+    applyEditorStyle(fontFamily, size, lineHeight, editorMaxWidth)
   }
 
   function changeLH(lh: number) {
     const rounded = Math.round(lh * 10) / 10
     setLineHeight(rounded)
-    applyEditorStyle(fontFamily, fontSize, rounded)
+    applyEditorStyle(fontFamily, fontSize, rounded, editorMaxWidth)
   }
 
   // 현재 선택된 폰트 프리셋 (미리보기에 사용)
