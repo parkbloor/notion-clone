@@ -35,6 +35,8 @@ export type BlockType =
   | 'math'         // LaTeX 수식 블록 (KaTeX 렌더링)
   | 'embed'        // URL 임베드 블록 (YouTube / Vimeo / 일반 iframe)
   | 'mermaid'      // Mermaid 다이어그램 블록 (flowchart / sequence / gantt 등)
+  | 'chart'        // 차트 블록 (Bar / Line / Pie — recharts 기반)
+  | 'gantt'        // 타임라인/갠트 차트 블록 (태스크 + 날짜 범위 시각화)
 
 
 // -----------------------------------------------
@@ -157,6 +159,29 @@ export interface Category {
   // 부모 카테고리 ID (null이면 최상위)
   // Python으로 치면: parent_id: str | None = None
   parentId?: string | null
+  // 폴더 아이콘 커스텀 색상 (hex, 예: '#3b82f6'). 없으면 depth 기본 색상 사용
+  color?: string | null
+  // 휴지통 관련 필드
+  isTrashed?: boolean
+  trashedAt?: string | null
+  originalParentId?: string | null
+  trashGroupId?: string | null
+}
+
+// -----------------------------------------------
+// 휴지통 항목 — 페이지 또는 카테고리 통합 타입
+// Python으로 치면: @dataclass class TrashItem: ...
+// -----------------------------------------------
+export interface TrashItem {
+  id: string
+  itemType: 'page' | 'category'   // 페이지 or 폴더
+  title?: string                   // 페이지 제목
+  name?: string                    // 폴더 이름
+  icon?: string                    // 페이지 아이콘
+  trashedAt: string                // 삭제 일시 (ISO)
+  originalCategoryId?: string | null   // 원래 카테고리 (페이지)
+  originalParentId?: string | null     // 원래 부모 폴더 (카테고리)
+  trashGroupId?: string | null         // 폴더째 삭제 그룹 ID
 }
 
 

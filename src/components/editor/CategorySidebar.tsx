@@ -10,7 +10,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { Category, Page } from '@/types/block'
@@ -423,12 +423,27 @@ interface CategoryRowUIProps {
   onDelete: () => void
   onAddChild: () => void
   onAddPage: () => void   // 이 폴더에 새 페이지 추가
+  onColorChange: (color: string | null) => void  // 폴더 색상 변경
 }
+
+// 폴더 색상 팔레트 — null은 기본(depth 색상), 나머지는 hex
+// Python으로 치면: FOLDER_COLORS = [None, '#ef4444', ...]
+const FOLDER_COLORS: (string | null)[] = [
+  null,       // 기본 (depth 색상)
+  '#ef4444',  // 빨강
+  '#f97316',  // 주황
+  '#eab308',  // 노랑
+  '#22c55e',  // 초록
+  '#3b82f6',  // 파랑
+  '#8b5cf6',  // 보라
+  '#ec4899',  // 핑크
+  '#6b7280',  // 회색
+]
 
 function CategoryRowUI({
   category, depth, hasChildren, isExpanded, isSelected, isOver, isDragging,
   collapsed, pageCount, dragHandleProps, setNodeRef, style,
-  onToggleExpand, onSelect, onRename, onDelete, onAddChild, onAddPage,
+  onToggleExpand, onSelect, onRename, onDelete, onAddChild, onAddPage, onColorChange,
 }: CategoryRowUIProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(category.name)
@@ -523,8 +538,14 @@ function CategoryRowUI({
             <span className={"shrink-0 w-1 h-3.5 rounded-full " + ds.dot} />
           )}
 
-          {/* 폴더 아이콘 — depth별 색상 (Lucide Folder 아이콘으로 CSS 색상 제어) */}
-          <Folder size={14} className={"shrink-0 " + ds.folder} />
+          {/* 폴더 아이콘 — 커스텀 색상 우선(fill 적용), 없으면 depth 기본 색상 */}
+          <Folder
+            size={14}
+            className={'shrink-0' + (category.color ? '' : ' ' + ds.folder)}
+            style={category.color ? { color: category.color } : undefined}
+            fill={category.color ?? 'none'}
+            strokeWidth={category.color ? 1.5 : 2}
+          />
 
           {/* 폴더 이름 */}
           <span className="truncate flex-1">{category.name}</span>
@@ -608,6 +629,31 @@ function CategoryRowUI({
               ],
             },
             {
+              id: 'folder-color',
+              title: '폴더 색상',
+              // ContextMenu의 actions 대신 custom 렌더링을 위해 빈 배열 + 별도 UI
+              actions: [],
+              // custom 슬롯: 색상 팔레트를 직접 렌더링
+              customRender: (
+                <div className="flex flex-wrap gap-1 px-3 py-1.5" onMouseDown={e => e.stopPropagation()}>
+                  {FOLDER_COLORS.map((c, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      title={c ?? '기본 색상'}
+                      onClick={() => { onColorChange(c) }}
+                      className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
+                      style={{
+                        background: c ?? '#e5e7eb',
+                        borderColor: category.color === c ? '#1d4ed8' : 'transparent',
+                        outline: c === null && !category.color ? '2px solid #93c5fd' : undefined,
+                      }}
+                    />
+                  ))}
+                </div>
+              ),
+            },
+            {
               id: 'folder-danger',
               actions: [
                 {
@@ -645,6 +691,7 @@ interface CategoryRowProps {
   onDelete: () => void
   onAddChild: () => void
   onAddPage: () => void
+  onColorChange: (color: string | null) => void
 }
 
 function SortableCategoryRow(props: CategoryRowProps) {
@@ -747,6 +794,8 @@ export interface CategorySidebarProps {
   // 그래프 뷰 오버레이 열기 콜백
   // Python으로 치면: def on_open_graph(self): ...
   onOpenGraphView?: () => void
+  // 휴지통 패널 열기 콜백
+  onOpenTrash?: () => void
 }
 
 
@@ -754,7 +803,7 @@ export interface CategorySidebarProps {
 // CategorySidebar (통합 파일 사이드바) — 메인 컴포넌트
 // -----------------------------------------------
 export default function CategorySidebar({
-  onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView, onSplitPage, onOpenGraphView,
+  onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView, onSplitPage, onOpenGraphView, onOpenTrash,
 }: CategorySidebarProps) {
 
   // ── 페이지 스토어 ────────────────────────────
@@ -776,6 +825,7 @@ export default function CategorySidebar({
     deletePage,
     duplicatePage,
     pushRecentPage,
+    updateCategoryColor,
   } = usePageStore()
 
   // ── 설정 스토어 ─────────────────────────────
@@ -870,9 +920,21 @@ export default function CategorySidebar({
     data: { type: 'category', categoryId: null },
   })
 
-  // ── 모든 페이지의 고유 태그 목록 (정렬) ───────
-  // Python으로 치면: all_tags = sorted(set(t for p in pages for t in (p.tags or [])))
-  const allTags = [...new Set(pages.flatMap(p => p.tags ?? []))].sort()
+  // ── 모든 페이지의 태그 + 페이지 수 집계 (페이지 수 내림차순) ───────
+  // Python으로 치면: all_tags = sorted({t: count for p in pages for t in p.tags}.items(), key=lambda x: -x[1])
+  const allTagsWithCount = useMemo(() => {
+    const countMap: Record<string, number> = {}
+    for (const page of pages) {
+      for (const tag of page.tags ?? []) {
+        countMap[tag] = (countMap[tag] ?? 0) + 1
+      }
+    }
+    return Object.entries(countMap).sort((a, b) => b[1] - a[1])
+  }, [pages])
+
+  // 태그 브라우저 섹션 접힘 상태 (기본값 열림)
+  // Python으로 치면: self.tag_section_open = True
+  const [tagSectionOpen, setTagSectionOpen] = useState(true)
 
   // ── 검색 결과 ────────────────────────────────
   // 검색어가 있을 때만 전체 페이지 필터링 (null이면 검색 모드 아님)
@@ -1037,6 +1099,7 @@ export default function CategorySidebar({
           onDelete={() => handleDeleteFolder(catId)}
           onAddChild={() => startAddChildFolder(catId)}
           onAddPage={() => startAddPageInCat(catId)}
+          onColorChange={(color) => updateCategoryColor(catId, color)}
         />
 
         {/* 하위 폴더 추가 인풋 */}
@@ -1204,6 +1267,14 @@ export default function CategorySidebar({
           >
             ⚙️
           </button>
+          <button
+            type="button"
+            onClick={onOpenTrash}
+            title="휴지통"
+            className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
+          >
+            🗑️
+          </button>
         </div>
 
         {newPageDialogOpen && (
@@ -1297,6 +1368,15 @@ export default function CategorySidebar({
           >
             ⚙️
           </button>
+          {/* 휴지통 버튼 */}
+          <button
+            type="button"
+            onClick={onOpenTrash}
+            title="휴지통"
+            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm shrink-0"
+          >
+            🗑️
+          </button>
         </div>
 
         {/* ── 검색바 ───────────────────────────────── */}
@@ -1326,31 +1406,89 @@ export default function CategorySidebar({
           </div>
         </div>
 
-        {/* ── 태그 필터 칩 ─────────────────────────── */}
-        {/* 전체 페이지에서 수집한 고유 태그를 클릭 가능한 칩으로 표시 */}
-        {/* Python으로 치면: tag_chips = [Chip(t, selected=t in selected_tags) for t in all_tags] */}
-        {allTags.length > 0 && (
-          <div className="px-2 py-1.5 border-b border-gray-100">
-            <div className="flex flex-wrap gap-1">
-              {allTags.map(tag => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => {
-                    setSelectedTags(prev => {
-                      const next = new Set(prev)
-                      if (next.has(tag)) { next.delete(tag) } else { next.add(tag) }
-                      return next
-                    })
-                  }}
-                  className={selectedTags.has(tag)
-                    ? "px-2 py-0.5 text-[10px] rounded-full bg-blue-500 text-white transition-colors"
-                    : "px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"}
-                >
-                  #{tag}
-                </button>
-              ))}
-            </div>
+        {/* ── 태그 브라우저 섹션 ──────────────────────
+            전체 페이지에서 수집한 고유 태그를 페이지 수와 함께 표시
+            클릭 시 해당 태그 필터 ON/OFF (다중 선택 가능)
+            Python으로 치면: tag_browser = TagBrowser(all_tags_with_count) */}
+        {allTagsWithCount.length > 0 && (
+          <div className="border-b border-gray-100 shrink-0">
+            {/* 섹션 헤더 — 클릭 시 접기/펼치기 */}
+            <button
+              type="button"
+              onClick={() => setTagSectionOpen(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wide hover:bg-gray-50 transition-colors"
+            >
+              <span className="flex items-center gap-1">
+                <span>🏷</span>
+                <span>태그</span>
+                {selectedTags.size > 0 && (
+                  <span className="ml-0.5 px-1 py-0 rounded-full bg-blue-500 text-white text-[9px] leading-4">
+                    {selectedTags.size}
+                  </span>
+                )}
+              </span>
+              <span className="text-gray-300">{tagSectionOpen ? '▾' : '▸'}</span>
+            </button>
+
+            {/* 태그 칩 목록 — 접힘 시 숨김 */}
+            {tagSectionOpen && (
+              <div className="px-2 pb-2">
+                <div className="flex flex-wrap gap-1">
+                  {allTagsWithCount.map(([tag, count]) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        // 같은 태그 재클릭 시 해제, 다중 선택 지원
+                        // Python으로 치면: selected_tags ^= {tag}
+                        setSelectedTags(prev => {
+                          const next = new Set(prev)
+                          if (next.has(tag)) { next.delete(tag) } else { next.add(tag) }
+                          return next
+                        })
+                      }}
+                      title={`#${tag} — ${count}개 페이지`}
+                      className={selectedTags.has(tag)
+                        ? "inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-full bg-blue-500 text-white transition-colors"
+                        : "inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"}
+                    >
+                      <span className="text-[9px] opacity-60">#</span>
+                      <span>{tag}</span>
+                      <span className={selectedTags.has(tag) ? "opacity-70" : "opacity-50"}>({count})</span>
+                    </button>
+                  ))}
+                </div>
+                {/* 태그 필터 전체 해제 버튼 */}
+                {selectedTags.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTags(new Set())}
+                    className="mt-1.5 text-[10px] text-blue-400 hover:text-blue-600 transition-colors"
+                  >
+                    ✕ 태그 필터 해제
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── 태그 필터 활성 안내 배너 ─────────────────
+            태그가 선택됐을 때 현재 보고 있는 필터 상태를 명확히 표시
+            Python으로 치면: if selected_tags: show_banner(selected_tags) */}
+        {selectedTags.size > 0 && !searchQuery && (
+          <div className="px-2 py-1 flex items-center gap-1 bg-blue-50 border-b border-blue-100 shrink-0">
+            <span className="text-xs text-blue-600 flex-1 truncate">
+              🏷 {[...selectedTags].map(t => `#${t}`).join(', ')}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedTags(new Set())}
+              className="text-xs text-blue-400 hover:text-blue-600 shrink-0"
+              title="태그 필터 해제"
+            >
+              ✕
+            </button>
           </div>
         )}
 
@@ -1377,19 +1515,6 @@ export default function CategorySidebar({
           </div>
         )}
 
-        {/* ── 태그 필터 활성 안내 ─────────────────── */}
-        {selectedTags.size > 0 && (
-          <div className="px-2 py-1 flex items-center gap-1 bg-purple-50 border-b border-purple-100">
-            <span className="text-xs text-purple-600 flex-1">{selectedTags.size}개 태그 필터 적용 중</span>
-            <button
-              type="button"
-              onClick={() => setSelectedTags(new Set())}
-              className="text-xs text-purple-400 hover:text-purple-600"
-            >
-              ✕
-            </button>
-          </div>
-        )}
 
         {/* ── 트리 / 검색 결과 / 두 섹션 레이아웃 ─────────────────────────── */}
         {isFiltering ? (

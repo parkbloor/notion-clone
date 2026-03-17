@@ -43,6 +43,8 @@ export interface PluginSettings {
   videoLoop: boolean       // 비디오 반복 재생 (Autoplay & Loop 플러그인)
   layoutEnabled: boolean   // 레이아웃 블록 (슬래시 메뉴 표시 여부)
   backlinks: boolean       // 페이지 하단 백링크 패널 표시
+  chart: boolean           // 차트 블록 (Bar / Line / Pie)
+  gantt: boolean           // 타임라인/갠트 차트 블록
 }
 
 // -----------------------------------------------
@@ -283,6 +285,8 @@ export const useSettingsStore = create<SettingsStore>()(
         videoLoop:        false,  // 기본값: 반복재생 OFF
         layoutEnabled:    true,   // 기본값: 레이아웃 블록 ON (슬래시 메뉴에 표시)
         backlinks:        true,   // 기본값: 백링크 패널 ON
+        chart:            true,   // 기본값: 차트 블록 ON
+        gantt:            true,   // 기본값: 갠트 블록 ON
       },
       // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
       isFocusMode: false,

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from backend.routers.history import save_snapshot
 from backend.core import (
     ALLOWED_IMAGE_EXTS,
     MAX_IMAGE_SIZE,
@@ -215,6 +216,14 @@ def save_page(page_id: str, page: PageModel):
     assert_inside_vault(target_dir)
     save_page_to_disk(page_data, target_dir)
 
+    # 버전 히스토리 스냅샷 저장 (5분 간격, 최대 50개)
+    # content.nct 저장 완료 후 호출 — 실패해도 메인 저장에는 영향 없음
+    # Python으로 치면: try: save_snapshot(page_data, target_dir) except: pass
+    try:
+        save_snapshot(page_data, target_dir)
+    except Exception:
+        pass
+
     # pageOrder에 없으면 추가 (upsert)
     if page_id not in index.get("pageOrder", []):
         index["pageOrder"].append(page_id)
@@ -228,27 +237,67 @@ def save_page(page_id: str, page: PageModel):
 @router.delete("/pages/{page_id}")
 def delete_page(page_id: str):
     """
-    페이지 삭제 — 폴더째 삭제 + 인덱스 업데이트
-    Python으로 치면: shutil.rmtree(path); index['pageOrder'].remove(page_id)
+    페이지 소프트 삭제 → 휴지통으로 이동
+    물리 파일은 유지, isTrashed=True + trashedAt 기록
+    영구 삭제는 DELETE /api/trash/{id} 사용
+    Python으로 치면: page.is_trashed = True; page.trashed_at = now()
     """
-    # 🔒 UUID 검증
     validate_uuid(page_id, "페이지 ID")
 
     index = load_index()
-    page_dir = get_page_dir(page_id, index)
 
-    # 🔒 vault 탈출 방지
-    assert_inside_vault(page_dir)
+    # pageOrder 또는 folderMap 기준으로 존재 여부 확인
+    # (index["pages"]는 휴지통 메타데이터용으로만 사용 — 일반 페이지는 여기 없음)
+    # Python으로 치면: page_exists = page_id in page_order or page_id in folder_map
+    page_exists = (
+        page_id in index.get("pageOrder", []) or
+        page_id in index.get("folderMap", {})
+    )
+    if not page_exists:
+        # 이미 휴지통에 있는지 확인
+        existing_trash = next(
+            (p for p in index.get("pages", []) if p["id"] == page_id and p.get("isTrashed")),
+            None,
+        )
+        if existing_trash:
+            raise HTTPException(status_code=400, detail="이미 휴지통에 있는 페이지입니다")
+        raise HTTPException(status_code=404, detail="페이지를 찾을 수 없습니다")
 
-    if page_dir.exists():
-        shutil.rmtree(page_dir)
+    # 원래 카테고리 ID 저장 (복원 시 사용)
+    orig_cat = index.get("categoryMap", {}).get(page_id)
 
-    index["pageOrder"] = [pid for pid in index["pageOrder"] if pid != page_id]
-    index.get("folderMap", {}).pop(page_id, None)
+    # 파일에서 title, icon 읽기 (TrashPanel 표시용)
+    # Python으로 치면: page_data = json.load(open(content_file))
+    page_data = load_page(page_id, index)
+    title = page_data.get("title", "제목 없음") if page_data else "제목 없음"
+    icon = page_data.get("icon", "📄") if page_data else "📄"
+
+    # index["pages"]에 휴지통 메타데이터 추가/갱신
+    # Python으로 치면: index['pages'].append({'id': ..., 'isTrashed': True, ...})
+    now = now_iso()
+    pages_list = index.setdefault("pages", [])
+    existing_entry = next((p for p in pages_list if p["id"] == page_id), None)
+    if existing_entry:
+        existing_entry.update({
+            "title": title, "icon": icon,
+            "isTrashed": True, "trashedAt": now,
+            "originalCategoryId": orig_cat, "trashGroupId": None,
+        })
+    else:
+        pages_list.append({
+            "id": page_id, "title": title, "icon": icon,
+            "isTrashed": True, "trashedAt": now,
+            "originalCategoryId": orig_cat, "trashGroupId": None,
+        })
+
+    # pageOrder에서 제거 (사이드바에 안 보이도록)
+    index["pageOrder"] = [pid for pid in index.get("pageOrder", []) if pid != page_id]
+    # categoryMap에서 제거
     index.get("categoryMap", {}).pop(page_id, None)
 
     if index.get("currentPageId") == page_id:
-        index["currentPageId"] = index["pageOrder"][0] if index["pageOrder"] else None
+        remaining = index.get("pageOrder", [])
+        index["currentPageId"] = remaining[0] if remaining else None
 
     save_index(index)
     return {"ok": True}

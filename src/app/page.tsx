@@ -21,6 +21,7 @@ import PomodoroWidget from '@/components/editor/PomodoroWidget'
 import BottomBar from '@/components/editor/BottomBar'
 import TabBar from '@/components/editor/TabBar'
 import GraphView from '@/components/editor/GraphView'
+import TrashPanel from '@/components/editor/TrashPanel'
 import { X } from 'lucide-react'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
@@ -74,6 +75,10 @@ export default function Home() {
   // 그래프 뷰 오버레이 열림 여부 (Ctrl+G)
   // Python으로 치면: self.graph_view_open = False
   const [graphViewOpen, setGraphViewOpen] = useState(false)
+
+  // 휴지통 패널 열림 여부
+  // Python으로 치면: self.trash_open = False
+  const [trashOpen, setTrashOpen] = useState(false)
 
   // ── 스플릿 뷰 상태 ─────────────────────────────
   // splitPageId: 오른쪽 패널에 표시할 페이지 ID (null = 스플릿 없음)
@@ -519,6 +524,7 @@ export default function Home() {
               onToggleDbView={() => setDbViewActive(v => !v)}
               onSplitPage={(id) => setSplitPageId(prev => prev === id ? null : id)}
               onOpenGraphView={() => setGraphViewOpen(true)}
+              onOpenTrash={() => setTrashOpen(true)}
             />
           </div>
         )}
@@ -682,6 +688,13 @@ export default function Home() {
             Python으로 치면: if graph_view_open: render(GraphView) */}
         {graphViewOpen && (
           <GraphView onClose={() => setGraphViewOpen(false)} />
+        )}
+
+        {/* ── 휴지통 패널 ────────────────────────────
+            삭제된 페이지/폴더 목록 + 복원/영구삭제
+            Python으로 치면: if trash_open: render(TrashPanel) */}
+        {trashOpen && (
+          <TrashPanel onClose={() => setTrashOpen(false)} />
         )}
 
       </div>

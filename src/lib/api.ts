@@ -242,6 +242,17 @@ export const api = {
     })
   },
 
+  // ── 폴더 색상 변경 ───────────────────────────
+  // color=null이면 기본 색상으로 초기화
+  // Python으로 치면: requests.patch(url, json={'color': color})
+  updateCategoryColor: async (categoryId: string, color: string | null): Promise<void> => {
+    await fetch(`${BASE_URL}/api/categories/${categoryId}/color`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ color }),
+    })
+  },
+
   // ── 페이지 순서 변경 ──────────────────────────
   // Python으로 치면: requests.patch(url, json={'order': order})
   reorderPages: async (order: string[]): Promise<void> => {
@@ -260,6 +271,26 @@ export const api = {
     if (!res.ok) return []
     const data = await res.json()
     return data.results as SearchResult[]
+  },
+
+  // ── 휴지통 API ────────────────────────────────
+  // Python으로 치면: requests.get('/api/trash').json()
+  getTrash: async (): Promise<{ items: import('@/types/block').TrashItem[] }> => {
+    const res = await fetch(`${BASE_URL}/api/trash`)
+    if (!res.ok) return { items: [] }
+    return res.json()
+  },
+
+  restoreTrashItem: async (itemId: string): Promise<void> => {
+    await fetch(`${BASE_URL}/api/trash/${itemId}/restore`, { method: 'PATCH' })
+  },
+
+  permanentDeleteTrashItem: async (itemId: string): Promise<void> => {
+    await fetch(`${BASE_URL}/api/trash/${itemId}`, { method: 'DELETE' })
+  },
+
+  emptyTrash: async (): Promise<void> => {
+    await fetch(`${BASE_URL}/api/trash`, { method: 'DELETE' })
   },
 }
 
@@ -327,4 +358,45 @@ export interface SearchResult {
   blockType: string | null
   snippet: string
   matchType: 'title' | 'content'
+}
+
+// ── 버전 히스토리 타입 ─────────────────────────────
+// Python으로 치면: @dataclass class HistoryVersion: ...
+export interface HistoryVersion {
+  filename: string      // 스냅샷 파일명 (예: "2026-03-17T11-17-22.nct")
+  snapshotAt: string    // ISO 8601 타임스탬프
+  title: string         // 해당 버전의 페이지 제목
+  blockCount: number    // 해당 버전의 블록 수
+}
+
+// ── 히스토리 API ────────────────────────────────────
+// Python으로 치면: class HistoryApi: ...
+export const historyApi = {
+
+  // 버전 목록 조회 (최신순)
+  // Python으로 치면: requests.get(f'/api/pages/{id}/history').json()['versions']
+  list: async (pageId: string): Promise<HistoryVersion[]> => {
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/history`)
+    if (!res.ok) throw new Error('히스토리 목록 조회 실패')
+    const data = await res.json()
+    return data.versions as HistoryVersion[]
+  },
+
+  // 특정 버전 전체 데이터 조회 (미리보기용)
+  // Python으로 치면: requests.get(f'/api/pages/{id}/history/{filename}').json()
+  get: async (pageId: string, filename: string): Promise<Page> => {
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/history/${encodeURIComponent(filename)}`)
+    if (!res.ok) throw new Error('버전 데이터 조회 실패')
+    return await res.json() as Page
+  },
+
+  // 선택한 버전으로 복원
+  // Python으로 치면: requests.post(f'/api/pages/{id}/history/restore/{filename}')
+  restore: async (pageId: string, filename: string): Promise<void> => {
+    const res = await fetch(
+      `${BASE_URL}/api/pages/${pageId}/history/restore/${encodeURIComponent(filename)}`,
+      { method: 'POST' },
+    )
+    if (!res.ok) throw new Error('버전 복원 실패')
+  },
 }

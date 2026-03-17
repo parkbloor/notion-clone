@@ -13,11 +13,25 @@ import { useState, useRef, useCallback, useEffect, useId } from 'react'
 // ──────────────────────────────────────────────
 type Side = 'top' | 'bottom' | 'left' | 'right'
 type NodeColor = '' | '1' | '2' | '3' | '4' | '5' | '6'
+// 노드 타입: 헤딩 레벨 + 단락 (계층 구조 기준)
+// Python으로 치면: NodeType = Literal['h1', 'h2', 'h3', 'paragraph']
+type NodeType = 'h1' | 'h2' | 'h3' | 'paragraph'
+
+// 접힌 자식 노드 정보: 부모 기준 상대 좌표 + 원본 노드 데이터
+interface CollapsedChild {
+  id: string
+  relX: number   // 부모 x 기준 상대 좌표
+  relY: number   // 부모 y 기준 상대 좌표
+  node: CanvasNode
+}
 
 interface CanvasNode {
   id: string; x: number; y: number
   width: number; height: number
   text: string; color: NodeColor
+  nodeType: NodeType           // 계층 타입 (기본값: 'paragraph')
+  collapsed: boolean           // 접힘 여부
+  collapsedChildren: CollapsedChild[]  // 접힐 때 저장되는 자식 목록
 }
 
 interface CanvasEdge {
@@ -53,6 +67,18 @@ const NODE_STYLES: Record<NodeColor, { bg: string; border: string; header: strin
 }
 
 const COLOR_OPTIONS: NodeColor[] = ['', '1', '2', '3', '4', '5', '6']
+
+// 노드 타입별 텍스트 스타일 (fontSize, fontWeight)
+// Python으로 치면: NODE_TYPE_STYLE = {'h1': {'size': '1.1rem', 'weight': 700}, ...}
+const NODE_TYPE_STYLE: Record<NodeType, { fontSize: string; fontWeight: number }> = {
+  h1:        { fontSize: '1.1rem',  fontWeight: 700 },
+  h2:        { fontSize: '0.95rem', fontWeight: 600 },
+  h3:        { fontSize: '0.85rem', fontWeight: 600 },
+  paragraph: { fontSize: '0.8rem',  fontWeight: 400 },
+}
+// 타입 선택 버튼 레이블
+const NODE_TYPE_LABELS: Record<NodeType, string> = { h1:'H1', h2:'H2', h3:'H3', paragraph:'P' }
+const NODE_TYPES: NodeType[] = ['h1', 'h2', 'h3', 'paragraph']
 
 const DOT_CLASS: Record<NodeColor, string> = {
   '':  'bg-white border border-gray-300', '1': 'bg-red-400',   '2': 'bg-orange-400',
@@ -111,11 +137,69 @@ function snapNodes(
   return { x, y, gx, gy }
 }
 
-// JSON 파싱
+// ──────────────────────────────────────────────
+// 읽기 순서 정렬 — 위→아래, 왼쪽→오른쪽
+// Python으로 치면: def reading_order_sort(nodes, row_gap=40): → sorted nodes
+// ──────────────────────────────────────────────
+const ROW_GAP = 40  // 같은 행으로 판단하는 Y 차이 임계값 (px)
+
+// 노드 타입 → 계층 레벨 숫자 (낮을수록 상위)
+// Python으로 치면: NODE_LEVEL = {'h1': 1, 'h2': 2, 'h3': 3, 'paragraph': 4}
+const NODE_LEVEL: Record<NodeType, number> = { h1: 1, h2: 2, h3: 3, paragraph: 4 }
+
+// 읽기 순서 정렬
+// 1) Y 차이 < ROW_GAP 이면 같은 행으로 그룹핑
+// 2) 행 내부: X 오름차순
+// 3) 행 간: 행 대표 Y 오름차순
+function readingOrderSort(nodes: CanvasNode[]): CanvasNode[] {
+  if (nodes.length === 0) return []
+  // Y 오름차순 1차 정렬
+  const sorted = [...nodes].sort((a, b) => a.y - b.y)
+  // 행 그룹핑
+  const rows: CanvasNode[][] = []
+  for (const node of sorted) {
+    const lastRow = rows[rows.length - 1]
+    if (!lastRow || Math.abs(node.y - lastRow[0].y) >= ROW_GAP) {
+      rows.push([node])
+    } else {
+      lastRow.push(node)
+    }
+  }
+  // 행 내부 X 오름차순
+  for (const row of rows) row.sort((a, b) => a.x - b.x)
+  return rows.flat()
+}
+
+// 정렬된 배열에서 targetId 노드의 직계 자식 목록 반환
+// 계층: h1 > h2 > h3 > paragraph
+// 자식 범위: target 다음 인덱스부터 같은 레벨 이상 노드 직전까지
+// Python으로 치면: def get_children(target_id, nodes): → list[CanvasNode]
+function getChildren(targetId: string, nodes: CanvasNode[]): CanvasNode[] {
+  const idx = nodes.findIndex(n => n.id === targetId)
+  if (idx === -1) return []
+  const parentLevel = NODE_LEVEL[nodes[idx].nodeType]
+  const children: CanvasNode[] = []
+  for (let i = idx + 1; i < nodes.length; i++) {
+    if (NODE_LEVEL[nodes[i].nodeType] <= parentLevel) break
+    children.push(nodes[i])
+  }
+  return children
+}
+
+// JSON 파싱 — 기존 데이터에 nodeType/collapsed/collapsedChildren 기본값 보정
+// Python으로 치면: def parse_canvas(s): return {**defaults, **parsed}
 function parseCanvas(s: string): CanvasData {
   try {
     const p = JSON.parse(s)
-    return { nodes: Array.isArray(p.nodes) ? p.nodes : [], edges: Array.isArray(p.edges) ? p.edges : [] }
+    const nodes: CanvasNode[] = Array.isArray(p.nodes)
+      ? p.nodes.map((n: Partial<CanvasNode>) => ({
+          ...n,
+          nodeType:          n.nodeType          ?? 'paragraph',
+          collapsed:         n.collapsed         ?? false,
+          collapsedChildren: n.collapsedChildren ?? [],
+        }))
+      : []
+    return { nodes, edges: Array.isArray(p.edges) ? p.edges : [] }
   } catch { return { nodes: [], edges: [] } }
 }
 
@@ -224,6 +308,7 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   const [snapNode, setSnapNode]   = useState(false)
   const [guideX, setGuideX]       = useState<number | null>(null)
   const [guideY, setGuideY]       = useState<number | null>(null)
+  const [showToc, setShowToc]     = useState(false)  // 미니 TOC 패널 표시 여부
 
   // ── 엣지 그리기 상태 ──
   // Python으로 치면: self.drawing_edge = None
@@ -241,8 +326,11 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   useEffect(() => { onChangeRef.current = onChange  }, [onChange])
 
   // 드래그 상태 ref (pan / node move)
+  // childOffsets: 그룹 이동 시 자식 노드들의 원본 좌표
+  // Python으로 치면: self.drag = {type, start, origin, child_offsets}
   const dragRef = useRef<{
     type: 'pan'|'node'; sx: number; sy: number; ox: number; oy: number; nodeId?: string
+    childOffsets: { id: string; ox: number; oy: number }[]
   } | null>(null)
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -302,13 +390,27 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   }, [selectedId, editingId])
 
   // ──────────────────────────────────────────────
-  // 전역 mouseup — 드래그/엣지 그리기 종료
+  // 전역 mouseup — 드래그/엣지 그리기 종료 + 읽기 순서 재정렬
+  // 노드 이동 후 배열을 읽기 순서(Y행 그룹핑→X)로 재정렬하여
+  // 계층 구조가 시각적 배치와 일치하도록 유지
+  // Python으로 치면: def on_mouseup(): sort_nodes(); save()
   // ──────────────────────────────────────────────
   useEffect(() => {
     const onUp = () => {
+      const wasNodeDrag = dragRef.current?.type === 'node'
       dragRef.current = null
       setDrawingEdge(null)
       setGuideX(null); setGuideY(null)
+      // 노드 드래그 후 읽기 순서로 배열 재정렬
+      if (wasNodeDrag) {
+        setData(prev => {
+          const sorted = readingOrderSort(prev.nodes)
+          const nd = { ...prev, nodes: sorted }
+          if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = setTimeout(() => onChangeRef.current(JSON.stringify(nd)), 200)
+          return nd
+        })
+      }
     }
     window.addEventListener('mouseup', onUp)
     return () => window.removeEventListener('mouseup', onUp)
@@ -328,7 +430,11 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   // ──────────────────────────────────────────────
   const addNode = useCallback((sx: number, sy: number) => {
     const pos = toCanvas(sx, sy)
-    const nn: CanvasNode = { id: crypto.randomUUID(), x: pos.x-90, y: pos.y-40, width: 180, height: 80, text: '', color: '' }
+    const nn: CanvasNode = {
+      id: crypto.randomUUID(), x: pos.x-90, y: pos.y-40,
+      width: 180, height: 80, text: '', color: '',
+      nodeType: 'paragraph', collapsed: false, collapsedChildren: [],
+    }
     setData(prev => { const nd = { ...prev, nodes: [...prev.nodes, nn] }; saveData(nd); return nd })
     setSelectedId(nn.id); setEditingId(nn.id)
   }, [toCanvas, saveData])
@@ -339,7 +445,7 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   const onCanvasDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
     setSelectedId(null); setEditingId(null); setColorPickerId(null)
-    dragRef.current = { type:'pan', sx:e.clientX, sy:e.clientY, ox:viewport.x, oy:viewport.y }
+    dragRef.current = { type:'pan', sx:e.clientX, sy:e.clientY, ox:viewport.x, oy:viewport.y, childOffsets:[] }
     e.preventDefault()
   }, [viewport.x, viewport.y])
 
@@ -350,9 +456,13 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
     if (e.button !== 0) return
     e.stopPropagation()
     setSelectedId(nodeId); setColorPickerId(null)
-    const node = data.nodes.find(n => n.id === nodeId)
+    const sorted = readingOrderSort(dataRef.current.nodes)
+    const node = sorted.find(n => n.id === nodeId)
     if (!node) return
-    dragRef.current = { type:'node', sx:e.clientX, sy:e.clientY, ox:node.x, oy:node.y, nodeId }
+    // 자식 노드 원본 좌표 캐싱 (그룹 이동용)
+    const children = getChildren(nodeId, sorted)
+    const childOffsets = children.map(c => ({ id: c.id, ox: c.x, oy: c.y }))
+    dragRef.current = { type:'node', sx:e.clientX, sy:e.clientY, ox:node.x, oy:node.y, nodeId, childOffsets }
     e.preventDefault()
   }, [data.nodes])
 
@@ -396,8 +506,20 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
       }
       setGuideX(newGx); setGuideY(newGy)
 
+      // 부모 이동량 (delta) — sc는 위에서 이미 계산됨
+      const dx = (e.clientX - drag.sx) / sc
+      const dy = (e.clientY - drag.sy) / sc
       setData(prev => {
-        const nd = { ...prev, nodes: prev.nodes.map(n => n.id === drag.nodeId ? {...n,x:nx,y:ny} : n) }
+        const nd = {
+          ...prev,
+          nodes: prev.nodes.map(n => {
+            if (n.id === drag.nodeId) return { ...n, x: nx, y: ny }
+            // 자식 노드: 원본 좌표 + 부모와 동일한 delta
+            const co = drag.childOffsets.find(c => c.id === n.id)
+            if (co) return { ...n, x: co.ox + dx, y: co.oy + dy }
+            return n
+          }),
+        }
         saveData(nd)
         return nd
       })
@@ -464,10 +586,62 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   // ──────────────────────────────────────────────
   const updateText  = useCallback((id:string,text:string) =>
     setData(prev => { const nd={...prev,nodes:prev.nodes.map(n=>n.id===id?{...n,text}:n)}; saveData(nd); return nd }), [saveData])
+  // 노드 타입 변경 (H1/H2/H3/단락)
+  const updateNodeType = useCallback((id:string, nodeType:NodeType) =>
+    setData(prev => { const nd={...prev,nodes:prev.nodes.map(n=>n.id===id?{...n,nodeType}:n)}; saveData(nd); return nd }), [saveData])
   const updateColor = useCallback((id:string,color:NodeColor) => {
     setData(prev => { const nd={...prev,nodes:prev.nodes.map(n=>n.id===id?{...n,color}:n)}; saveData(nd); return nd })
     setColorPickerId(null)
   }, [saveData])
+  // ──────────────────────────────────────────────
+  // 접기 — 자식 노드를 부모에 스택(숨김), 상대 좌표 저장
+  // Python으로 치면: def collapse_node(id): save_children(); remove_from_canvas()
+  // ──────────────────────────────────────────────
+  const collapseNode = useCallback((id: string) => {
+    setData(prev => {
+      const sorted = readingOrderSort(prev.nodes)
+      const parent = sorted.find(n => n.id === id)
+      if (!parent) return prev
+      const children = getChildren(id, sorted)
+      if (children.length === 0) return prev
+      const childIds = new Set(children.map(c => c.id))
+      // 자식 상대 좌표 저장
+      const collapsedChildren: CollapsedChild[] = children.map(c => ({
+        id: c.id, relX: c.x - parent.x, relY: c.y - parent.y, node: c,
+      }))
+      const nd: CanvasData = {
+        nodes: prev.nodes
+          .filter(n => !childIds.has(n.id))
+          .map(n => n.id === id ? { ...n, collapsed: true, collapsedChildren } : n),
+        edges: prev.edges.filter(e => !childIds.has(e.fromNode) && !childIds.has(e.toNode)),
+      }
+      saveData(nd)
+      return nd
+    })
+  }, [saveData])
+
+  // ──────────────────────────────────────────────
+  // 펼치기 — collapsedChildren 절대 좌표로 복원 → 읽기 순서 재정렬
+  // Python으로 치면: def expand_node(id): restore_children(); sort_nodes()
+  // ──────────────────────────────────────────────
+  const expandNode = useCallback((id: string) => {
+    setData(prev => {
+      const parent = prev.nodes.find(n => n.id === id)
+      if (!parent || !parent.collapsed) return prev
+      // 자식 절대 좌표 복원 (부모 현재 위치 + 저장된 상대 좌표)
+      const restored: CanvasNode[] = parent.collapsedChildren.map(cc => ({
+        ...cc.node, x: parent.x + cc.relX, y: parent.y + cc.relY,
+        collapsed: false, collapsedChildren: [],
+      }))
+      const updatedNodes = prev.nodes
+        .map(n => n.id === id ? { ...n, collapsed: false, collapsedChildren: [] } : n)
+        .concat(restored)
+      const nd: CanvasData = { ...prev, nodes: readingOrderSort(updatedNodes) }
+      saveData(nd)
+      return nd
+    })
+  }, [saveData])
+
   const deleteNode  = useCallback((id:string) => {
     setData(prev => {
       const nd={ nodes:prev.nodes.filter(n=>n.id!==id), edges:prev.edges.filter(e=>e.fromNode!==id&&e.toNode!==id) }
@@ -581,27 +755,63 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
               onMouseDown={(e) => onNodeDown(e, node.id)}
               onDoubleClick={(e) => { e.stopPropagation(); setSelectedId(node.id); setEditingId(node.id) }}
             >
-              {/* 헤더 */}
-              <div className={['flex items-center justify-between px-2 py-1 rounded-t-lg border-b',C.border,C.header].join(' ')} style={{fontSize:'10px'}}>
+              {/* 헤더: 색상 · 타입선택 · 접기 · 삭제 */}
+              <div className={['flex items-center gap-1 px-2 py-1 rounded-t-lg border-b',C.border,C.header].join(' ')} style={{fontSize:'10px'}}>
+                {/* 색상 버튼 */}
                 <button type="button"
-                  className="w-3 h-3 rounded-full border border-white/60 shadow-sm"
+                  className="w-3 h-3 rounded-full border border-white/60 shadow-sm shrink-0"
                   onClick={(e)=>{e.stopPropagation();setColorPickerId(p=>p===node.id?null:node.id)}}
                   title="색상 변경"
                 >
                   {node.color && <span className={`block w-full h-full rounded-full ${NODE_STYLES[node.color].header}`} />}
                 </button>
+
+                {/* 타입 선택 버튼 (H1/H2/H3/P) — hover 또는 선택 시 표시 */}
+                <div className={['flex gap-0.5 transition-opacity',isSel?'opacity-100':'opacity-0 group-hover:opacity-70'].join(' ')}>
+                  {NODE_TYPES.map(t => (
+                    <button key={t} type="button"
+                      className={['px-1 rounded leading-none font-medium transition-colors',
+                        node.nodeType===t
+                          ? 'bg-blue-500 text-white'
+                          : 'text-gray-500 hover:bg-gray-200'
+                      ].join(' ')}
+                      style={{fontSize:'9px'}}
+                      onClick={(e)=>{e.stopPropagation();updateNodeType(node.id,t)}}
+                      title={`타입: ${NODE_TYPE_LABELS[t]}`}
+                    >{NODE_TYPE_LABELS[t]}</button>
+                  ))}
+                </div>
+
+                {/* 접기/펼치기 버튼 — H1/H2/H3만, 자식 있을 때 */}
+                {node.nodeType !== 'paragraph' && (
+                  <button type="button"
+                    className={['ml-auto transition-opacity text-gray-400 hover:text-blue-500 leading-none px-0.5',
+                      isSel?'opacity-70':'opacity-0 group-hover:opacity-40'].join(' ')}
+                    style={{fontSize:'10px'}}
+                    onClick={(e)=>{
+                      e.stopPropagation()
+                      node.collapsed ? expandNode(node.id) : collapseNode(node.id)
+                    }}
+                    title={node.collapsed ? '펼치기' : '접기'}
+                  >{node.collapsed ? '▶' : '▼'}</button>
+                )}
+
+                {/* 삭제 버튼 */}
                 <button type="button"
-                  className={['transition-opacity text-gray-400 hover:text-red-500 leading-none',isSel?'opacity-70':'opacity-0 group-hover:opacity-40'].join(' ')}
+                  className={['transition-opacity text-gray-400 hover:text-red-500 leading-none',
+                    node.nodeType==='paragraph'?'ml-auto':'',
+                    isSel?'opacity-70':'opacity-0 group-hover:opacity-40'].join(' ')}
                   onClick={(e)=>{e.stopPropagation();deleteNode(node.id)}}
                   title="노드 삭제 (Delete)"
                 >×</button>
               </div>
 
-              {/* 내용 */}
-              <div className="p-2 overflow-hidden" style={{height:`${node.height-28}px`}}>
+              {/* 내용 — 타입별 폰트 스타일 적용 */}
+              <div className="p-2 overflow-hidden" style={{height:`${node.height-30}px`}}>
                 {isEdit ? (
                   <textarea autoFocus
-                    className="w-full h-full resize-none bg-transparent text-sm text-gray-800 focus:outline-none"
+                    className="w-full h-full resize-none bg-transparent focus:outline-none text-gray-800"
+                    style={NODE_TYPE_STYLE[node.nodeType]}
                     value={node.text}
                     onChange={(e)=>updateText(node.id,e.target.value)}
                     onBlur={()=>setEditingId(null)}
@@ -610,8 +820,9 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
                     placeholder="내용을 입력하세요..."
                   />
                 ) : (
-                  <p className="text-sm text-gray-700 leading-snug whitespace-pre-wrap wrap-break-word overflow-hidden">
-                    {node.text || <span className="text-gray-300 italic text-xs">더블클릭으로 편집</span>}
+                  <p className="leading-snug whitespace-pre-wrap wrap-break-word overflow-hidden text-gray-700"
+                    style={NODE_TYPE_STYLE[node.nodeType]}>
+                    {node.text || <span className="text-gray-300 italic" style={{fontSize:'0.7rem'}}>더블클릭으로 편집</span>}
                   </p>
                 )}
               </div>
@@ -667,6 +878,12 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
           onClick={()=>setSnapNode(p=>!p)} title={snapNode?'카드 스냅 끄기':'카드에 맞추기'}
         >카드</button>
         <span className="text-gray-200 text-xs">|</span>
+        {/* TOC 토글 버튼 */}
+        <button type="button"
+          className={['text-xs px-1.5 py-0.5 rounded transition-colors font-medium',
+            showToc?'bg-blue-100 text-blue-600':'text-gray-400 hover:text-gray-700 hover:bg-gray-100'].join(' ')}
+          onClick={()=>setShowToc(p=>!p)} title="목차 보기">목차</button>
+        <span className="text-gray-200 text-xs">|</span>
         <button type="button"
           className="text-xs text-gray-400 hover:text-gray-700 px-1 py-0.5 rounded hover:bg-gray-100 transition-colors"
           onClick={fitView} title="전체 보기">⊞</button>
@@ -678,6 +895,53 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
           className="text-xs text-gray-400 hover:text-gray-700 w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 transition-colors"
           onClick={()=>setViewport(p=>({...p,scale:Math.min(3.0,p.scale*1.25)}))}>+</button>
       </div>
+
+      {/* ── 미니 TOC 패널 (좌상단) ─────────────────
+           읽기 순서 정렬 후 H1/H2/H3 노드만 추출하여 목차로 표시
+           클릭 시 해당 노드가 화면 중앙으로 이동 (viewport 이동)
+           Python으로 치면: toc = [n for n in sorted_nodes if n.type in ('h1','h2','h3')] */}
+      {showToc && (
+        <div
+          className="absolute top-2 left-2 z-20 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-sm p-2 min-w-32 max-w-48 max-h-60 overflow-y-auto"
+          onMouseDown={(e)=>e.stopPropagation()}
+        >
+          <p className="text-xs font-semibold text-gray-500 mb-1.5 border-b border-gray-100 pb-1">목차</p>
+          {(() => {
+            // 읽기 순서로 정렬 후 헤딩만 필터
+            const tocNodes = readingOrderSort(data.nodes).filter(n => n.nodeType !== 'paragraph')
+            if (tocNodes.length === 0) return (
+              <p className="text-xs text-gray-300 italic">헤딩 노드가 없습니다</p>
+            )
+            return tocNodes.map(n => {
+              // 들여쓰기: h1=0, h2=8px, h3=16px
+              const indent = { h1: 0, h2: 8, h3: 16, paragraph: 0 }[n.nodeType]
+              return (
+                <button key={n.id} type="button"
+                  className="block w-full text-left text-xs text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded px-1 py-0.5 transition-colors truncate"
+                  style={{ paddingLeft: `${indent + 4}px`, fontWeight: n.nodeType==='h1'?600:400 }}
+                  title={n.text || '(빈 노드)'}
+                  onClick={() => {
+                    // 해당 노드를 캔버스 중앙으로 viewport 이동
+                    const rect = containerRef.current?.getBoundingClientRect()
+                    if (!rect) return
+                    setViewport(prev => ({
+                      ...prev,
+                      x: rect.width  / 2 - (n.x + n.width  / 2) * prev.scale,
+                      y: rect.height / 2 - (n.y + n.height / 2) * prev.scale,
+                    }))
+                    setSelectedId(n.id)
+                  }}
+                >
+                  <span className="text-gray-300 mr-1" style={{fontSize:'8px'}}>
+                    {n.nodeType.toUpperCase()}
+                  </span>
+                  {n.text || <span className="italic text-gray-300">빈 노드</span>}
+                </button>
+              )
+            })
+          })()}
+        </div>
+      )}
 
       {/* ── 빈 캔버스 안내 ───────────────────────── */}
       {data.nodes.length === 0 && (

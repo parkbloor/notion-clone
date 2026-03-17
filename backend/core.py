@@ -195,6 +195,13 @@ class MoveFolderBody(BaseModel):
     parentId: Optional[str] = None
 
 
+class UpdateCategoryColorBody(BaseModel):
+    """폴더 색상 변경 요청 바디"""
+    # hex 색상 문자열 (예: '#3b82f6') 또는 None (기본 색상 초기화)
+    # Python으로 치면: color: str | None
+    color: Optional[str] = None
+
+
 class CategoryReorderBody(BaseModel):
     """카테고리 순서 변경 요청 바디"""
     order: list[str]  # category ID 목록 (새 순서)
@@ -208,6 +215,21 @@ class PageReorderBody(BaseModel):
 class ImportBody(BaseModel):
     """JSON 백업 가져오기 요청 바디"""
     data: dict
+
+
+# ── 휴지통 관련 모델 ─────────────────────────────
+# Python으로 치면: @dataclass class TrashItem: id, type, name, trashed_at, ...
+
+class TrashRestoreBody(BaseModel):
+    """휴지통 항목 복원 요청 바디"""
+    # 복원할 항목 ID + 타입 ('page' | 'category')
+    # Python으로 치면: item_id: str, item_type: Literal['page', 'category']
+    itemType: str  # 'page' | 'category'
+
+
+class TrashPermanentDeleteBody(BaseModel):
+    """휴지통 항목 영구 삭제 요청 바디"""
+    itemType: str  # 'page' | 'category'
 
 
 # -----------------------------------------------

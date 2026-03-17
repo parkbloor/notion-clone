@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, ReactNode } from 'react'
 
 // -----------------------------------------------
 // ContextMenuAction: 메뉴 한 항목의 정의
@@ -33,6 +33,9 @@ export interface ContextMenuSection {
   id: string
   title?: string              // 섹션 소제목 (선택 — 있으면 회색 레이블로 표시)
   actions: ContextMenuAction[]
+  // 커스텀 렌더링 슬롯 (색상 팔레트 등 actions로 표현 불가한 UI용)
+  // Python으로 치면: custom_widget: Optional[QWidget] = None
+  customRender?: ReactNode
 }
 
 interface ContextMenuProps {
@@ -111,6 +114,9 @@ export default function ContextMenu({ x, y, sections, onClose }: ContextMenuProp
               {section.title}
             </div>
           )}
+
+          {/* 커스텀 렌더링 슬롯 (색상 팔레트 등) */}
+          {section.customRender}
 
           {/* 항목 버튼 목록 */}
           {section.actions.map(action => (

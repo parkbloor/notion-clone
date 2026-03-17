@@ -234,9 +234,27 @@ interface PageStore {
   // 폴더를 다른 부모 폴더로 이동 (newParentId=null이면 최상위로)
   // Python으로 치면: async def move_category_to_parent(self, cat_id, new_parent_id): ...
   moveCategoryToParent: (categoryId: string, newParentId: string | null) => Promise<void>
+  // 폴더 색상 변경 (null이면 기본 색상 초기화)
+  // Python으로 치면: async def update_category_color(self, cat_id, color): ...
+  updateCategoryColor: (categoryId: string, color: string | null) => Promise<void>
   // 메모 목록 내 드래그로 순서 변경
   // Python으로 치면: def reorder_pages(self, from_id, to_id): ...
   reorderPages: (fromId: string, toId: string) => void
+
+  // ── 휴지통 상태/액션 ──────────────────────────
+  // Python으로 치면: self.trash_items: list[TrashItem] = []
+  trashedItems: import('@/types/block').TrashItem[]
+  loadTrash: () => Promise<void>
+  restoreFromTrash: (itemId: string) => Promise<void>
+  permanentDelete: (itemId: string) => Promise<void>
+  emptyTrash: () => Promise<void>
+
+  // ── 태그 필터 ─────────────────────────────────
+  // 사이드바 태그 브라우저에서 선택된 태그 (null = 필터 없음)
+  // Python으로 치면: self.active_tag_filter: str | None = None
+  activeTagFilter: string | null
+  // Python으로 치면: def set_tag_filter(self, tag): self.active_tag_filter = tag
+  setTagFilter: (tag: string | null) => void
 }
 
 
@@ -259,6 +277,8 @@ export const usePageStore = create<PageStore>()(
     categoryOrder: [],
     categoryChildOrder: {},
     currentCategoryId: null,  // null = 전체보기
+    trashedItems: [],
+    activeTagFilter: null,
 
     // 구조 변경/undo/redo 발생 시 증가 → 버튼 활성화 상태 리렌더링용
     // Python으로 치면: self.history_version = 0
@@ -504,6 +524,14 @@ export const usePageStore = create<PageStore>()(
         }
       })
       scheduleSave(pageId, get, set)
+    },
+
+    // 태그 필터 설정 — 같은 태그를 다시 누르면 해제 (null)
+    // Python으로 치면: def set_tag_filter(self, tag): self.active_tag_filter = None if tag == self.active_tag_filter else tag
+    setTagFilter: (tag) => {
+      set((state) => {
+        state.activeTagFilter = state.activeTagFilter === tag ? null : tag
+      })
     },
 
 
@@ -1077,6 +1105,21 @@ export const usePageStore = create<PageStore>()(
       }
     },
 
+    // 폴더 색상 변경 → 낙관적 업데이트 후 서버 저장
+    // Python으로 치면: async def update_category_color(self, cat_id, color): ...
+    updateCategoryColor: async (categoryId, color) => {
+      // 낙관적 업데이트: 로컬 상태 먼저 변경
+      set((state) => {
+        const cat = state.categories.find(c => c.id === categoryId)
+        if (cat) cat.color = color
+      })
+      try {
+        await api.updateCategoryColor(categoryId, color)
+      } catch {
+        toast.warning('색상 변경에 실패했습니다.')
+      }
+    },
+
     // 메모 목록 내 드래그로 순서 변경 → 서버에도 저장
     // fromId 위치의 페이지를 toId 위치로 이동
     // Python으로 치면: def reorder_pages(self, from_id, to_id): ...
@@ -1092,6 +1135,34 @@ export const usePageStore = create<PageStore>()(
       // set 완료 후 get()으로 새 순서 읽어서 서버에 저장
       const newOrder = get().pages.map(p => p.id)
       api.reorderPages(newOrder).catch(() => {})
+    },
+
+    // ── 휴지통 액션 ──────────────────────────────
+
+    // 휴지통 목록 로드
+    loadTrash: async () => {
+      const data = await api.getTrash()
+      set({ trashedItems: data.items })
+    },
+
+    // 항목 복원 → 서버에서 복원 후 로컬 상태 갱신
+    restoreFromTrash: async (itemId) => {
+      await api.restoreTrashItem(itemId)
+      // 복원 후 전체 데이터 새로고침 (페이지/카테고리 목록 변경됨)
+      await get().loadFromServer()
+      await get().loadTrash()
+    },
+
+    // 영구 삭제
+    permanentDelete: async (itemId) => {
+      await api.permanentDeleteTrashItem(itemId)
+      await get().loadTrash()
+    },
+
+    // 전체 비우기
+    emptyTrash: async () => {
+      await api.emptyTrash()
+      set({ trashedItems: [] })
     },
 
   }))

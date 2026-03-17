@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-02-27 (레이아웃 블록 구현 — A4 다단 8종 템플릿 + 비디오 블록 + 저장 위치 지정)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-03-17 (차트 블록, 갠트 블록, 페이지 버전 히스토리, 휴지통, 태그 브라우저 구현 완료)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -50,7 +50,9 @@ notion-clone/
 │   │   ├── categories.py        # 카테고리 CRUD
 │   │   ├── export_import.py     # JSON·마크다운 내보내기 / JSON 가져오기
 │   │   ├── search.py            # 전문 검색
-│   │   └── system.py            # vault 경로 통계·디버그 로그
+│   │   ├── system.py            # vault 경로 통계·디버그 로그
+│   │   ├── history.py           # ✅ 페이지 버전 히스토리 (3분 간격 스냅샷, 최대 50개)
+│   │   └── trash.py             # ✅ 휴지통 (소프트 삭제, 개별/전체 복원·영구삭제)
 │   └── requirements.txt         # fastapi, uvicorn, python-multipart
 │
 ├── src/
@@ -90,7 +92,11 @@ notion-clone/
 │   │   │   ├── CoverPicker.tsx   # 페이지 커버 선택기
 │   │   │   ├── GlobalSearch.tsx  # 전체 텍스트 검색 팝업 (Ctrl+K)
 │   │   │   ├── QuickAddModal.tsx # 빠른 노트 캡처 팝업 (Ctrl+Alt+N)
-│   │   │   └── ShortcutModal.tsx # 단축키 안내 모달
+│   │   │   ├── ShortcutModal.tsx # 단축키 안내 모달
+│   │   │   ├── ChartBlock.tsx    # ✅ 차트 블록 (Bar/Line/Pie — recharts)
+│   │   │   ├── GanttBlock.tsx    # ✅ 갠트 차트 블록 (태스크 타임라인 — 순수 CSS)
+│   │   │   ├── VersionHistoryPanel.tsx # ✅ 페이지 버전 히스토리 슬라이드인 패널
+│   │   │   └── TrashPanel.tsx    # ✅ 휴지통 패널 (복원/영구삭제)
 │   │   │
 │   │   ├── settings/
 │   │   │   ├── SettingsModal.tsx  # 설정 모달 (6탭 레이아웃)
@@ -205,6 +211,8 @@ content.json = {
 - [x] 구분선 블록
 - [x] 캔버스 블록 — 무한 캔버스, 더블클릭 노드 추가, SVG 베지어 엣지, 팬/줌, 노드 색상 6종, 리사이즈·연결 핸들, 스냅
 - [x] **Excalidraw 블록** — 손그림 스타일 다이어그램, 전체화면 토글, 800ms 디바운스 저장, ko-KR 로케일
+- [x] **차트 블록** — Bar/Line/Pie 3종, 표 편집 UI + recharts 렌더링, 시리즈별 색상 커스텀
+- [x] **갠트 차트 블록** — 태스크 테이블 편집 + 순수 CSS 타임라인, 오늘 표시선, hover 툴팁, 진행률 막대
 
 ### ✅ 페이지 관리
 - [x] 페이지 생성/삭제/복제
@@ -212,9 +220,12 @@ content.json = {
 - [x] 페이지 아이콘 이모지 선택
 - [x] 페이지 커버 — URL / 그라디언트 / 단색 / 위치 조정
 - [x] 페이지 태그 (생성/삭제/필터)
+- [x] **태그 브라우저** — 사이드바 태그 섹션, 사용 빈도순 정렬, 개수 표시, 클릭 필터
 - [x] 페이지 즐겨찾기 (⭐ 상단 고정)
 - [x] 페이지 검색 (사이드바 검색창)
 - [x] 페이지 드래그앤드롭 정렬
+- [x] **휴지통** — 소프트 삭제, 30일 자동 만료, 개별/전체 복원·영구삭제 패널
+- [x] **페이지 버전 히스토리** — 3분 간격 스냅샷, 최대 50개 보관, 미리보기·복원
 
 ### ✅ 카테고리 (폴더) 시스템
 - [x] 카테고리 생성/삭제/이름 변경
@@ -286,6 +297,13 @@ content.json = {
 | GET | `/api/debug/logs` | 서버 로그 (최근 100개) |
 | GET | `/api/search?q=` | 페이지 제목 + 블록 내용 전문 검색 |
 | GET | `/static/{path}` | 이미지 파일 정적 서빙 |
+| GET | `/api/pages/{id}/history` | 페이지 버전 목록 (filename, snapshotAt, title, blockCount) |
+| GET | `/api/pages/{id}/history/{filename}` | 특정 버전 전체 데이터 (미리보기) |
+| POST | `/api/pages/{id}/history/restore/{filename}` | 특정 버전으로 복원 (현재 버전 백업 후 복원) |
+| GET | `/api/trash` | 휴지통 목록 (페이지·폴더 통합) |
+| PATCH | `/api/trash/{item_id}/restore` | 항목 복원 (원래 위치로) |
+| DELETE | `/api/trash/{item_id}` | 항목 영구 삭제 |
+| DELETE | `/api/trash` | 휴지통 전체 비우기 |
 
 ---
 
@@ -336,6 +354,8 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
     tableOfContents: boolean, // ✅ 구현됨
     periodicNotes: boolean,   // ✅ 구현됨
     canvas: boolean,          // ✅ 구현됨
+    chart: boolean,           // ✅ 구현됨 (Bar/Line/Pie)
+    gantt: boolean,           // ✅ 구현됨 (타임라인/갠트 차트)
   }
 }
 ```
@@ -413,7 +433,45 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
   - `onClickOutside` 콜백: `deleteRange({ from: slashMenu.from, to: cursorPos })` + 팝업 닫기
 - `globals.css` — `a[href^="#block-"]` 청록(teal) 칩 스타일 + 다크모드 지원
 
-### 🟢 앞으로 개발할 기능
+### 🟡 우선순위 중간 (다음 개발 후보)
+
+#### 9-A. 마인드맵 블록 (중)
+- 캔버스 블록 확장 — 노드 기반 브레인스토밍
+- 중심 노드 더블클릭 → 자식 노드 추가, 자동 방사형 레이아웃
+
+#### 9-B. PDF 내보내기 개선 (하)
+- 현재 `window.print()` 방식에서 puppeteer 기반 서버사이드 PDF 생성으로 업그레이드
+- `GET /api/export/pdf/{page_id}` 엔드포인트 추가
+
+#### 9-C. 달력 뷰 (중)
+- 날짜 속성 기반 캘린더에서 페이지 카드 표시
+- `DatabaseView.tsx` 새 뷰 탭으로 추가
+
+#### 9-D. 페이지 잠금 (하)
+- 비밀번호/핀으로 특정 페이지 보호
+- `page.locked`, `page.lockHash` 필드 추가
+
+#### 9-E. 알림/리마인더 (중)
+- 날짜 속성 → Electron `Notification` API 연동
+- 알림 시각 설정 + 미리알림 간격
+
+### 🟢 낮은 우선순위
+
+#### 9-F. 플래시카드
+- 페이지 내용으로 간격 반복 학습 카드 생성 (SM-2 알고리즘)
+
+#### 9-G. 웹 클리퍼
+- 브라우저 확장으로 웹페이지 → 노트 저장
+
+#### 9-H. 음성 메모
+- 마이크 녹음 → 텍스트 변환 (Whisper API)
+
+#### 9-I. 페이지 게시
+- 로컬 HTTP 서버로 노트 공유 링크 생성
+
+---
+
+### 🟢 앞으로 개발할 기능 (기존 완료됨)
 
 #### ~~9-7. Excalidraw 손그림 블록~~ ✅ 완료 (2026-02-26)
 - `@excalidraw/excalidraw` v0.18.0 설치

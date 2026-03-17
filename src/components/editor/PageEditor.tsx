@@ -21,6 +21,9 @@ import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
 import FindReplacePanel from './FindReplacePanel'
 import PropertyPanel from './PropertyPanel'
+// 버전 히스토리 슬라이드-인 패널
+// Python으로 치면: from components import VersionHistoryPanel
+import VersionHistoryPanel from './VersionHistoryPanel'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
 import { groupBlocksIntoRows, getColumnFlexValues, hasCanvasLayout } from '@/lib/canvasLayout'
@@ -283,6 +286,10 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   // true이면 에디터 전체가 편집 불가 (실수 수정 방지 + 집중 읽기)
   // Python으로 치면: self.read_mode = False
   const [readMode, setReadMode] = useState(false)
+
+  // 버전 히스토리 패널 열림 여부
+  // Python으로 치면: self.history_panel_open = False
+  const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
 
   // ── 호버 미리보기 상태 ─────────────────────
   // 링크 위에 마우스를 올리면 해당 페이지 팝업 표시
@@ -847,6 +854,20 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           {/* 구분선 */}
           <div className="w-px h-4 bg-gray-200 mx-1" />
 
+          {/* 버전 기록 버튼 */}
+          {/* Python으로 치면: history_btn.on_click = lambda: self.history_panel_open = True */}
+          <button
+            type="button"
+            onClick={() => setHistoryPanelOpen(true)}
+            className={historyPanelOpen
+              ? "flex items-center gap-1.5 px-2.5 py-1 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"
+              : "flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
+            title="버전 기록"
+          >
+            <span>⏱</span>
+            <span>버전 기록</span>
+          </button>
+
           <div className="relative" ref={exportMenuRef}>
             <button
               type="button"
@@ -1241,6 +1262,16 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           isOpen 이 false 면 패널 컴포넌트가 null 반환 → 항상 마운트해도 무방
           Python으로 치면: if find_replace.is_open: render FindReplacePanel() */}
       <FindReplacePanel />
+
+      {/* ── 버전 히스토리 패널 ────────────────────────────────────────
+          historyPanelOpen 시 우측에서 슬라이드인
+          Python으로 치면: if self.history_panel_open: render VersionHistoryPanel() */}
+      {historyPanelOpen && (
+        <VersionHistoryPanel
+          pageId={pageId}
+          onClose={() => setHistoryPanelOpen(false)}
+        />
+      )}
 
       {/* ── 화살표 SVG 오버레이 ────────────────────────────────────────
           blocks 변경 시 자동으로 [data-arrow-id] DOM 재스캔 후 곡선 갱신

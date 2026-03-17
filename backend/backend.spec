@@ -75,6 +75,8 @@ a = Analysis(
             'backend.routers.system',
             'backend.routers.templates',
             'backend.routers.ai',
+            'backend.routers.trash',
+            'backend.routers.history',
             # OpenAI SDK
             'openai',
             'openai.resources',

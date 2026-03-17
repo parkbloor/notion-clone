@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from backend.core import VAULT_DIR, mem_handler
-from backend.routers import categories, export_import, pages, search, system, templates, ai
+from backend.routers import categories, export_import, history, pages, search, system, templates, ai, trash
 
 # ── 로깅 설정 ──────────────────────────────────
 # Python으로 치면: logging.basicConfig(); handler = MemoryLogHandler()
@@ -57,6 +57,8 @@ app.include_router(search.router)
 app.include_router(system.router)
 app.include_router(templates.router)
 app.include_router(ai.router)
+app.include_router(trash.router)
+app.include_router(history.router)
 
 
 # ── PyInstaller 번들 진입점 ─────────────────────────

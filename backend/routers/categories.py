@@ -16,9 +16,12 @@ from backend.core import (
     CreateCategoryBody,
     MoveFolderBody,
     RenameCategoryBody,
+    UpdateCategoryColorBody,
     assert_inside_vault,
     get_folder_name,
     load_index,
+    load_page,
+    now_iso,
     replace_image_urls_in_page,
     resolve_content_file,
     sanitize_category_name,
@@ -177,65 +180,93 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
 @router.delete("/categories/{cat_id}")
 def delete_category(cat_id: str):
     """
-    카테고리 삭제
-    안에 메모가 있으면 hasPages: True 반환 (삭제 불가)
-    하위 카테고리가 있으면 hasChildren: True 반환 (삭제 불가)
-    삭제 성공 시 부모의 categoryChildOrder에서도 제거
-    Python으로 치면: if children or pages: return error; shutil.rmtree(cat_dir)
+    카테고리 소프트 삭제 → 휴지통으로 이동
+    하위 페이지 + 하위 폴더(재귀) 전체를 같은 trashGroupId로 묶어 휴지통 이동
+    물리 파일은 유지, 복원 가능
+    Python으로 치면: for item in [cat] + all_children: item.is_trashed = True
     """
-    # 🔒 UUID 검증
+    import uuid as _uuid
     validate_uuid(cat_id, "카테고리 ID")
 
     index = load_index()
 
-    # 카테고리 찾기
     cat = next((c for c in index.get("categories", []) if c["id"] == cat_id), None)
     if not cat:
         raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
 
-    # 1) 하위 카테고리가 있으면 삭제 불가
-    # Python으로 치면: children = child_order.get(cat_id, [])
-    children = index.get("categoryChildOrder", {}).get(cat_id, [])
-    if children:
-        return {"ok": False, "hasChildren": True, "count": len(children)}
+    if cat.get("isTrashed"):
+        raise HTTPException(status_code=400, detail="이미 휴지통에 있는 폴더입니다")
 
-    # 2) 카테고리 안에 페이지가 있으면 삭제 불가
-    pages_in_cat = [pid for pid, cid in index.get("categoryMap", {}).items() if cid == cat_id]
-    if pages_in_cat:
-        return {"ok": False, "hasPages": True, "count": len(pages_in_cat)}
+    # 그룹 ID: 이 폴더와 하위 항목을 하나로 묶어 함께 복원/삭제 가능하게 함
+    group_id = str(_uuid.uuid4())
+    trashed_at = now_iso()
 
-    # 실제 폴더 삭제 (비어있는 경우)
-    cat_dir = VAULT_DIR / cat["folderName"]
+    # ── BFS로 하위 카테고리 ID 전체 수집 ──────────────────
+    # Python으로 치면: descendants = BFS(cat_id, child_order)
+    child_order = index.get("categoryChildOrder", {})
+    all_cat_ids = []  # cat_id 포함 전체 (자기 자신도 포함)
+    queue = [cat_id]
+    while queue:
+        cid = queue.pop()
+        all_cat_ids.append(cid)
+        queue.extend(child_order.get(cid, []))
 
-    # 🔒 vault 탈출 방지
-    assert_inside_vault(cat_dir)
+    # ── 해당 카테고리들에 속한 페이지 ID 수집 ──────────────
+    cat_id_set = set(all_cat_ids)
+    cat_map = index.get("categoryMap", {})
+    page_ids_in_group = [pid for pid, cid in cat_map.items() if cid in cat_id_set]
 
-    if cat_dir.exists():
-        shutil.rmtree(cat_dir)
+    # ── 페이지 소프트 삭제 ─────────────────────────────────
+    # index["pages"]는 휴지통 메타데이터용. 파일에서 title/icon을 읽어 추가/갱신
+    # Python으로 치면: for pid in page_ids: load_page(pid) → append to pages_list
+    now_iso_val = trashed_at
+    pages_list = index.setdefault("pages", [])
+    for pid in page_ids_in_group:
+        page_data = load_page(pid, index)
+        title = page_data.get("title", "제목 없음") if page_data else "제목 없음"
+        icon = page_data.get("icon", "📄") if page_data else "📄"
+        orig_cat = cat_map.get(pid)
+        existing_entry = next((p for p in pages_list if p["id"] == pid), None)
+        if existing_entry:
+            existing_entry.update({
+                "title": title, "icon": icon,
+                "isTrashed": True, "trashedAt": now_iso_val,
+                "originalCategoryId": orig_cat, "trashGroupId": group_id,
+            })
+        else:
+            pages_list.append({
+                "id": pid, "title": title, "icon": icon,
+                "isTrashed": True, "trashedAt": now_iso_val,
+                "originalCategoryId": orig_cat, "trashGroupId": group_id,
+            })
 
-    # index에서 카테고리 제거
-    index["categories"] = [c for c in index["categories"] if c["id"] != cat_id]
+    # pageOrder / categoryMap에서 제거
+    page_id_set = set(page_ids_in_group)
+    index["pageOrder"] = [pid for pid in index.get("pageOrder", []) if pid not in page_id_set]
+    for pid in page_id_set:
+        cat_map.pop(pid, None)
 
-    # 최상위 순서에서 제거 (최상위 카테고리인 경우)
-    index["categoryOrder"] = [cid for cid in index.get("categoryOrder", []) if cid != cat_id]
+    # ── 카테고리 소프트 삭제 ───────────────────────────────
+    for c in index.get("categories", []):
+        if c["id"] not in cat_id_set:
+            continue
+        c["isTrashed"] = True
+        c["trashedAt"] = trashed_at
+        c["originalParentId"] = c.get("parentId")
+        c["trashGroupId"] = group_id
 
-    # 부모의 childOrder에서 제거 (하위 카테고리인 경우)
-    # Python으로 치면: parent_id = cat.get('parentId'); if parent_id: child_order[parent_id].remove(cat_id)
+    # categoryOrder / categoryChildOrder에서 제거
+    index["categoryOrder"] = [cid for cid in index.get("categoryOrder", []) if cid not in cat_id_set]
     parent_id = cat.get("parentId")
-    if parent_id:
-        child_order = index.get("categoryChildOrder", {})
-        if parent_id in child_order:
-            child_order[parent_id] = [cid for cid in child_order[parent_id] if cid != cat_id]
-            # 자식 없어진 부모의 빈 리스트 제거
-            if not child_order[parent_id]:
-                del child_order[parent_id]
-
-    # categoryChildOrder에서 이 카테고리 키 자체도 제거 (이미 빈 상태지만 정리)
-    index.get("categoryChildOrder", {}).pop(cat_id, None)
+    if parent_id and parent_id in child_order:
+        child_order[parent_id] = [cid for cid in child_order[parent_id] if cid not in cat_id_set]
+        if not child_order[parent_id]:
+            del child_order[parent_id]
+    for cid in all_cat_ids:
+        child_order.pop(cid, None)
 
     save_index(index)
-
-    return {"ok": True, "hasPages": False}
+    return {"ok": True, "groupId": group_id}
 
 
 @router.patch("/categories/{cat_id}/move")
@@ -346,3 +377,24 @@ def reorder_children(parent_id: str, body: CategoryReorderBody):
     index.setdefault("categoryChildOrder", {})[parent_id] = body.order
     save_index(index)
     return {"ok": True}
+
+
+@router.patch("/categories/{cat_id}/color")
+def update_category_color(cat_id: str, body: UpdateCategoryColorBody):
+    """
+    폴더 아이콘 색상 변경
+    body.color = None  → 기본 색상으로 초기화
+    body.color = '#hex' → 해당 색상 저장
+    Python으로 치면: cat['color'] = body.color; save()
+    """
+    # 🔒 UUID 검증
+    validate_uuid(cat_id, "카테고리 ID")
+
+    index = load_index()
+    cat = next((c for c in index.get("categories", []) if c["id"] == cat_id), None)
+    if not cat:
+        raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
+
+    cat["color"] = body.color
+    save_index(index)
+    return {"ok": True, "category": cat}

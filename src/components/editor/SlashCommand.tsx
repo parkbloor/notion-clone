@@ -48,6 +48,8 @@ const COMMANDS = [
       { icon: '∑', name: '수식', description: 'LaTeX 수식 블록 — KaTeX 렌더링', type: 'math' as BlockType },
       { icon: '🔗', name: '임베드', description: 'YouTube · Vimeo · 웹페이지 URL을 iframe으로 삽입합니다', type: 'embed' as BlockType },
       { icon: '📊', name: 'Mermaid', description: 'flowchart · sequence · gantt 등 텍스트로 다이어그램 작성', type: 'mermaid' as BlockType },
+      { icon: '📈', name: '차트', description: '막대 · 선 · 파이 차트로 데이터를 시각화합니다', type: 'chart' as BlockType },
+      { icon: '📅', name: '갠트', description: '태스크 일정과 기간을 타임라인으로 시각화합니다', type: 'gantt' as BlockType },
     ]
   },
 ]
@@ -92,7 +94,9 @@ export default function SlashCommand({
     admonition:  plugins.admonition,
     canvas:      plugins.canvas,
     excalidraw:  plugins.excalidraw,  // Excalidraw 플러그인 OFF 시 슬래시 메뉴에서 숨김
-    layout:      plugins.layoutEnabled, // layoutEnabled OFF 시 슬래시 메뉴에서 숨김
+    layout:      plugins.layoutEnabled,
+    chart:       plugins.chart,         // 차트 플러그인 OFF 시 슬래시 메뉴에서 숨김
+    gantt:       plugins.gantt,         // 갠트 플러그인 OFF 시 슬래시 메뉴에서 숨김
     // video는 pluginBlockMap에 없으므로 항상 메뉴에 표시됨 (autoplay/loop은 설정에서만 조절)
   }
 

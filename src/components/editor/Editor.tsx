@@ -56,6 +56,8 @@ import LayoutBlock from './LayoutBlock'
 import MathBlock from './MathBlock'
 import EmbedBlock, { isEmbedUrl } from './EmbedBlock'
 import MermaidBlock from './MermaidBlock'
+import ChartBlock from './ChartBlock'
+import GanttBlock from './GanttBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
 import { ChevronRight, ChevronDown } from 'lucide-react'
@@ -729,6 +731,21 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (type === 'math') {
       updateBlock(pageId, block.id, '')
     }
+    // 차트 타입으로 전환 시 기본 막대 차트 JSON으로 초기화
+    // Python으로 치면: if type == 'chart': block.content = json.dumps({'chartType':'bar',...})
+    if (type === 'chart') {
+      updateBlock(pageId, block.id, JSON.stringify({
+        chartType: 'bar',
+        title: '',
+        labels: ['항목 1', '항목 2', '항목 3'],
+        series: [{ name: '데이터', data: [0, 0, 0], color: '#3b82f6' }],
+      }))
+    }
+    // 갠트 타입으로 전환 시 빈 content로 초기화 → GanttBlock 내부에서 기본 데이터 생성
+    // Python으로 치면: if type == 'gantt': block.content = ''
+    if (type === 'gantt') {
+      updateBlock(pageId, block.id, '')
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
@@ -1288,6 +1305,78 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
   }
 
   // -----------------------------------------------
+  // 차트 블록: ChartBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { chartType, title, labels, series }
+  // Python으로 치면: if block.type == 'chart': return render(ChartBlock)
+  // -----------------------------------------------
+  if (block.type === 'chart') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <ChartBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // 갠트 블록: GanttBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { title, tasks: [{id,name,start,end,color,progress}] }
+  // Python으로 치면: if block.type == 'gantt': return render(GanttBlock)
+  // -----------------------------------------------
+  if (block.type === 'gantt') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <GanttBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
   // 임베드 블록: EmbedBlock 컴포넌트로 렌더링
   // content는 JSON 문자열: { url: "https://..." }
   // Python으로 치면: if block.type == 'embed': return render(EmbedBlock)
