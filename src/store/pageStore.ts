@@ -90,14 +90,10 @@ function pushBlockHistory(pageId: string, blocks: readonly Block[]): void {
   if (h.past.length > 50) h.past.shift()  // 최대 50개 유지
 }
 
-// JSON 문자열에서 블록 배열 복원 (ISO 문자열 → Date 객체)
-// Python으로 치면: def parse_blocks(json_str): return [restore_dates(b) for b in json.loads(json_str)]
+// JSON 문자열에서 블록 배열 복원 (createdAt/updatedAt은 ISO 문자열 그대로 사용)
+// Python으로 치면: def parse_blocks(json_str): return json.loads(json_str)
 function parseBlocksFromJson(json: string): Block[] {
-  return (JSON.parse(json) as Block[]).map(b => ({
-    ...b,
-    createdAt: new Date(b.createdAt as unknown as string),
-    updatedAt: new Date(b.updatedAt as unknown as string),
-  }))
+  return JSON.parse(json) as Block[]
 }
 
 
@@ -434,7 +430,7 @@ export const usePageStore = create<PageStore>()(
     updatePageTitle: (pageId, title) => {
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
-        if (page) { page.title = title; page.updatedAt = new Date() }
+        if (page) { page.title = title; page.updatedAt = new Date().toISOString() }
       })
       scheduleSave(pageId, get, set)
     },
@@ -468,7 +464,7 @@ export const usePageStore = create<PageStore>()(
     updatePageIcon: (pageId, icon) => {
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
-        if (page) { page.icon = icon; page.updatedAt = new Date() }
+        if (page) { page.icon = icon; page.updatedAt = new Date().toISOString() }
       })
       scheduleSave(pageId, get, set)
     },
@@ -477,7 +473,7 @@ export const usePageStore = create<PageStore>()(
     updatePageCover: (pageId, cover) => {
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
-        if (page) { page.cover = cover; page.updatedAt = new Date() }
+        if (page) { page.cover = cover; page.updatedAt = new Date().toISOString() }
       })
       scheduleSave(pageId, get, set)
     },
@@ -487,7 +483,7 @@ export const usePageStore = create<PageStore>()(
     updatePageCoverPosition: (pageId, position) => {
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
-        if (page) { page.coverPosition = position; page.updatedAt = new Date() }
+        if (page) { page.coverPosition = position; page.updatedAt = new Date().toISOString() }
       })
       scheduleSave(pageId, get, set)
     },
@@ -507,7 +503,7 @@ export const usePageStore = create<PageStore>()(
         // 중복 방지
         if (!page.tags.includes(trimmed)) {
           page.tags.push(trimmed)
-          page.updatedAt = new Date()
+          page.updatedAt = new Date().toISOString()
         }
       })
       scheduleSave(pageId, get, set)
@@ -520,7 +516,7 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (page && page.tags) {
           page.tags = page.tags.filter(t => t !== tag)
-          page.updatedAt = new Date()
+          page.updatedAt = new Date().toISOString()
         }
       })
       scheduleSave(pageId, get, set)
@@ -547,7 +543,7 @@ export const usePageStore = create<PageStore>()(
         const idx = page.properties.findIndex(p => p.id === property.id)
         if (idx !== -1) page.properties[idx] = property
         else page.properties.push(property)
-        page.updatedAt = new Date()
+        page.updatedAt = new Date().toISOString()
       })
       scheduleSave(pageId, get, set)
     },
@@ -559,7 +555,7 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (page && page.properties) {
           page.properties = page.properties.filter(p => p.id !== propertyId)
-          page.updatedAt = new Date()
+          page.updatedAt = new Date().toISOString()
         }
       })
       scheduleSave(pageId, get, set)
@@ -575,7 +571,7 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (page) {
           page.starred = !page.starred
-          page.updatedAt = new Date()
+          page.updatedAt = new Date().toISOString()
         }
       })
       scheduleSave(pageId, get, set)
@@ -624,7 +620,7 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         page.canvasMode = !page.canvasMode
-        page.updatedAt = new Date()
+        page.updatedAt = new Date().toISOString()
       })
       scheduleSave(pageId, get, set)
     },
@@ -644,7 +640,7 @@ export const usePageStore = create<PageStore>()(
           if (ay !== by) return ay - by
           return (a.canvasX ?? Infinity) - (b.canvasX ?? Infinity)
         })
-        page.updatedAt = new Date()
+        page.updatedAt = new Date().toISOString()
       })
       scheduleSave(pageId, get, set)
     },
@@ -663,7 +659,7 @@ export const usePageStore = create<PageStore>()(
         if (canvas.y !== undefined) block.canvasY = canvas.y
         if (canvas.w !== undefined) block.canvasW = canvas.w
         if (canvas.h !== undefined) block.canvasH = canvas.h
-        block.updatedAt = new Date()
+        block.updatedAt = new Date().toISOString()
       })
       scheduleSave(pageId, get, set)
     },
@@ -695,7 +691,7 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         const block = page.blocks.find(b => b.id === blockId)
-        if (block) { block.content = content; block.updatedAt = new Date() }
+        if (block) { block.content = content; block.updatedAt = new Date().toISOString() }
       })
       scheduleSave(pageId, get, set)
     },
@@ -707,7 +703,7 @@ export const usePageStore = create<PageStore>()(
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         const block = page.blocks.find(b => b.id === blockId)
-        if (block) { block.type = type; block.updatedAt = new Date() }
+        if (block) { block.type = type; block.updatedAt = new Date().toISOString() }
         state.historyVersion++
       })
       scheduleSave(pageId, get, set)
@@ -797,7 +793,7 @@ export const usePageStore = create<PageStore>()(
         // 빈 페이지 보호: 블록이 0개가 되면 빈 단락 삽입
         if (fromPage.blocks.length === 0) fromPage.blocks.push(createBlock('paragraph'))
         // 대상 페이지 마지막에 추가 (updatedAt 갱신)
-        block.updatedAt = new Date()
+        block.updatedAt = new Date().toISOString()
         toPage.blocks.push(block)
         state.historyVersion++
       })
@@ -848,7 +844,7 @@ export const usePageStore = create<PageStore>()(
         // immer draft 내에서 배열 직접 교체 시 splice 사용 (직접 대입 시 변경 추적 안 됨)
         // Python으로 치면: page.blocks[:] = parsed_blocks
         page.blocks.splice(0, page.blocks.length, ...parsedBlocks)
-        page.updatedAt = new Date()
+        page.updatedAt = new Date().toISOString()
         state.historyVersion++
       })
       scheduleSave(pageId, get, set)
@@ -869,7 +865,7 @@ export const usePageStore = create<PageStore>()(
         // immer draft: splice로 교체 (직접 대입 시 변경 추적 안 됨)
         // Python으로 치면: page.blocks[:] = blocks
         page.blocks.splice(0, page.blocks.length, ...blocks)
-        page.updatedAt = new Date()
+        page.updatedAt = new Date().toISOString()
         state.historyVersion++
       })
       scheduleSave(pageId, get, set)
