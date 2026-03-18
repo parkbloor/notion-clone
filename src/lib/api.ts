@@ -30,20 +30,14 @@ function serializePage(page: Page): object {
 }
 
 // -----------------------------------------------
-// ISO 문자열 → Date 객체로 변환하는 헬퍼
-// Python으로 치면: def parse_page(p): p['createdAt'] = datetime.fromisoformat(p['createdAt'])
+// API 응답 → Page 타입으로 정규화 (createdAt/updatedAt은 ISO 문자열 그대로 사용)
+// Python으로 치면: def parse_page(p): return p  (이미 문자열이므로 변환 불필요)
 // -----------------------------------------------
-function parsePage(p: Page & { createdAt: string; updatedAt: string }): Page {
+function parsePage(p: Page): Page {
   return {
     ...p,
-    createdAt: new Date(p.createdAt),
-    updatedAt: new Date(p.updatedAt),
-    blocks: ((p.blocks ?? []) as unknown as Array<{ createdAt: string; updatedAt: string }>).map(b => ({
-      ...b,
-      createdAt: new Date(b.createdAt),
-      updatedAt: new Date(b.updatedAt),
-    })),
-  } as Page
+    blocks: p.blocks ?? [],
+  }
 }
 
 // -----------------------------------------------
