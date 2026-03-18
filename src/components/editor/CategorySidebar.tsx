@@ -944,9 +944,8 @@ export default function CategorySidebar({
         const q = searchQuery.toLowerCase()
         if (selectedDate) {
           // 날짜 필터와 검색 조합 지원
-          const dateStr = p.createdAt instanceof Date
-            ? `${p.createdAt.getFullYear()}-${String(p.createdAt.getMonth()+1).padStart(2,'0')}-${String(p.createdAt.getDate()).padStart(2,'0')}`
-            : String(p.createdAt || '').slice(0, 10)
+          // createdAt은 ISO 문자열 — 앞 10자리가 YYYY-MM-DD
+          const dateStr = String(p.createdAt || '').slice(0, 10)
           if (dateStr !== selectedDate) return false
         }
         return p.title.toLowerCase().includes(q) || getPageSearchText(p).toLowerCase().includes(q)
@@ -954,9 +953,8 @@ export default function CategorySidebar({
     : selectedDate
       // 날짜만 필터링 (검색어 없을 때)
       ? pages.filter(p => {
-          const dateStr = p.createdAt instanceof Date
-            ? `${p.createdAt.getFullYear()}-${String(p.createdAt.getMonth()+1).padStart(2,'0')}-${String(p.createdAt.getDate()).padStart(2,'0')}`
-            : String(p.createdAt || '').slice(0, 10)
+          // createdAt은 ISO 문자열 — 앞 10자리가 YYYY-MM-DD
+          const dateStr = String(p.createdAt || '').slice(0, 10)
           return dateStr === selectedDate
         })
       : null
