@@ -37,6 +37,8 @@ export type BlockType =
   | 'mermaid'      // Mermaid 다이어그램 블록 (flowchart / sequence / gantt 등)
   | 'chart'        // 차트 블록 (Bar / Line / Pie — recharts 기반)
   | 'gantt'        // 타임라인/갠트 차트 블록 (태스크 + 날짜 범위 시각화)
+  | 'mindmap'      // AI 마인드맵 블록 (방사형 트리 + AI 채팅 통합)
+  | 'ai'           // AI 글쓰기 슬래시 커맨드 전용 (실제 블록 생성 없음 — 패널만 열림)
 
 
 // -----------------------------------------------
@@ -79,8 +81,8 @@ export interface Block {
   type: BlockType      // 블록 종류 (paragraph, heading1 등)
   content: string      // 블록 내용 (HTML 문자열로 저장)
   children: Block[]    // 자식 블록 목록 (토글 안에 들어가는 블록들)
-  createdAt: Date      // 생성 시각
-  updatedAt: Date      // 마지막 수정 시각
+  createdAt: string    // 생성 시각 (ISO 8601 문자열 — 서버 JSON과 타입 일치)
+  updatedAt: string    // 마지막 수정 시각 (ISO 8601 문자열)
   // ── 캔버스 모드 전용 필드 ──────────────────────
   // 캔버스 모드에서 블록의 절대 위치와 크기 (그리드 20px 기준)
   // Python으로 치면: canvas_x: int | None = None
@@ -117,8 +119,8 @@ export interface Page {
   // 페이지 속성 목록 (날짜·상태·선택·텍스트) — 없으면 빈 배열로 취급
   // Python으로 치면: properties: list[PageProperty] = field(default_factory=list)
   properties?: PageProperty[]
-  createdAt: Date      // 생성 시각
-  updatedAt: Date      // 마지막 수정 시각
+  createdAt: string    // 생성 시각 (ISO 8601 문자열 — 서버 JSON과 타입 일치)
+  updatedAt: string    // 마지막 수정 시각 (ISO 8601 문자열)
   // 캔버스 모드 여부 — true이면 블록을 절대 좌표로 배치
   // Python으로 치면: canvas_mode: bool = False
   canvasMode?: boolean
@@ -136,8 +138,8 @@ export function createBlock(type: BlockType = 'paragraph'): Block {
     type,
     content: '',               // 처음엔 내용 없음
     children: [],              // 처음엔 자식 블록 없음
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 }
 
@@ -195,7 +197,7 @@ export function createPage(title: string = '제목 없음'): Page {
     title,
     icon: '📝',
     blocks: [createBlock('paragraph')],  // 페이지 생성 시 빈 블록 하나 자동 추가
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
 }

@@ -8,7 +8,7 @@
 
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import {
   BarChart, Bar,
   LineChart, Line,
@@ -18,6 +18,7 @@ import {
 } from 'recharts'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import AIChatPanel from '@/components/ai/AIChatPanel'
 
 // ── 차트 데이터 타입 ────────────────────────────
 // Python으로 치면: @dataclass class ChartSeries: name: str; data: list[float]; color: str
@@ -99,6 +100,21 @@ interface ChartBlockProps {
   pageId: string
 }
 
+// ── AI 시스템 프롬프트 ────────────────────────────
+// Python으로 치면: CHART_SYSTEM_PROMPT: str = "..."
+const CHART_SYSTEM_PROMPT = `당신은 데이터 시각화 전문가입니다.
+사용자의 요청에 따라 차트 데이터를 아래 JSON 형식으로만 반환하세요.
+설명이나 다른 텍스트 없이 JSON만 출력하세요.
+
+형식:
+{"chartType":"bar","title":"차트 제목","labels":["항목1","항목2","항목3"],"series":[{"name":"시리즈명","data":[값1,값2,값3],"color":"#3b82f6"}]}
+
+규칙:
+- chartType: "bar" | "line" | "pie" 중 하나
+- labels 배열 길이와 각 series의 data 배열 길이는 반드시 동일
+- series color는 hex 코드 (예: "#3b82f6")
+- 숫자 데이터는 정수 또는 소수점 1자리`
+
 export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   const { updateBlock } = usePageStore()
   // ── 상태 ────────────────────────────────────────
@@ -111,6 +127,10 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
     return c.series.every(s => s.data.every(v => v === 0))
   })
 
+  // AI 패널 열림 여부
+  // Python으로 치면: self.ai_open: bool = False
+  const [aiOpen, setAiOpen] = useState(false)
+
   // ── chart ref — setChart updater 안에서 최신 값 참조용 ──
   // setChart updater 내부에서 Zustand 스토어를 업데이트하면
   // React 렌더 단계에서 다른 컴포넌트의 setState를 호출하는 문제 발생
@@ -119,13 +139,33 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   const chartRef = useRef(chart)
   chartRef.current = chart
 
+  // ── 디바운스 타이머 ref — 저장 요청 과다 방지 ───
+  // 셀 입력마다 서버 요청이 발생하는 것을 막기 위해 500ms 디바운스
+  // Python으로 치면: self._save_timer: threading.Timer | None = None
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 언마운트 시 미실행 타이머 정리
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+  }, [])
+
   // ── chart 상태 변경 + 저장 ──────────────────────
   // setChart와 updateBlock을 분리 호출해야 "렌더 중 setState" 오류 방지
-  // Python으로 치면: def update(self, fn): next = fn(self.chart); self.chart = next; save(next)
-  const update = useCallback((updater: (prev: ChartData) => ChartData) => {
+  // immediate=true이면 즉시 저장 (AI 응답 적용 등 완결 동작), false면 500ms 디바운스
+  // Python으로 치면: def update(self, fn, immediate=False): next = fn(self.chart); self.chart = next; save(next)
+  const update = useCallback((updater: (prev: ChartData) => ChartData, immediate = false) => {
     const next = updater(chartRef.current)
     setChart(next)
-    updateBlock(pageId, block.id, JSON.stringify(next))
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    if (immediate) {
+      // AI 응답 등 완결 동작 — 즉시 저장
+      updateBlock(pageId, block.id, JSON.stringify(next))
+    } else {
+      // 일반 셀 입력 — 500ms 디바운스로 서버 요청 최소화
+      saveTimerRef.current = setTimeout(() => {
+        updateBlock(pageId, block.id, JSON.stringify(next))
+      }, 500)
+    }
   }, [updateBlock, pageId, block.id])
 
   // ── 라벨 변경 ────────────────────────────────────
@@ -198,6 +238,34 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
     update(c => ({ ...c, series: c.series.filter((_, idx) => idx !== si) }))
   }
 
+  // ── AI 응답에서 차트 데이터 파싱 후 적용 ──────────
+  // Python으로 치면: def apply_ai_chart(self, text: str) -> str | None: ...
+  function applyAiChart(text: string): string | void {
+    try {
+      const match = text.match(/\{[\s\S]*\}/)
+      if (!match) return '⚠️ JSON 형식이 없습니다.'
+      const parsed = JSON.parse(match[0])
+      if (!Array.isArray(parsed.labels) || !Array.isArray(parsed.series)) {
+        return '⚠️ labels/series 형식 오류'
+      }
+      // 색상 없는 시리즈에 기본 팔레트 적용
+      const fixed: ChartData = {
+        chartType: parsed.chartType || 'bar',
+        title: parsed.title || '',
+        labels: parsed.labels,
+        series: parsed.series.map((s: Partial<ChartSeries>, i: number) => ({
+          name: s.name || '시리즈' + (i + 1),
+          data: Array.isArray(s.data) ? s.data : [],
+          color: s.color || PALETTE[i % PALETTE.length],
+        })),
+      }
+      update(() => fixed, true)  // AI 응답 확정 — 즉시 저장
+      return '차트 데이터 적용됨 (' + fixed.labels.length + '개 항목)'
+    } catch {
+      return '⚠️ 파싱 실패 — JSON 형식을 확인하세요'
+    }
+  }
+
   // ── recharts 공통 Props ──────────────────────────
   const rechartsData = toRechartsData(chart)
   const chartHeight = 240
@@ -260,15 +328,21 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
         )}
         {/* 차트 */}
         {renderChart()}
-        {/* 편집 버튼 — hover 시 표시 */}
-        <button
-          type="button"
-          onClick={() => setIsEditing(true)}
-          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-all"
-          title="차트 편집"
-        >
-          ✏️
-        </button>
+        {/* 버튼들 — hover 시 표시 */}
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex gap-1 transition-all">
+          <button
+            type="button"
+            onClick={() => { setAiOpen(v => !v); setIsEditing(true) }}
+            className="p-1.5 text-xs text-purple-400 hover:text-purple-600 hover:bg-purple-50 rounded-md"
+            title="AI로 데이터 생성"
+          >✨</button>
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            className="p-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
+            title="차트 편집"
+          >✏️</button>
+        </div>
       </div>
     )
   }
@@ -277,7 +351,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   return (
     <div className="my-2 rounded-xl border border-blue-200 bg-white shadow-sm overflow-hidden">
 
-      {/* ── 헤더: 차트 타입 탭 + 제목 입력 ──────── */}
+      {/* ── 헤더: 차트 타입 탭 + 제목 입력 + AI 버튼 ──────── */}
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">
         {/* 차트 타입 탭 */}
         <div className="flex rounded-md border border-gray-200 overflow-hidden shrink-0">
@@ -302,10 +376,22 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
           placeholder="차트 제목 (선택)"
           className="flex-1 text-sm px-2 py-1 border border-gray-200 rounded-md outline-none focus:border-blue-300 bg-white"
         />
+        {/* AI 패널 토글 버튼 */}
+        <button
+          type="button"
+          onClick={() => setAiOpen(v => !v)}
+          title="AI로 데이터 생성"
+          className={aiOpen
+            ? "px-2.5 py-1 text-xs rounded-md font-medium bg-purple-500 text-white transition-colors shrink-0"
+            : "px-2.5 py-1 text-xs rounded-md text-purple-500 hover:bg-purple-50 border border-purple-200 transition-colors shrink-0"}
+        >✨ AI</button>
       </div>
 
+      {/* ── 메인 영역: 테이블 + AI 패널 (flex row) ──── */}
+      <div className="flex">
+
       {/* ── 데이터 테이블 ───────────────────────── */}
-      <div className="p-3 overflow-x-auto">
+      <div className="flex-1 p-3 overflow-x-auto">
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr>
@@ -407,6 +493,25 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
           </button>
         )}
       </div>
+
+      {/* ── AI 패널 (사이드바) ──────────────────── */}
+      {aiOpen && (
+        <AIChatPanel
+          title="AI 차트 생성"
+          icon="📊"
+          emptyHint={'데이터를 말하면 AI가\n차트 형식으로 만들어드립니다.\n\n예: "2024년 분기별 매출 샘플 만들어줘"'}
+          systemPrompt={CHART_SYSTEM_PROMPT}
+          context={() => JSON.stringify(chart)}
+          placeholder="차트 데이터를 요청하세요…"
+          quickCommands={['샘플 데이터 만들어줘', '항목 하나 더 추가해줘', '파이 차트로 변경해줘']}
+          mode="sidebar"
+          applyLabel="📊 차트에 적용"
+          onApply={applyAiChart}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
+
+      </div>{/* flex row 닫기 */}
 
       {/* ── 미리보기 + 완료 버튼 ────────────────── */}
       <div className="border-t border-gray-100 px-3 py-2 bg-gray-50">

@@ -8,7 +8,7 @@
 
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import { Block } from '@/types/block'
 
@@ -50,6 +50,23 @@ export default function TocPanel({ blocks }: TocPanelProps) {
   // 접힌 헤딩 ID 집합 — 접힌 헤딩의 하위 항목은 목차에서 숨김
   // Python으로 치면: self.collapsed_ids = set()
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+
+  // 마운트 시 localStorage에서 접힘 상태 복원
+  // Python으로 치면: def __init__(self): self.collapsed_ids = load_from_storage()
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('notion-clone-toc-collapsed')
+      if (raw) setCollapsedIds(new Set(JSON.parse(raw) as string[]))
+    } catch {}
+  }, [])
+
+  // collapsedIds 변경 시 localStorage에 저장
+  // Python으로 치면: @property def collapsed_ids(self): ... @collapsed_ids.setter def collapsed_ids(self, v): save(v)
+  useEffect(() => {
+    try {
+      localStorage.setItem('notion-clone-toc-collapsed', JSON.stringify([...collapsedIds]))
+    } catch {}
+  }, [collapsedIds])
 
   // -----------------------------------------------
   // 헤딩 블록만 추출 (heading1~6)

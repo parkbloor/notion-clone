@@ -6,6 +6,15 @@
 'use client'
 
 import { useEditor, EditorContent, Editor as TiptapEditor, ReactNodeViewRenderer } from '@tiptap/react'
+
+// ── 모듈 레벨 전역: 가장 최근에 포커스된 에디터 + 커서 위치 ──
+// 페이지에 여러 Editor 인스턴스가 마운트되므로 모듈 변수로 공유
+// ai-insert-text 이벤트는 이 에디터만 처리 (엉뚱한 블록 삽입 방지)
+// Python으로 치면: 모든 Editor 인스턴스가 공유하는 class variable
+const _aiInsertTarget: { editor: TiptapEditor | null; pos: number } = {
+  editor: null,
+  pos: 0,
+}
 import { StarterKit } from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Typography } from '@tiptap/extension-typography'
@@ -58,6 +67,7 @@ import EmbedBlock, { isEmbedUrl } from './EmbedBlock'
 import MermaidBlock from './MermaidBlock'
 import ChartBlock from './ChartBlock'
 import GanttBlock from './GanttBlock'
+import MindmapBlock from './MindmapBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
 import { ChevronRight, ChevronDown } from 'lucide-react'
@@ -573,6 +583,55 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     editor.setEditable(!readMode)
   }, [editor, readMode])
 
+  // ── 포커스/블러/커서 이동 → _aiInsertTarget 갱신 ──
+  // 모든 Editor 인스턴스 중 마지막으로 포커스된 것만 ai-insert-text를 처리
+  // Python으로 치면: def on_focus(self): global_target = (self, self.cursor_pos)
+  useEffect(() => {
+    if (!editor) return
+    function onFocus() {
+      _aiInsertTarget.editor = editor
+      _aiInsertTarget.pos = editor!.state.selection.from
+    }
+    function onBlur() {
+      // 포커스 이탈 시 현재 커서 위치 저장 (AI 패널 클릭 후 복원용)
+      if (_aiInsertTarget.editor === editor) {
+        _aiInsertTarget.pos = editor!.state.selection.from
+      }
+    }
+    function onSelectionUpdate() {
+      if (_aiInsertTarget.editor === editor) {
+        _aiInsertTarget.pos = editor!.state.selection.from
+      }
+    }
+    editor.on('focus', onFocus)
+    editor.on('blur', onBlur)
+    editor.on('selectionUpdate', onSelectionUpdate)
+    return () => {
+      editor.off('focus', onFocus)
+      editor.off('blur', onBlur)
+      editor.off('selectionUpdate', onSelectionUpdate)
+      // 이 인스턴스가 등록된 상태였으면 해제
+      if (_aiInsertTarget.editor === editor) _aiInsertTarget.editor = null
+    }
+  }, [editor])
+
+  // ── 플로팅 AI 패널 → 저장된 커서 위치에 삽입 ──
+  // _aiInsertTarget.editor 와 일치하는 인스턴스만 처리 → 엉뚱한 블록 삽입 방지
+  // Python으로 치면: window.on('ai-insert-text', lambda e: if self is global_target: insert(e.detail))
+  useEffect(() => {
+    function handleAiInsert(e: Event) {
+      // 이 인스턴스가 마지막 포커스 에디터가 아니면 무시
+      if (_aiInsertTarget.editor !== editor || !editor || readMode) return
+      const text = (e as CustomEvent<string>).detail
+      if (!text) return
+      // 저장된 커서 위치에 삽입 (포커스 이동 후에도 정확한 위치 보존)
+      // Python으로 치면: editor.insert_at(saved_pos, text)
+      editor.chain().focus().insertContentAt(_aiInsertTarget.pos, text).run()
+    }
+    window.addEventListener('ai-insert-text', handleAiInsert)
+    return () => window.removeEventListener('ai-insert-text', handleAiInsert)
+  }, [editor, readMode])
+
   // ── 찾기/바꾸기 스토어 구독 → 검색어 변경 시 각 에디터 플러그인에 전달 ──
   // Python으로 치면: def on_search_query_change(query, case): editor.dispatch(meta)
   const { query: searchQuery, caseSensitive: searchCase } = useFindReplaceStore()
@@ -678,6 +737,15 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (slashMatch) {
       editor.chain().deleteRange({ from: from - slashMatch[0].length, to: from }).run()
     }
+
+    // /ai 슬래시 커맨드 — 블록 타입 변경 없이 플로팅 AI 패널 열기
+    // Python으로 치면: if type == 'ai': dispatch('open-ai-panel'); return
+    if (type === 'ai' as BlockType) {
+      window.dispatchEvent(new CustomEvent('open-ai-panel'))
+      setSlashMenu(prev => ({ ...prev, isOpen: false }))
+      return
+    }
+
     updateBlockType(pageId, block.id, type)
     // 이미지·비디오 타입으로 전환 시 기존 텍스트 내용 초기화
     // 그래야 ImageBlock/VideoBlock이 업로드 UI를 표시함
@@ -745,6 +813,15 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: if type == 'gantt': block.content = ''
     if (type === 'gantt') {
       updateBlock(pageId, block.id, '')
+    }
+    // 마인드맵 타입으로 전환 시 루트 노드 하나로 초기화
+    // Python으로 치면: if type == 'mindmap': block.content = json.dumps({'nodes':[...],'chatHistory':[],'chatOpen':True})
+    if (type === 'mindmap') {
+      updateBlock(pageId, block.id, JSON.stringify({
+        nodes: [{ id: 'root', text: '중심 주제', parentId: null, collapsed: false }],
+        chatHistory: [],
+        chatOpen: true,
+      }))
     }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
@@ -1369,6 +1446,43 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         </div>
         <div className="flex-1">
           <GanttBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 마인드맵 블록: MindmapBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { nodes: MindNode[], chatHistory: ChatMsg[], chatOpen: boolean }
+  // Python으로 치면: if block.type == 'mindmap': return render(MindmapBlock)
+  // -----------------------------------------------
+  if (block.type === 'mindmap') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <MindmapBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />

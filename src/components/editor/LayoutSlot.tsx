@@ -125,7 +125,7 @@ export default function LayoutSlot({
   // Python으로 치면: def update_block(self, id, content): self.blocks[id].content = content
   function updateBlock(id: string, content: string) {
     onChange(
-      blocks.map(b => b.id === id ? { ...b, content, updatedAt: new Date() } : b)
+      blocks.map(b => b.id === id ? { ...b, content, updatedAt: new Date().toISOString() } : b)
     )
   }
 

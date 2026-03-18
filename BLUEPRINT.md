@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-03-17 (차트 블록, 갠트 블록, 페이지 버전 히스토리, 휴지통, 태그 브라우저 구현 완료)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-03-18 (AI 마인드맵 블록, AIChatPanel 공통 컴포넌트, 플로팅 AI 글쓰기 패널 구현 완료)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -95,8 +95,12 @@ notion-clone/
 │   │   │   ├── ShortcutModal.tsx # 단축키 안내 모달
 │   │   │   ├── ChartBlock.tsx    # ✅ 차트 블록 (Bar/Line/Pie — recharts)
 │   │   │   ├── GanttBlock.tsx    # ✅ 갠트 차트 블록 (태스크 타임라인 — 순수 CSS)
+│   │   │   ├── MindmapBlock.tsx  # ✅ AI 마인드맵 블록 (방사형 SVG + AI 채팅 패널)
 │   │   │   ├── VersionHistoryPanel.tsx # ✅ 페이지 버전 히스토리 슬라이드인 패널
 │   │   │   └── TrashPanel.tsx    # ✅ 휴지통 패널 (복원/영구삭제)
+│   │   │
+│   │   ├── ai/
+│   │   │   └── AIChatPanel.tsx   # ✅ 재사용 가능한 AI 채팅 공통 컴포넌트 (sidebar/floating 2모드)
 │   │   │
 │   │   ├── settings/
 │   │   │   ├── SettingsModal.tsx  # 설정 모달 (6탭 레이아웃)
@@ -213,6 +217,8 @@ content.json = {
 - [x] **Excalidraw 블록** — 손그림 스타일 다이어그램, 전체화면 토글, 800ms 디바운스 저장, ko-KR 로케일
 - [x] **차트 블록** — Bar/Line/Pie 3종, 표 편집 UI + recharts 렌더링, 시리즈별 색상 커스텀
 - [x] **갠트 차트 블록** — 태스크 테이블 편집 + 순수 CSS 타임라인, 오늘 표시선, hover 툴팁, 진행률 막대
+- [x] **AI 마인드맵 블록** — 방사형 SVG 트리 + AI 채팅 패널 통합. Tab/Enter/Del 단축키, 접기/펼치기, 우클릭 AI 확장, 팬/줌
+- [x] **플로팅 AI 글쓰기 패널** — `Ctrl+I` / `/ai` 슬래시 커맨드로 열기. 현재 페이지 전체를 컨텍스트로 전달. 적용 클릭 시 마지막 포커스 커서 위치에 텍스트 삽입
 
 ### ✅ 페이지 관리
 - [x] 페이지 생성/삭제/복제
@@ -255,6 +261,12 @@ content.json = {
 - [x] 이미지 업로드 — 확장자 화이트리스트(jpg/png/gif/webp) + 10MB 제한
 - [x] 라우터 분리 (`backend/routers/`) — pages, categories, export_import, search, system
 - [x] API 실패 시 토스트 알림 (sonner)
+
+### ✅ AI 시스템
+- [x] AI 통합 (OpenAI / Claude / Ollama + SSE 스트리밍) — `backend/routers/ai.py` + `AITab.tsx`
+- [x] BubbleMenuBar ✨ 버튼 — 다듬기/요약/계속쓰기/번역
+- [x] **AIChatPanel 공통 컴포넌트** (`src/components/ai/AIChatPanel.tsx`) — sidebar/floating 2모드, 스트리밍 SSE, 적용 시 `ai-insert-text` 이벤트 디스패치
+- [x] **플로팅 AI 글쓰기 패널** — `Ctrl+I` 토글 + `/ai` 슬래시 커맨드로 열기. 현재 페이지 전체 텍스트를 컨텍스트로 전달. `_aiInsertTarget` 모듈 변수로 마지막 포커스 커서 위치 추적 → 엉뚱한 블록 삽입 방지
 
 ### ✅ 기타
 - [x] @멘션 팝업 (`@` / `[[` 입력 시 페이지+블록 통합 검색 팝업)
@@ -356,6 +368,7 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
     canvas: boolean,          // ✅ 구현됨
     chart: boolean,           // ✅ 구현됨 (Bar/Line/Pie)
     gantt: boolean,           // ✅ 구현됨 (타임라인/갠트 차트)
+    mindmap: boolean,         // ✅ 구현됨 (AI 마인드맵 블록)
   }
 }
 ```
@@ -435,9 +448,16 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
 
 ### 🟡 우선순위 중간 (다음 개발 후보)
 
-#### 9-A. 마인드맵 블록 (중)
-- 캔버스 블록 확장 — 노드 기반 브레인스토밍
-- 중심 노드 더블클릭 → 자식 노드 추가, 자동 방사형 레이아웃
+#### ~~9-A. AI 마인드맵 블록~~ ✅ 완료 (2026-03-18)
+- `src/components/editor/MindmapBlock.tsx` 신규 생성
+  - 방사형 레이아웃: 리프 수 비례 각도 배분, 깊이별 반지름 축소, 최소 각도 보장
+  - 노드 인터랙션: 더블클릭 편집, Tab 자식추가, Enter 형제추가, Delete 삭제, Escape 선택해제
+  - 접기/펼치기: ±버튼, collapsed 노드 하위 전체 숨김
+  - 팬/줌: 배경 드래그 팬, Ctrl+스크롤 줌 (0.25~3배)
+  - 우클릭 컨텍스트 메뉴: 자식추가, 이름편집, AI로 확장, 삭제
+  - AI 채팅 패널: set_all / add_children / rename JSON 액션 3종
+  - 기존 `/api/ai/stream` SSE 재사용, 응답 누적 후 JSON 파싱
+  - 500ms 디바운스 저장 (block.content JSON)
 
 #### 9-B. PDF 내보내기 개선 (하)
 - 현재 `window.print()` 방식에서 puppeteer 기반 서버사이드 PDF 생성으로 업그레이드

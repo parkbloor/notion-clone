@@ -22,6 +22,7 @@ import BottomBar from '@/components/editor/BottomBar'
 import TabBar from '@/components/editor/TabBar'
 import GraphView from '@/components/editor/GraphView'
 import TrashPanel from '@/components/editor/TrashPanel'
+import AIChatPanel from '@/components/ai/AIChatPanel'
 import { X } from 'lucide-react'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
@@ -76,6 +77,10 @@ export default function Home() {
   // Python으로 치면: self.graph_view_open = False
   const [graphViewOpen, setGraphViewOpen] = useState(false)
 
+  // 플로팅 AI 패널 열림 여부 (Ctrl+I 또는 /ai 슬래시 커맨드)
+  // Python으로 치면: self.ai_panel_open = False
+  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+
   // 휴지통 패널 열림 여부
   // Python으로 치면: self.trash_open = False
   const [trashOpen, setTrashOpen] = useState(false)
@@ -87,6 +92,8 @@ export default function Home() {
   const [splitPageId, setSplitPageId] = useState<string | null>(null)
   const [splitRatio, setSplitRatio] = useState(0.5)
   const splitContainerRef = useRef<HTMLDivElement>(null)
+  // 스플릿 드래그 중 mousemove 핸들러 ref — 언마운트 시 좀비 리스너 방지
+  const splitMoveRef = useRef<((e: MouseEvent) => void) | null>(null)
 
   // 플러그인 설정 + 집중 모드 상태/토글
   // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
@@ -145,6 +152,30 @@ export default function Home() {
   }, [])
 
   // -----------------------------------------------
+  // Ctrl+I 단축키 → 플로팅 AI 패널 ON/OFF 토글
+  // /ai 슬래시 커맨드에서 발생하는 'open-ai-panel' 이벤트도 같이 수신
+  // Python으로 치면:
+  //   def on_key_down(e): if e.ctrl and e.key == 'i': toggle_ai_panel()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleAiPanelKey(e: KeyboardEvent) {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'i') {
+        e.preventDefault()
+        setAiPanelOpen(prev => !prev)
+      }
+    }
+    function handleAiPanelEvent() {
+      setAiPanelOpen(true)
+    }
+    window.addEventListener('keydown', handleAiPanelKey)
+    window.addEventListener('open-ai-panel', handleAiPanelEvent)
+    return () => {
+      window.removeEventListener('keydown', handleAiPanelKey)
+      window.removeEventListener('open-ai-panel', handleAiPanelEvent)
+    }
+  }, [])
+
+  // -----------------------------------------------
   // Ctrl+Shift+F 단축키 → 집중 모드 ON/OFF 토글
   // focusMode 플러그인이 OFF이면 무시
   // Python으로 치면:
@@ -183,11 +214,22 @@ export default function Home() {
       if (!rect) return
       setSplitRatio(Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left) / rect.width)))
     }
+    splitMoveRef.current = onMove  // 언마운트 cleanup용 참조 저장
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', () => {
       document.removeEventListener('mousemove', onMove)
+      splitMoveRef.current = null
     }, { once: true })
   }
+
+  // 언마운트 시 스플릿 드래그 리스너 정리 — 드래그 중 페이지 이동 등으로 좀비 리스너 방지
+  // Python으로 치면: def __del__(self): detach(self._split_move_handler)
+  useEffect(() => () => {
+    if (splitMoveRef.current) {
+      document.removeEventListener('mousemove', splitMoveRef.current)
+      splitMoveRef.current = null
+    }
+  }, [])
 
   // -----------------------------------------------
   // 앱 초기화 시 저장된 테마 + 편집기 스타일 복원
@@ -347,6 +389,12 @@ export default function Home() {
       // 유효한 탭만 복원 (삭제된 페이지 제외)
       const validTabs = (session.openTabs ?? []).filter(id => pageIds.has(id))
       if (validTabs.length > 0) setOpenTabs(validTabs)
+
+      // 마지막 활성 페이지 복원 — setOpenTabs 이후에 호출해야 중복 탭 방지
+      // Python으로 치면: if session.current_page_id in page_ids: self.current_page = session.current_page_id
+      if (session.currentPageId && pageIds.has(session.currentPageId)) {
+        setCurrentPage(session.currentPageId)
+      }
 
       // 스플릿 뷰 복원
       if (session.splitPageId && pageIds.has(session.splitPageId)) {
@@ -695,6 +743,39 @@ export default function Home() {
             Python으로 치면: if trash_open: render(TrashPanel) */}
         {trashOpen && (
           <TrashPanel onClose={() => setTrashOpen(false)} />
+        )}
+
+        {/* ── 플로팅 AI 패널 (Ctrl+I / /ai 슬래시) ───────────────
+            에디터 우측 하단에 고정. 현재 페이지 전체 텍스트를 컨텍스트로 전달.
+            '적용' 클릭 시 'ai-insert-text' 이벤트로 Editor.tsx에 삽입 위임
+            Python으로 치면: if ai_panel_open: render(AIChatPanel) */}
+        {aiPanelOpen && (
+          <AIChatPanel
+            title="AI 글쓰기 보조"
+            icon="✨"
+            emptyHint={'현재 페이지를 읽고 있습니다.\n무엇이든 물어보거나\n글 작성을 부탁해보세요.'}
+            systemPrompt="당신은 글쓰기 전문 AI 어시스턴트입니다. 사용자의 노트/문서 작성을 도와줍니다. 현재 문서 내용을 참고해 자연스럽게 이어지는 글을 작성해주세요."
+            context={() => {
+              const page = pages.find(p => p.id === currentPageId)
+              if (!page) return ''
+              return page.blocks
+                .filter(b => b.type === 'paragraph' || b.type.startsWith('heading'))
+                .map(b => b.content)
+                .filter(Boolean)
+                .join('\n')
+            }}
+            placeholder="글 작성을 도와드릴까요? (Enter 전송)"
+            quickCommands={['다음 단락 이어써줘', '요약해줘', '더 간결하게 다듬어줘', '제목 추천해줘']}
+            mode="floating"
+            applyLabel="✏️ 커서에 삽입"
+            onApply={(text) => {
+              // 'ai-insert-text' 이벤트로 현재 포커스된 Editor.tsx에 삽입 위임
+              // Python으로 치면: window.emit('ai-insert-text', text)
+              window.dispatchEvent(new CustomEvent('ai-insert-text', { detail: text }))
+              return '커서 위치에 삽입됨'
+            }}
+            onClose={() => setAiPanelOpen(false)}
+          />
         )}
 
       </div>

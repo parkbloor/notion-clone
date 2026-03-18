@@ -50,6 +50,13 @@ const COMMANDS = [
       { icon: '📊', name: 'Mermaid', description: 'flowchart · sequence · gantt 등 텍스트로 다이어그램 작성', type: 'mermaid' as BlockType },
       { icon: '📈', name: '차트', description: '막대 · 선 · 파이 차트로 데이터를 시각화합니다', type: 'chart' as BlockType },
       { icon: '📅', name: '갠트', description: '태스크 일정과 기간을 타임라인으로 시각화합니다', type: 'gantt' as BlockType },
+      { icon: '🧠', name: '마인드맵', description: 'AI와 대화하며 만드는 방사형 마인드맵', type: 'mindmap' as BlockType },
+    ]
+  },
+  {
+    group: 'AI',
+    items: [
+      { icon: '✨', name: 'AI 글쓰기', description: 'AI와 대화하며 현재 위치에 글 삽입 (Ctrl+I)', type: 'ai' as BlockType },
     ]
   },
 ]
@@ -97,6 +104,7 @@ export default function SlashCommand({
     layout:      plugins.layoutEnabled,
     chart:       plugins.chart,         // 차트 플러그인 OFF 시 슬래시 메뉴에서 숨김
     gantt:       plugins.gantt,         // 갠트 플러그인 OFF 시 슬래시 메뉴에서 숨김
+    mindmap:     plugins.mindmap,       // 마인드맵 플러그인 OFF 시 슬래시 메뉴에서 숨김
     // video는 pluginBlockMap에 없으므로 항상 메뉴에 표시됨 (autoplay/loop은 설정에서만 조절)
   }
 

@@ -597,12 +597,12 @@ export const usePageStore = create<PageStore>()(
           blocks: page.blocks.map(b => ({
             ...b,
             id: crypto.randomUUID(),
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
           })),
           starred: false, // 복사본은 즐겨찾기 해제
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         }
         const index = state.pages.findIndex(p => p.id === pageId)
         state.pages.splice(index + 1, 0, duplicate)
@@ -765,8 +765,8 @@ export const usePageStore = create<PageStore>()(
         const duplicate: Block = {
           ...original,
           id: crypto.randomUUID(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         }
         page.blocks.splice(index + 1, 0, duplicate)
         state.historyVersion++
@@ -824,8 +824,8 @@ export const usePageStore = create<PageStore>()(
         const copy: Block = {
           ...block,
           id: crypto.randomUUID(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         }
         toPage.blocks.push(copy)
         state.historyVersion++
