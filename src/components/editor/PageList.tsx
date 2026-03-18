@@ -825,9 +825,8 @@ export default function PageList({ onOpenSettings, onCloseMobile, dbViewActive, 
     if (selectedDate) {
       base = base.filter(p => {
         if (!p.createdAt) return false
-        const dateStr = p.createdAt instanceof Date
-          ? `${p.createdAt.getFullYear()}-${String(p.createdAt.getMonth()+1).padStart(2,'0')}-${String(p.createdAt.getDate()).padStart(2,'0')}`
-          : String(p.createdAt).slice(0, 10)
+        // createdAt은 ISO 문자열 — 앞 10자리가 YYYY-MM-DD
+        const dateStr = String(p.createdAt).slice(0, 10)
         return dateStr === selectedDate
       })
     }

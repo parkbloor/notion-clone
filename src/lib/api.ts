@@ -18,21 +18,13 @@ const BASE_URL = 'http://localhost:8000'
 function serializePage(page: Page): object {
   return {
     ...page,
-    // Date 객체 → ISO 8601 문자열
-    createdAt: page.createdAt instanceof Date
-      ? page.createdAt.toISOString()
-      : page.createdAt,
-    updatedAt: page.updatedAt instanceof Date
-      ? page.updatedAt.toISOString()
-      : page.updatedAt,
+    // createdAt/updatedAt은 이미 ISO 문자열 — 그대로 전달
+    createdAt: page.createdAt,
+    updatedAt: page.updatedAt,
     blocks: page.blocks.map(block => ({
       ...block,
-      createdAt: block.createdAt instanceof Date
-        ? block.createdAt.toISOString()
-        : block.createdAt,
-      updatedAt: block.updatedAt instanceof Date
-        ? block.updatedAt.toISOString()
-        : block.updatedAt,
+      createdAt: block.createdAt,
+      updatedAt: block.updatedAt,
     })),
   }
 }
