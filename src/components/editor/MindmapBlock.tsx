@@ -298,10 +298,9 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      // 페이지 읽기 모드 / 잠금 상태에서는 휠 줌 비활성화
-      // ref로 최신값 참조 → stale closure 없음
-      // Python으로 치면: if self.read_mode_ref: return
-      if (readModeRef.current) return
+      // 페이지 읽기/잠금 OR 마인드맵 내부 읽기 모드 → 휠 줌 비활성화
+      // Python으로 치면: if read_mode or read_only: return
+      if (readModeRef.current || readOnlyRef.current) return
       const factor = e.deltaY < 0 ? 1.12 : 0.9
       setZoom(z => Math.max(0.2, Math.min(4, z * factor)))
     }
