@@ -58,7 +58,19 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
 
     let cancelled = false
 
+    // -----------------------------------------------
+    // Mermaid v11은 렌더링 실패 시 body에 잔여 요소를 남김
+    // → 렌더 전후로 해당 ID 요소 강제 삭제
+    // Python으로 치면: def cleanup(): doc.getElementById(id).remove()
+    // -----------------------------------------------
+    function cleanupMermaidDom() {
+      document.getElementById(renderId)?.remove()
+      // Mermaid v11 내부적으로 'dmermaid-...' 형태의 래퍼 div도 생성
+      document.getElementById(`d${renderId}`)?.remove()
+    }
+
     async function renderDiagram() {
+      cleanupMermaidDom()
       try {
         // mermaid는 클라이언트 전용 → dynamic import
         const mermaid = (await import('mermaid')).default
@@ -73,6 +85,8 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
           setError('')
         }
       } catch (e) {
+        // 실패 시에도 mermaid가 body에 남긴 오류 요소 정리 (화면 하단 노출 방지)
+        cleanupMermaidDom()
         if (!cancelled) {
           setSvgHtml('')
           setError(e instanceof Error ? e.message.replace(/^Error:\s*/i, '') : '다이어그램 파싱 오류')
