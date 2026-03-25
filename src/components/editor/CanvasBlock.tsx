@@ -295,9 +295,14 @@ interface CanvasBlockProps {
   blockId: string
   content: string
   onChange: (s: string) => void
+  readMode?: boolean  // 읽기/잠금 모드 — true면 팬/줌/편집 모두 비활성화
 }
 
-export default function CanvasBlock({ blockId: _blockId, content, onChange }: CanvasBlockProps) {
+export default function CanvasBlock({ blockId: _blockId, content, onChange, readMode }: CanvasBlockProps) {
+  // readMode ref — 렌더 시점에 직접 업데이트 (useEffect보다 빠름, stale closure 방지)
+  // Python으로 치면: self._read_mode = read_mode  # 항상 최신값 보장
+  const readModeRef = useRef(readMode)
+  readModeRef.current = readMode
 
   const [data, setData]           = useState<CanvasData>(() => parseCanvas(content))
   const [viewport, setViewport]   = useState<Viewport>({ x: 0, y: 0, scale: 1.0 })
@@ -355,6 +360,8 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
     if (!el) return
     function onWheel(e: WheelEvent) {
       e.preventDefault()
+      // 읽기/잠금 모드에서는 휠 줌 비활성화
+      if (readModeRef.current) return
       const f = e.deltaY < 0 ? 1.1 : 0.9
       const rect = el!.getBoundingClientRect()
       const mx = e.clientX - rect.left, my = e.clientY - rect.top
@@ -372,6 +379,8 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   // ──────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 읽기/잠금 모드에서는 노드 삭제 비활성화
+      if (readModeRef.current) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId && !editingId) {
         setData(prev => {
           const nd = {
@@ -429,6 +438,8 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   // 노드 추가 (더블클릭)
   // ──────────────────────────────────────────────
   const addNode = useCallback((sx: number, sy: number) => {
+    // 읽기/잠금 모드에서는 노드 추가 비활성화
+    if (readModeRef.current) return
     const pos = toCanvas(sx, sy)
     const nn: CanvasNode = {
       id: crypto.randomUUID(), x: pos.x-90, y: pos.y-40,
@@ -445,6 +456,8 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
   const onCanvasDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
     setSelectedId(null); setEditingId(null); setColorPickerId(null)
+    // 읽기/잠금 모드에서는 팬 비활성화
+    if (readModeRef.current) return
     dragRef.current = { type:'pan', sx:e.clientX, sy:e.clientY, ox:viewport.x, oy:viewport.y, childOffsets:[] }
     e.preventDefault()
   }, [viewport.x, viewport.y])
@@ -456,6 +469,8 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
     if (e.button !== 0) return
     e.stopPropagation()
     setSelectedId(nodeId); setColorPickerId(null)
+    // 읽기/잠금 모드에서는 노드 이동 비활성화
+    if (readModeRef.current) return
     const sorted = readingOrderSort(dataRef.current.nodes)
     const node = sorted.find(n => n.id === nodeId)
     if (!node) return
@@ -753,36 +768,40 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
               className={['canvas-node absolute rounded-lg border shadow-sm group',C.bg,C.border,isSel?'ring-2 ring-blue-400 shadow-md':''].join(' ')}
               style={{ left:node.x, top:node.y, width:node.width, height:node.height, cursor:isEdit?'text':'grab' }}
               onMouseDown={(e) => onNodeDown(e, node.id)}
-              onDoubleClick={(e) => { e.stopPropagation(); setSelectedId(node.id); setEditingId(node.id) }}
+              onDoubleClick={(e) => { e.stopPropagation(); setSelectedId(node.id); if (!readMode) setEditingId(node.id) }}
             >
-              {/* 헤더: 색상 · 타입선택 · 접기 · 삭제 */}
+              {/* 헤더: 색상 · 타입선택 · 접기 · 삭제 (readMode에서는 접기만 표시) */}
               <div className={['flex items-center gap-1 px-2 py-1 rounded-t-lg border-b',C.border,C.header].join(' ')} style={{fontSize:'10px'}}>
-                {/* 색상 버튼 */}
-                <button type="button"
-                  className="w-3 h-3 rounded-full border border-white/60 shadow-sm shrink-0"
-                  onClick={(e)=>{e.stopPropagation();setColorPickerId(p=>p===node.id?null:node.id)}}
-                  title="색상 변경"
-                >
-                  {node.color && <span className={`block w-full h-full rounded-full ${NODE_STYLES[node.color].header}`} />}
-                </button>
+                {/* 색상 버튼 — readMode에서 숨김 */}
+                {!readMode && (
+                  <button type="button"
+                    className="w-3 h-3 rounded-full border border-white/60 shadow-sm shrink-0"
+                    onClick={(e)=>{e.stopPropagation();setColorPickerId(p=>p===node.id?null:node.id)}}
+                    title="색상 변경"
+                  >
+                    {node.color && <span className={`block w-full h-full rounded-full ${NODE_STYLES[node.color].header}`} />}
+                  </button>
+                )}
 
-                {/* 타입 선택 버튼 (H1/H2/H3/P) — hover 또는 선택 시 표시 */}
-                <div className={['flex gap-0.5 transition-opacity',isSel?'opacity-100':'opacity-0 group-hover:opacity-70'].join(' ')}>
-                  {NODE_TYPES.map(t => (
-                    <button key={t} type="button"
-                      className={['px-1 rounded leading-none font-medium transition-colors',
-                        node.nodeType===t
-                          ? 'bg-blue-500 text-white'
-                          : 'text-gray-500 hover:bg-gray-200'
-                      ].join(' ')}
-                      style={{fontSize:'9px'}}
-                      onClick={(e)=>{e.stopPropagation();updateNodeType(node.id,t)}}
-                      title={`타입: ${NODE_TYPE_LABELS[t]}`}
-                    >{NODE_TYPE_LABELS[t]}</button>
-                  ))}
-                </div>
+                {/* 타입 선택 버튼 (H1/H2/H3/P) — readMode에서 숨김 */}
+                {!readMode && (
+                  <div className={['flex gap-0.5 transition-opacity',isSel?'opacity-100':'opacity-0 group-hover:opacity-70'].join(' ')}>
+                    {NODE_TYPES.map(t => (
+                      <button key={t} type="button"
+                        className={['px-1 rounded leading-none font-medium transition-colors',
+                          node.nodeType===t
+                            ? 'bg-blue-500 text-white'
+                            : 'text-gray-500 hover:bg-gray-200'
+                        ].join(' ')}
+                        style={{fontSize:'9px'}}
+                        onClick={(e)=>{e.stopPropagation();updateNodeType(node.id,t)}}
+                        title={`타입: ${NODE_TYPE_LABELS[t]}`}
+                      >{NODE_TYPE_LABELS[t]}</button>
+                    ))}
+                  </div>
+                )}
 
-                {/* 접기/펼치기 버튼 — H1/H2/H3만, 자식 있을 때 */}
+                {/* 접기/펼치기 버튼 — H1/H2/H3만, readMode에서도 허용 */}
                 {node.nodeType !== 'paragraph' && (
                   <button type="button"
                     className={['ml-auto transition-opacity text-gray-400 hover:text-blue-500 leading-none px-0.5',
@@ -796,19 +815,21 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
                   >{node.collapsed ? '▶' : '▼'}</button>
                 )}
 
-                {/* 삭제 버튼 */}
-                <button type="button"
-                  className={['transition-opacity text-gray-400 hover:text-red-500 leading-none',
-                    node.nodeType==='paragraph'?'ml-auto':'',
-                    isSel?'opacity-70':'opacity-0 group-hover:opacity-40'].join(' ')}
-                  onClick={(e)=>{e.stopPropagation();deleteNode(node.id)}}
-                  title="노드 삭제 (Delete)"
-                >×</button>
+                {/* 삭제 버튼 — readMode에서 숨김 */}
+                {!readMode && (
+                  <button type="button"
+                    className={['transition-opacity text-gray-400 hover:text-red-500 leading-none',
+                      node.nodeType==='paragraph'?'ml-auto':'',
+                      isSel?'opacity-70':'opacity-0 group-hover:opacity-40'].join(' ')}
+                    onClick={(e)=>{e.stopPropagation();deleteNode(node.id)}}
+                    title="노드 삭제 (Delete)"
+                  >×</button>
+                )}
               </div>
 
               {/* 내용 — 타입별 폰트 스타일 적용 */}
               <div className="p-2 overflow-hidden" style={{height:`${node.height-30}px`}}>
-                {isEdit ? (
+                {isEdit && !readMode ? (
                   <textarea autoFocus
                     className="w-full h-full resize-none bg-transparent focus:outline-none text-gray-800"
                     style={NODE_TYPE_STYLE[node.nodeType]}
@@ -822,25 +843,25 @@ export default function CanvasBlock({ blockId: _blockId, content, onChange }: Ca
                 ) : (
                   <p className="leading-snug whitespace-pre-wrap wrap-break-word overflow-hidden text-gray-700"
                     style={NODE_TYPE_STYLE[node.nodeType]}>
-                    {node.text || <span className="text-gray-300 italic" style={{fontSize:'0.7rem'}}>더블클릭으로 편집</span>}
+                    {node.text || (!readMode && <span className="text-gray-300 italic" style={{fontSize:'0.7rem'}}>더블클릭으로 편집</span>)}
                   </p>
                 )}
               </div>
 
-              {/* 연결 핸들 — 모듈 레벨 컴포넌트 (unmount/remount 없음) */}
-              {(['top','bottom','left','right'] as Side[]).map(s => (
+              {/* 연결 핸들 · 리사이즈 핸들 — readMode에서 숨김 */}
+              {!readMode && (['top','bottom','left','right'] as Side[]).map(s => (
                 <ConnectHandle key={s} nodeId={node.id} side={s} onDown={onConnectStart} onUp={onConnectEnd} />
               ))}
-
-              {/* 리사이즈 핸들 — 모듈 레벨 컴포넌트 */}
-              <ResizeHandle
-                nodeId={node.id}
-                dataRef={dataRef}
-                viewportRef={viewportRef}
-                saveTimerRef={saveTimerRef}
-                onChangeRef={onChangeRef}
-                setData={setData}
-              />
+              {!readMode && (
+                <ResizeHandle
+                  nodeId={node.id}
+                  dataRef={dataRef}
+                  viewportRef={viewportRef}
+                  saveTimerRef={saveTimerRef}
+                  onChangeRef={onChangeRef}
+                  setData={setData}
+                />
+              )}
 
               {/* 색상 피커 */}
               {colorPickerId === node.id && (

@@ -1251,6 +1251,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
             blockId={block.id}
             content={block.content}
             onChange={(newContent) => updateBlock(pageId, block.id, newContent)}
+            readMode={readMode}
           />
         </div>
         {contextMenu && (
