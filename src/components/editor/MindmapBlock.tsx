@@ -233,14 +233,18 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
   const zoomRef = useRef(zoom)
   const panRef = useRef(pan)
   const readOnlyRef = useRef(readOnly)
-  // ref 동기화 — 4개를 하나의 useEffect로 통합 (관련 값이 함께 변하므로 묶는 게 자연스러움)
+  // 페이지 레벨 readMode도 ref로 동기화 (휠 핸들러에서 최신값 참조용)
+  // Python으로 치면: self.read_mode_ref = readMode
+  const readModeRef = useRef(readMode)
+  // ref 동기화 — 관련 값이 함께 변하므로 묶는 게 자연스러움
   // Python으로 치면: @property def _sync_refs(self): self.zoom_ref = self.zoom; ...
   useEffect(() => {
     zoomRef.current = zoom
     panRef.current = pan
     nodesRef.current = nodes
     readOnlyRef.current = readOnly
-  }, [zoom, pan, nodes, readOnly])
+    readModeRef.current = readMode
+  }, [zoom, pan, nodes, readOnly, readMode])
 
   // ── 레이아웃 계산 ─────────────────────────────────
   const autoPositions = useMemo(() => computeLayout(nodes), [nodes])
@@ -295,14 +299,15 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       // 페이지 읽기 모드 / 잠금 상태에서는 휠 줌 비활성화
-      // Python으로 치면: if read_mode: return
-      if (readMode) return
+      // ref로 최신값 참조 → stale closure 없음
+      // Python으로 치면: if self.read_mode_ref: return
+      if (readModeRef.current) return
       const factor = e.deltaY < 0 ? 1.12 : 0.9
       setZoom(z => Math.max(0.2, Math.min(4, z * factor)))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [readMode])
+  }, [])
 
   // ── 언마운트 시 진행 중인 AI 스트림 취소 ──────────
   // Python으로 치면: def __del__(self): self._abort_controller?.abort()
