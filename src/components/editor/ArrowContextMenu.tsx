@@ -260,7 +260,7 @@ export default function ArrowContextMenu() {
         zIndex: 10001,
         minWidth: '180px',
       }}
-      className="bg-gray-900 rounded-lg shadow-xl border border-gray-700 py-2"
+      className="bg-gray-900 rounded-lg shadow-xl border border-gray-700 py-2 print-hide"
       onMouseDown={(e) => e.stopPropagation()}
     >
       {/* ── 색상 선택 ─────────────────────────── */}

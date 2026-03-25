@@ -253,12 +253,15 @@ export default function Home() {
   const {
     currentPageId,
     pages,
+    categories,
     openTabs,
     categoryOrder,
     categoryChildOrder,
     setCurrentPage,
     setOpenTabs,
     addPage,
+    updatePageIcon,
+    setPageBlocks,
     loadFromServer,
     movePageToCategory,
     reorderCategories,
@@ -270,11 +273,23 @@ export default function Home() {
   } = usePageStore()
 
   // -----------------------------------------------
-  // 오늘의 일간 노트를 열거나 없으면 새로 생성
-  // 제목 형식: "일간 노트 YYYY-MM-DD"
-  // Python으로 치면: def open_daily_note(self): ...
+  // ISO 8601 주차 계산 헬퍼 (1월 첫째 목요일이 속한 주 = 1주)
+  // Python으로 치면: date.isocalendar()[1]
   // -----------------------------------------------
-  function openDailyNote() {
+  function getISOWeek(date: Date): number {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+    const dayNum = d.getUTCDay() || 7
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+    return Math.ceil((((d.valueOf() - yearStart.valueOf()) / 86400000) + 1) / 7)
+  }
+
+  // -----------------------------------------------
+  // 오늘의 일간 노트를 열거나 없으면 템플릿으로 생성
+  // 제목 형식: "일간 노트 YYYY-MM-DD" / 아이콘: 📅
+  // Python으로 치면: async def open_daily_note(self): ...
+  // -----------------------------------------------
+  async function openDailyNote() {
     const today = new Date()
     const yy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, '0')
@@ -285,10 +300,64 @@ export default function Home() {
     const existing = pages.find(p => p.title === title)
     if (existing) {
       setCurrentPage(existing.id)
-    } else {
-      // 없으면 새 페이지 생성 (addPage가 currentPageId를 새 페이지로 설정함)
-      addPage(title, null)
+      return
     }
+
+    // 전용 카테고리 찾기 (loadFromServer에서 자동 생성됨)
+    const cat = categories.find(c => c.name === '📅 일간 노트')
+
+    // 새 페이지 생성 (addPage가 currentPageId를 새 페이지로 설정)
+    await addPage(title, cat?.id ?? null)
+
+    // 생성 직후 store에서 새 페이지 ID 가져오기
+    // Python으로 치면: new_page_id = page_store.current_page_id
+    const newId = usePageStore.getState().currentPageId
+    if (!newId) return
+
+    // 아이콘 변경 + 템플릿 블록 적용
+    updatePageIcon(newId, '📅')
+    setPageBlocks(newId, [
+      { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '오늘의 할 일', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'taskList', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '메모', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    ])
+  }
+
+  // -----------------------------------------------
+  // 이번 주 주간 노트를 열거나 없으면 템플릿으로 생성
+  // 제목 형식: "주간 노트 YYYY-WNN" / 아이콘: 📆
+  // Python으로 치면: async def open_weekly_note(self): ...
+  // -----------------------------------------------
+  async function openWeeklyNote() {
+    const today = new Date()
+    const yy = today.getFullYear()
+    const ww = String(getISOWeek(today)).padStart(2, '0')
+    const title = `주간 노트 ${yy}-W${ww}`
+
+    const existing = pages.find(p => p.title === title)
+    if (existing) {
+      setCurrentPage(existing.id)
+      return
+    }
+
+    const cat = categories.find(c => c.name === '📆 주간 노트')
+    await addPage(title, cat?.id ?? null)
+
+    const newId = usePageStore.getState().currentPageId
+    if (!newId) return
+
+    updatePageIcon(newId, '📆')
+    setPageBlocks(newId, [
+      { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '이번 주 목표', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '회고', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    ])
   }
 
   // -----------------------------------------------
@@ -308,6 +377,39 @@ export default function Home() {
     window.addEventListener('keydown', handleDailyKey)
     return () => window.removeEventListener('keydown', handleDailyKey)
   }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // Ctrl+Alt+W 단축키 → 이번 주 주간 노트 열기/생성
+  // periodicNotes 플러그인이 OFF이면 무시
+  // Python으로 치면:
+  //   def on_key_down(event):
+  //       if event.ctrl and event.alt and event.key == 'w': open_weekly_note()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleWeeklyKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'w' && plugins.periodicNotes) {
+        e.preventDefault()
+        openWeeklyNote()
+      }
+    }
+    window.addEventListener('keydown', handleWeeklyKey)
+    return () => window.removeEventListener('keydown', handleWeeklyKey)
+  }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // Ctrl+Shift+R → 읽기 모드 토글 (PageEditor에 CustomEvent 발행)
+  // Python으로 치면: def on_key_down(e): if ctrl+shift+r: emit('toggle-read-mode')
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleReadModeKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('toggle-read-mode'))
+      }
+    }
+    window.addEventListener('keydown', handleReadModeKey)
+    return () => window.removeEventListener('keydown', handleReadModeKey)
+  }, [])
 
   // -----------------------------------------------
   // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z → 블록 구조 undo/redo
@@ -615,8 +717,9 @@ export default function Home() {
           <div ref={splitContainerRef} className="flex-1 flex overflow-hidden min-h-0">
 
             {/* ── 왼쪽 패널 (항상 표시) ──────────── */}
+            {/* split-left-panel: @media print에서 전체 너비로 강제 확장 */}
             <div
-              className="overflow-y-auto min-w-0"
+              className="overflow-y-auto min-w-0 split-left-panel"
               style={{ flex: splitPageId ? `${splitRatio * 100} 1 0%` : '1 1 0%' }}
             >
               {dbViewActive ? (
@@ -635,7 +738,7 @@ export default function Home() {
             {splitPageId && (
               <div
                 onMouseDown={handleSplitResizeStart}
-                className="w-px shrink-0 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors"
+                className="w-px shrink-0 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors print-hide"
                 title="드래그하여 크기 조절"
               />
             )}
@@ -646,7 +749,7 @@ export default function Home() {
               const splitPage = pages.find(p => p.id === splitPageId)
               return (
                 <div
-                  className="flex flex-col min-w-0 border-l border-gray-200"
+                  className="flex flex-col min-w-0 border-l border-gray-200 print-hide"
                   style={{ flex: `${(1 - splitRatio) * 100} 1 0%` }}
                 >
                   {/* 오른쪽 패널 헤더: 페이지 제목 + 닫기 버튼 */}

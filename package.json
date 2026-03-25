@@ -4,10 +4,10 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev\" \"python -m uvicorn backend.main:app --reload --port 8000\"",
+    "dev": "concurrently --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev\" \"node scripts/start-backend.js\"",
     "dev:next": "next dev",
-    "dev:api": "python -m uvicorn backend.main:app --reload --port 8000",
-    "electron:dev": "concurrently --names \"next,fastapi,electron\" --prefix-colors \"blue,green,cyan\" --kill-others-on-fail \"next dev\" \"python -m uvicorn backend.main:app --reload --port 8000\" \"wait-on http://localhost:3000 http://localhost:8000 && electron .\"",
+    "dev:api": "node scripts/start-backend.js",
+    "electron:dev": "concurrently --names \"next,fastapi,electron\" --prefix-colors \"blue,green,cyan\" --kill-others-on-fail \"next dev\" \"node scripts/start-backend.js\" \"wait-on http://localhost:3000 http://localhost:8000 && electron .\"",
     "build": "next build",
     "build:next": "next build && node scripts/copy-next-static.js",
     "build:backend": "python -m PyInstaller backend/backend.spec --distpath dist-backend --workpath build-backend --noconfirm",

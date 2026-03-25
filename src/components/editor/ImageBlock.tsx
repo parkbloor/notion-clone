@@ -234,7 +234,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
           max-w-full: 부모 너비를 초과하지 않음 */}
       <div
         ref={containerRef}
-        className="relative group/img my-1 inline-block"
+        className="image-block-wrapper relative group/img my-1 inline-block"
         style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : 'auto' }}
       >
         <img

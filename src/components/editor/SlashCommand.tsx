@@ -51,6 +51,8 @@ const COMMANDS = [
       { icon: '📈', name: '차트', description: '막대 · 선 · 파이 차트로 데이터를 시각화합니다', type: 'chart' as BlockType },
       { icon: '📅', name: '갠트', description: '태스크 일정과 기간을 타임라인으로 시각화합니다', type: 'gantt' as BlockType },
       { icon: '🧠', name: '마인드맵', description: 'AI와 대화하며 만드는 방사형 마인드맵', type: 'mindmap' as BlockType },
+      { icon: '📑', name: '목차', description: '페이지 내 제목(H1~H6)을 자동으로 목록화합니다', type: 'toc' as BlockType },
+      { icon: '📎', name: '파일', description: 'PDF · docx · zip 등 파일을 첨부합니다', type: 'file' as BlockType },
     ]
   },
   {

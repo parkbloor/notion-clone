@@ -150,7 +150,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
     // 왼쪽 색상 테두리 + 배경색 박스 레이아웃
     // Python으로 치면: Box(border_left=style.border, bg=style.bg)
     // -----------------------------------------------
-    <div className={`flex gap-3 rounded-r-lg border-l-4 px-4 py-3 my-1 ${style.bg} ${style.border}`}>
+    <div className={`admonition-block flex gap-3 rounded-r-lg border-l-4 px-4 py-3 my-1 ${style.bg} ${style.border}`}>
 
       {/* 아이콘 버튼 — 클릭 시 종류 순환 */}
       {/* Python으로 치면: Button(icon, on_click=cycle_variant, tooltip='클릭해서 종류 변경') */}

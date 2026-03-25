@@ -8,12 +8,17 @@
 
 'use client'
 
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronRight, ChevronDown } from 'lucide-react'
 import { Block } from '@/types/block'
 
 interface TocPanelProps {
   blocks: Block[]
+  // 접힌 헤딩 ID 집합 (PageEditor와 공유 — 동기화 목적)
+  // Python으로 치면: collapsed_ids: set[str]
+  collapsedIds: Set<string>
+  // 접기/펼치기 토글 콜백
+  onToggleCollapse: (blockId: string) => void
 }
 
 // -----------------------------------------------
@@ -43,30 +48,9 @@ const HEADING_LEVEL: Record<string, number> = {
 // 레벨별 들여쓰기 클래스 (level-1 인덱스로 사용)
 const INDENT_CLASSES = ['', 'pl-3', 'pl-5', 'pl-7', 'pl-9', 'pl-11'] as const
 
-export default function TocPanel({ blocks }: TocPanelProps) {
+export default function TocPanel({ blocks, collapsedIds, onToggleCollapse }: TocPanelProps) {
   // 현재 클릭된 항목 ID (스크롤 피드백용)
   const [activeId, setActiveId] = useState<string | null>(null)
-
-  // 접힌 헤딩 ID 집합 — 접힌 헤딩의 하위 항목은 목차에서 숨김
-  // Python으로 치면: self.collapsed_ids = set()
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
-
-  // 마운트 시 localStorage에서 접힘 상태 복원
-  // Python으로 치면: def __init__(self): self.collapsed_ids = load_from_storage()
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('notion-clone-toc-collapsed')
-      if (raw) setCollapsedIds(new Set(JSON.parse(raw) as string[]))
-    } catch {}
-  }, [])
-
-  // collapsedIds 변경 시 localStorage에 저장
-  // Python으로 치면: @property def collapsed_ids(self): ... @collapsed_ids.setter def collapsed_ids(self, v): save(v)
-  useEffect(() => {
-    try {
-      localStorage.setItem('notion-clone-toc-collapsed', JSON.stringify([...collapsedIds]))
-    } catch {}
-  }, [collapsedIds])
 
   // -----------------------------------------------
   // 헤딩 블록만 추출 (heading1~6)
@@ -142,17 +126,12 @@ export default function TocPanel({ blocks }: TocPanelProps) {
   }
 
   // -----------------------------------------------
-  // 접기/펼치기 토글
-  // Python으로 치면: collapsed_ids.symmetric_difference_update({block_id})
+  // 접기/펼치기 토글 — 상위 PageEditor의 toggleSection으로 위임
+  // Python으로 치면: def toggle_collapse(block_id): parent.toggle_section(block_id)
   // -----------------------------------------------
   function toggleCollapse(e: React.MouseEvent, blockId: string) {
     e.stopPropagation()
-    setCollapsedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(blockId)) next.delete(blockId)
-      else next.add(blockId)
-      return next
-    })
+    onToggleCollapse(blockId)
   }
 
   return (

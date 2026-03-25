@@ -15,6 +15,7 @@ import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { Category, Page } from '@/types/block'
 import CalendarWidget from './CalendarWidget'
+import PeriodicNotesPanel from './PeriodicNotesPanel'
 import NewPageDialog from './NewPageDialog'
 import { toast } from 'sonner'
 import { templateApi } from '@/lib/api'
@@ -38,8 +39,8 @@ import { Table2, Folder, ChevronsDown, ChevronsUp, GitFork } from 'lucide-react'
 // Python으로 치면: DEPTH_STYLES: list[dict] = [...]
 // -----------------------------------------------
 const DEPTH_STYLES = [
-  // depth 0: 최상위 — 기본 회색
-  { dot: '', folder: 'text-gray-400', normal: 'text-gray-600 hover:bg-gray-100', selected: 'bg-gray-200 text-gray-900', over: 'bg-blue-100 text-blue-800' },
+  // depth 0: 최상위 — 반투명 배경 + 폰트 굵게로 계층 최상위 강조
+  { dot: '', folder: 'text-gray-500', normal: 'font-semibold text-gray-700 hover:bg-gray-200/70', selected: 'bg-gray-200 text-gray-900 font-semibold', over: 'bg-blue-100 text-blue-800' },
   // depth 1 — 파란 계열
   { dot: 'bg-blue-400', folder: 'text-blue-400', normal: 'text-blue-600 hover:bg-blue-50', selected: 'bg-blue-100 text-blue-900', over: 'bg-blue-200 text-blue-900' },
   // depth 2 — 보라 계열
@@ -53,7 +54,8 @@ const DEPTH_STYLES = [
 // depth D 폴더의 자식 범위를 잇는 수직선 색상
 // Python으로 치면: GUIDE_COLORS = {0: gray, 1: blue, 2: violet, 3+: teal}
 // -----------------------------------------------
-const GUIDE_COLORS = ['#e5e7eb', '#bfdbfe', '#ddd6fe', '#99f6e4'] as const
+// depth별 기본 가이드 라인 색 — 폴더 커스텀 색상 없을 때 사용, 기존보다 더 진하게
+const GUIDE_COLORS = ['#d1d5db', '#93c5fd', '#c4b5fd', '#5eead4'] as const
 
 
 // -----------------------------------------------
@@ -426,18 +428,50 @@ interface CategoryRowUIProps {
   onColorChange: (color: string | null) => void  // 폴더 색상 변경
 }
 
-// 폴더 색상 팔레트 — null은 기본(depth 색상), 나머지는 hex
-// Python으로 치면: FOLDER_COLORS = [None, '#ef4444', ...]
-const FOLDER_COLORS: (string | null)[] = [
-  null,       // 기본 (depth 색상)
-  '#ef4444',  // 빨강
-  '#f97316',  // 주황
-  '#eab308',  // 노랑
-  '#22c55e',  // 초록
-  '#3b82f6',  // 파랑
-  '#8b5cf6',  // 보라
-  '#ec4899',  // 핑크
-  '#6b7280',  // 회색
+// 폴더 색상 팔레트 — 그룹별 구조 (기본 / 파스텔 / 형광)
+// null = 기본(depth 색상 자동 적용)
+// Python으로 치면: FOLDER_COLOR_GROUPS = [{'label': '기본', 'colors': [...]}, ...]
+const FOLDER_COLOR_GROUPS: { label: string; colors: (string | null)[] }[] = [
+  {
+    label: '기본',
+    colors: [
+      null,       // 기본 (depth 색상)
+      '#6b7280',  // 회색
+      '#ef4444',  // 빨강
+      '#f97316',  // 주황
+      '#eab308',  // 노랑
+      '#22c55e',  // 초록
+      '#3b82f6',  // 파랑
+      '#8b5cf6',  // 보라
+      '#ec4899',  // 핑크
+    ],
+  },
+  {
+    label: '파스텔',
+    colors: [
+      '#fca5a5',  // 파스텔 빨강
+      '#fdba74',  // 파스텔 주황
+      '#fde68a',  // 파스텔 노랑
+      '#86efac',  // 파스텔 초록
+      '#93c5fd',  // 파스텔 파랑
+      '#c4b5fd',  // 파스텔 보라
+      '#f9a8d4',  // 파스텔 핑크
+      '#d1d5db',  // 파스텔 회색
+    ],
+  },
+  {
+    label: '형광',
+    colors: [
+      '#ff4d4d',  // 형광 빨강
+      '#ff8c00',  // 형광 주황
+      '#ffd700',  // 형광 노랑
+      '#00e676',  // 형광 초록
+      '#2979ff',  // 형광 파랑
+      '#d500f9',  // 형광 보라
+      '#ff4081',  // 형광 핑크
+      '#00e5ff',  // 형광 청록
+    ],
+  },
 ]
 
 function CategoryRowUI({
@@ -482,8 +516,21 @@ function CategoryRowUI({
   const selectedBtn = baseBtn + " " + ds.selected
   const overBtn = baseBtn + " " + ds.over
 
+  // depth=0 최상위 폴더 하이라이트 배경색 계산
+  // 커스텀 색상 있으면 해당 색 12% 투명, 없으면 회색 12% 투명
+  // Python으로 치면: bg = (cat.color + '1f') if cat.color else 'rgba(107,114,128,0.12)'
+  const depth0BgColor = depth === 0
+    ? (category.color ? category.color + '1f' : 'rgba(107,114,128,0.12)')
+    : undefined
+
   return (
-    <div ref={setNodeRef} style={{ ...style, ...indentStyle }} className="group relative">
+    // depth=0 최상위 폴더: 위아래 약간의 여백 + 반투명 하이라이트 배경
+    // Python으로 치면: wrapper_style = {'background': bg_color, 'margin_top': '2px'} if depth == 0 else {}
+    <div
+      ref={setNodeRef}
+      style={{ ...style, ...indentStyle, backgroundColor: depth0BgColor }}
+      className={['group relative rounded-md', depth === 0 ? 'mt-0.5' : ''].join(' ')}
+    >
       {isEditing ? (
         <input
           autoFocus value={editValue}
@@ -520,22 +567,30 @@ function CategoryRowUI({
             </span>
           )}
 
-          {/* 펼치기/접기 토글 */}
+          {/* 펼치기/접기 토글 — 폴더 커스텀 색상 있으면 동일 색, 없으면 depth 색 */}
+          {/* Python으로 치면: triangle_color = category.color or depth_color */}
           <span
-            className="shrink-0 w-4 text-center text-gray-400 text-xs leading-none"
+            className={['shrink-0 w-4 text-center text-xs leading-none', category.color ? '' : ds.folder].join(' ')}
             onClick={(e) => {
               if (!hasChildren) return
               e.stopPropagation()
               onToggleExpand()
             }}
-            style={{ cursor: hasChildren ? 'pointer' : 'default' }}
+            style={{
+              cursor: hasChildren ? 'pointer' : 'default',
+              color: category.color ?? undefined,
+            }}
           >
             {hasChildren ? (isExpanded ? '▼' : '▶') : ''}
           </span>
 
-          {/* 깊이 색상 도트 */}
-          {depth > 0 && ds.dot && (
-            <span className={"shrink-0 w-1 h-3.5 rounded-full " + ds.dot} />
+          {/* 깊이 색상 도트 — 커스텀 색 있으면 자기 색, 없으면 depth 기본색 */}
+          {/* Python으로 치면: dot_color = category.color or ds.dot_color */}
+          {depth > 0 && (category.color || ds.dot) && (
+            <span
+              className={['shrink-0 w-1 h-3.5 rounded-full', category.color ? '' : ds.dot].join(' ')}
+              style={category.color ? { backgroundColor: category.color } : undefined}
+            />
           )}
 
           {/* 폴더 아이콘 — 커스텀 색상 우선(fill 적용), 없으면 depth 기본 색상 */}
@@ -633,22 +688,31 @@ function CategoryRowUI({
               title: '폴더 색상',
               // ContextMenu의 actions 대신 custom 렌더링을 위해 빈 배열 + 별도 UI
               actions: [],
-              // custom 슬롯: 색상 팔레트를 직접 렌더링
+              // custom 슬롯: 그룹별 색상 팔레트를 직접 렌더링 (기본 / 파스텔 / 형광)
+              // Python으로 치면: for group in FOLDER_COLOR_GROUPS: render_group(group)
               customRender: (
-                <div className="flex flex-wrap gap-1 px-3 py-1.5" onMouseDown={e => e.stopPropagation()}>
-                  {FOLDER_COLORS.map((c, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      title={c ?? '기본 색상'}
-                      onClick={() => { onColorChange(c) }}
-                      className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
-                      style={{
-                        background: c ?? '#e5e7eb',
-                        borderColor: category.color === c ? '#1d4ed8' : 'transparent',
-                        outline: c === null && !category.color ? '2px solid #93c5fd' : undefined,
-                      }}
-                    />
+                <div className="px-3 py-1.5 space-y-1.5" onMouseDown={e => e.stopPropagation()}>
+                  {FOLDER_COLOR_GROUPS.map(group => (
+                    <div key={group.label}>
+                      <div className="text-[10px] text-gray-400 mb-1">{group.label}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {group.colors.map((c, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            title={c ?? '기본 색상'}
+                            onClick={() => { onColorChange(c) }}
+                            className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
+                            style={{
+                              background: c ?? '#e5e7eb',
+                              borderColor: category.color === c ? '#1d4ed8'
+                                : (c === null && !category.color) ? '#93c5fd'
+                                : 'transparent',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               ),
@@ -1137,14 +1201,16 @@ export default function CategorySidebar({
             {/* 트리 가이드 라인 — 이 폴더의 자식 범위를 수직선으로 시각화
                 left = depth * 12 + 6: 이 depth 인덴트 단위의 중앙 (12px step 기준)
                 depth 0 → 6px, depth 1 → 18px, depth 2 → 30px
-                pointer-events-none: 클릭 이벤트 통과 (행 클릭 방해 안 함)
-                Python으로 치면: guide = AbsDiv(left=depth*12+6, w=1px, h=100%) */}
+                커스텀 색상이 있으면 해당 색(반투명), 없으면 depth 기본색
+                Python으로 치면: guide = AbsDiv(left=depth*12+6, w=2px, h=100%) */}
             <div
-              className="absolute top-0 bottom-0 pointer-events-none"
+              className="absolute top-0 bottom-0 pointer-events-none rounded-full"
               style={{
                 left: `${depth * 12 + 6}px`,
-                width: '1px',
-                backgroundColor: GUIDE_COLORS[Math.min(depth, 3)],
+                width: '2px',
+                backgroundColor: cat.color
+                  ? cat.color + 'aa'  // 커스텀 색상 ~67% 투명도
+                  : GUIDE_COLORS[Math.min(depth, 3)],
               }}
             />
 
@@ -1498,6 +1564,10 @@ export default function CategorySidebar({
             onSelectDate={(d) => { setSelectedDate(d); setSearchQuery('') }}
           />
         )}
+
+        {/* ── 주기적 노트 패널 (periodicNotes 플러그인 ON일 때만) ── */}
+        {/* Python으로 치면: if plugins.periodic_notes: render(PeriodicNotesPanel()) */}
+        {plugins.periodicNotes && <PeriodicNotesPanel />}
 
         {/* ── 날짜 필터 활성 안내 ─────────────────── */}
         {selectedDate && !searchQuery && (

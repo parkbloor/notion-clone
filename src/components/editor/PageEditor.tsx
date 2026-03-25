@@ -302,8 +302,25 @@ export default function PageEditor({ pageId }: PageEditorProps) {
 
   // ── 섹션 접기 상태 ───────────────────────────
   // 접힌 heading 블록 ID 집합 — 접힌 헤딩의 하위 블록들은 렌더링에서 제외
+  // TocPanel과 공유하여 동기화 (localStorage 영속)
   // Python으로 치면: self.collapsed_sections: set[str] = set()
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
+    // 초기값: localStorage에서 복원
+    // Python으로 치면: load_from_storage('notion-clone-toc-collapsed')
+    try {
+      const raw = localStorage.getItem('notion-clone-toc-collapsed')
+      if (raw) return new Set(JSON.parse(raw) as string[])
+    } catch {}
+    return new Set()
+  })
+
+  // collapsedSections 변경 시 localStorage에 저장 (TocPanel과 동일 키 공유)
+  // Python으로 치면: @collapsed_sections.setter: save_to_storage(v)
+  useEffect(() => {
+    try {
+      localStorage.setItem('notion-clone-toc-collapsed', JSON.stringify([...collapsedSections]))
+    } catch {}
+  }, [collapsedSections])
 
   // 특정 헤딩 ID 접기/펼치기 토글
   // Python으로 치면: collapsed.symmetric_difference_update({block_id})
@@ -409,20 +426,22 @@ export default function PageEditor({ pageId }: PageEditorProps) {
 
   // -----------------------------------------------
   // PDF 내보내기 — window.print() 브라우저 인쇄 다이얼로그
-  // 인쇄 전: body에 'is-printing' 클래스 추가 → CSS에서 레이아웃 재정의
-  // 인쇄 후: afterprint 이벤트로 클래스 자동 제거
-  // Python으로 치면: def export_pdf(): body.class_list.add('is-printing'); print(); body.class_list.remove(...)
+  // @media print 규칙이 직접 작동하므로 별도 클래스 불필요
+  // 토스트는 afterprint 이벤트 후 표시 — 인쇄 중 토스트가 PDF에 찍히는 버그 방지
+  // Python으로 치면: def export_pdf(): print(); on_after_print: show_toast()
   // -----------------------------------------------
   function handleExportPdf() {
     setExportOpen(false)
+    // 드롭다운이 닫힌 후 인쇄 다이얼로그를 열도록 50ms 지연
+    // Python으로 치면: time.sleep(0.05); print()
     setTimeout(() => {
-      // 인쇄 완료(또는 취소) 후 클래스 제거
+      // 인쇄 완료(또는 취소) 후 토스트 표시
+      // Python으로 치면: def on_after_print(): show_toast('완료')
       function onAfterPrint() {
-        document.body.classList.remove('is-printing')
+        toast.success('PDF 저장이 완료됐습니다.', { id: 'pdf-export', duration: 2000 })
         window.removeEventListener('afterprint', onAfterPrint)
       }
       window.addEventListener('afterprint', onAfterPrint)
-      document.body.classList.add('is-printing')
       window.print()
     }, 50)
   }
@@ -478,6 +497,14 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   // 페이지 변경 시 읽기 모드 초기화
   // Python으로 치면: def on_page_change(self): self.read_mode = False
   useEffect(() => { setReadMode(false) }, [pageId])
+
+  // toggle-read-mode CustomEvent 수신 (page.tsx에서 Ctrl+Shift+R 단축키로 발행)
+  // Python으로 치면: event_bus.on('toggle-read-mode', lambda: self.read_mode = not self.read_mode)
+  useEffect(() => {
+    function handleToggle() { setReadMode(prev => !prev) }
+    window.addEventListener('toggle-read-mode', handleToggle)
+    return () => window.removeEventListener('toggle-read-mode', handleToggle)
+  }, [])
 
   // ── 태그 UI 상태 ─────────────────────────────
   // 태그 인풋 표시 여부
@@ -1252,7 +1279,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         // sticky top-20이 전체 스크롤 구간 동안 유지됨 (높이가 짧으면 즉시 컨테이너 끝에 닿아 고정 해제)
         // Python으로 치면: toc_wrapper.height = content_body.height  # sticky가 작동하는 최소 조건
         <div className="hidden xl:block self-stretch pt-16">
-          <TocPanel blocks={page.blocks} />
+          <TocPanel
+            blocks={page.blocks}
+            collapsedIds={collapsedSections}
+            onToggleCollapse={toggleSection}
+          />
         </div>
       )}
 

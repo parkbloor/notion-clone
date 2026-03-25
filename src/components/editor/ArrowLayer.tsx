@@ -623,7 +623,10 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
   return (
     // SVG 자체: pointer-events none, 각 <g>: pointer-events stroke (호버 감지)
     // 연결 대기 모드에서는 커서를 crosshair로 변경
+    // print-hide: position fixed라서 인쇄 시 모든 페이지 위에 겹쳐 찍히는 버그 방지
+    // Python으로 치면: svg.class_list.add('print-hide')
     <svg
+      className="print-hide"
       style={{
         position: 'fixed',
         inset: 0,

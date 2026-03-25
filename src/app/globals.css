@@ -738,6 +738,21 @@ html[data-theme] .tiptap hr       { border-top-color: var(--border-color) !impor
   /* 사이드바 패널 2개(카테고리, 페이지 목록) 숨기기 */
   aside { display: none !important; }
 
+  /* sonner 토스트 알림 숨기기 — fixed 포지션이라 그대로 인쇄되는 버그 방지 */
+  [data-sonner-toaster] { display: none !important; }
+
+  /* 화살표 마커: transition/animation 제거, 연결선 없이도 식별 가능하도록 스타일 유지
+     SVG 오버레이(ArrowLayer)는 print-hide로 숨겨지므로 마커만 남음
+     Python으로 치면: if printing: marker.transition = 'none' */
+  .arrow-marker {
+    transition: none !important;
+    animation: none !important;
+    border-bottom-style: dashed !important;
+  }
+  .arrow-marker::before {
+    opacity: 1 !important;
+  }
+
   /* ★ 핵심 수정: flex 컨테이너(#app-layout)의 레이아웃 제약 해제
      flex + h-screen + overflow-hidden 조합이 메인 영역을 좁게 만들던 원인 */
   #app-layout {
@@ -785,8 +800,16 @@ html[data-theme] .tiptap hr       { border-top-color: var(--border-color) !impor
   /* 토글 블록 내용 강제 펼치기 (UI에서 접혀있어도 인쇄 시 표시) */
   [data-toggle-content] { display: block !important; }
 
-  /* 페이지 여백 설정 — 상단/좌 여백 줄여서 본문 시작 위치를 끌어올림 */
-  @page { margin: 1cm 1.5cm; }
+  /* 페이지 여백 설정 + 하단 중앙 페이지 번호 (Chrome 지원, Safari/Firefox 미지원 — 없어도 레이아웃 무결) */
+  /* Python으로 치면: page.margin = '1cm 1.5cm'; page.footer = f'{page_num} / {total_pages}' */
+  @page {
+    margin: 1cm 1.5cm;
+    @bottom-center {
+      content: counter(page) " / " counter(pages);
+      font-size: 9pt;
+      color: #9ca3af;
+    }
+  }
 
   /* 배경색/그림자 인쇄 허용 (칸반, 콜아웃 배경 표시) */
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -826,6 +849,84 @@ html[data-theme] .tiptap hr       { border-top-color: var(--border-color) !impor
   /* 슬롯: overflow-y-auto → visible (인쇄 시 클리핑 방지) */
   .layout-slot {
     overflow: visible !important;
+  }
+
+  /* ── 블록 페이지 경계 분리 방지 ─────────────────────────────
+     각 블록이 페이지 경계에서 반토막나지 않도록 break-inside: avoid 지정
+     Python으로 치면: block.page_break_inside = 'avoid'
+     ─────────────────────────────────────────────────────────── */
+
+  /* 코드 블록 — CodeBlockView.tsx의 .code-block-container */
+  .code-block-container {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* 어드모니션(콜아웃) 블록 — AdmonitionBlock.tsx */
+  .admonition-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* 칸반 블록 — KanbanBlock.tsx */
+  .kanban-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
+  }
+
+  /* 차트 블록 — ChartBlock.tsx */
+  .chart-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
+  }
+
+  /* 갠트 차트 블록 — GanttBlock.tsx */
+  .gantt-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
+  }
+
+  /* 마인드맵 블록 — MindmapBlock.tsx */
+  .mindmap-block {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+    overflow: visible !important;
+  }
+
+  /* 이미지 블록 — ImageBlock.tsx */
+  .image-block-wrapper {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* ── 테이블 헤더 페이지마다 반복 ───────────────────────────
+     여러 페이지에 걸친 테이블의 헤더를 각 페이지 상단에 반복 표시
+     Python으로 치면: thead.display = 'table-header-group'
+     ─────────────────────────────────────────────────────────── */
+  table {
+    border-collapse: collapse !important;
+  }
+  thead {
+    display: table-header-group !important;
+  }
+  tfoot {
+    display: table-footer-group !important;
+  }
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* ── 스플릿 뷰 인쇄 처리 ─────────────────────────────────
+     오른쪽 패널은 print-hide로 숨겨지고, 왼쪽 패널이 전체 너비를 차지하도록 강제
+     Python으로 치면: if printing: left_panel.flex = '1 1 0%'
+     ─────────────────────────────────────────────────────────── */
+  .split-left-panel {
+    flex: 1 1 0% !important;
+    width: 100% !important;
   }
 }
 
@@ -884,4 +985,61 @@ html[data-theme] .tiptap hr       { border-top-color: var(--border-color) !impor
   margin-right: 1px;
   opacity: 0.8;
   color: var(--arrow-color, #3b82f6);
+}
+
+/* ==============================================
+   각주(Footnote) 인라인 노드 스타일
+   .footnote-ref: FootnoteInline 확장이 생성하는 superscript 번호
+   Python으로 치면: class FootnoteRef(InlineElement): style = 'color: blue; vertical-align: super'
+   ============================================== */
+.footnote-ref {
+  color: #3b82f6;
+  font-size: 0.72em;
+  vertical-align: super;
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+  border-radius: 2px;
+  padding: 0 1px;
+  transition: background-color 0.15s;
+}
+.footnote-ref:hover {
+  background-color: rgba(59, 130, 246, 0.1);
+}
+
+/* 각주 툴팁 — 호버 시 각주 본문 표시 */
+.footnote-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  max-width: 280px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  pointer-events: none;
+  vertical-align: baseline;
+  line-height: 1.5;
+}
+/* 툴팁 화살표 (아래쪽 삼각형) */
+.footnote-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #1e293b;
+}
+
+/* 각주 wrapper: position relative 필요 (툴팁 위치 기준) */
+.footnote-ref-wrapper {
+  position: relative;
+  display: inline;
 }

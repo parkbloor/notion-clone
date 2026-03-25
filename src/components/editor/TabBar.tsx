@@ -68,7 +68,7 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
     // shrink-0: 세로 flex 부모 안에서 높이 고정
     // border-b: 탭 바 아래 구분선
     // Python으로 치면: HBox(overflow='scroll', border_bottom=True)
-    <div className="flex items-stretch overflow-x-auto shrink-0 border-b border-gray-200 bg-gray-50" style={{ scrollbarWidth: 'none' }}>
+    <div className="flex items-stretch overflow-x-auto shrink-0 border-b border-gray-200 bg-gray-50 print-hide" style={{ scrollbarWidth: 'none' }}>
 
       {/* 탭 목록 렌더링 */}
       {/* Python으로 치면: for tab_id in open_tabs: render_tab(tab_id) */}

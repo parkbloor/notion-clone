@@ -349,7 +349,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
 
   // ── 편집 모드 ────────────────────────────────────
   return (
-    <div className="my-2 rounded-xl border border-blue-200 bg-white shadow-sm overflow-hidden">
+    <div className="chart-block my-2 rounded-xl border border-blue-200 bg-white shadow-sm overflow-hidden">
 
       {/* ── 헤더: 차트 타입 탭 + 제목 입력 + AI 버튼 ──────── */}
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">

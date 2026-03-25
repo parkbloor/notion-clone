@@ -477,7 +477,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
   }, [data.columns, save])
 
   return (
-    <div className="py-2 select-none">
+    <div className="kanban-block py-2 select-none">
       {/* 칸반 전용 DndContext (외부 블록 DndContext와 중첩 — dnd-kit에서 공식 지원) */}
       {/* Python으로 치면: with DndContext(sensors=sensors, on_drag_start=...) as ctx: render() */}
       <DndContext

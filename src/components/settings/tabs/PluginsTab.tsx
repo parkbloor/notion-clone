@@ -137,8 +137,8 @@ const PLUGIN_LIST: PluginMeta[] = [
     author: '빌트인',
     version: '1.0.0',
     tags: ['날짜', '일지', '생산성'],
-    desc: 'Ctrl+Alt+D 단축키로 오늘의 일간 노트를 즉시 엽니다',
-    fullDesc: 'Ctrl+Alt+D 단축키를 누르면 오늘 날짜(YYYY-MM-DD) 형식의 일간 노트로 자동 이동합니다. 오늘 노트가 없으면 새로 생성합니다. 매일 일정한 형식으로 일지를 쓰고 싶을 때 유용합니다.',
+    desc: 'Ctrl+Alt+D(일간) / Ctrl+Alt+W(주간) 단축키로 노트를 즉시 엽니다',
+    fullDesc: 'Ctrl+Alt+D로 오늘 날짜의 일간 노트, Ctrl+Alt+W로 이번 주 주간 노트를 즉시 열거나 생성합니다. 사이드바에 일간/주간 노트 목록 패널이 표시됩니다. 전용 카테고리(📅 일간 노트, 📆 주간 노트)가 자동으로 생성되어 노트를 체계적으로 관리할 수 있습니다.',
     available: true,
   },
   {

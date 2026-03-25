@@ -155,7 +155,7 @@ export default function FindReplacePanel() {
     // ── 플로팅 패널 (우측 상단 고정) ────────────────
     // Python으로 치면: self.panel.setFixedPos(top=64, right=16)
     <div
-      className="fixed top-16 right-4 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
+      className="fixed top-16 right-4 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden print-hide"
       style={{ width: 380, minWidth: 320 }}
     >
 

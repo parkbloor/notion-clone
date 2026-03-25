@@ -570,7 +570,7 @@ export default function MindmapBlock({ block, pageId }: { block: Block; pageId: 
   // ── 렌더 ──────────────────────────────────────────
   return (
     <div
-      className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden select-none"
+      className="mindmap-block border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden select-none"
       style={{ height: '580px' }}
     >
       <div className="flex h-full">

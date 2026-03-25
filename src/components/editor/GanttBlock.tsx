@@ -367,7 +367,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
   const LABEL_W = 120
 
   return (
-    <div className="border border-gray-200 rounded-xl bg-white my-2 overflow-hidden group">
+    <div className="gantt-block border border-gray-200 rounded-xl bg-white my-2 overflow-hidden group">
       {/* ── 헤더 영역 ────────────────────── */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
         <div className="flex items-center gap-2">

@@ -123,7 +123,7 @@ export default function PomodoroWidget() {
   // -----------------------------------------------
   if (minimized) {
     return (
-      <div className="fixed bottom-16 right-5 z-40">
+      <div className="fixed bottom-16 right-5 z-40 print-hide">
         <button
           type="button"
           onClick={() => setMinimized(false)}
@@ -145,7 +145,7 @@ export default function PomodoroWidget() {
   // Python으로 치면: class PomodoroUI(QWidget): def render(self): ...
   // -----------------------------------------------
   return (
-    <div className="fixed bottom-16 right-5 z-40 w-52 bg-white border border-gray-200 rounded-2xl shadow-xl p-4 select-none">
+    <div className="fixed bottom-16 right-5 z-40 w-52 bg-white border border-gray-200 rounded-2xl shadow-xl p-4 select-none print-hide">
 
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-3">

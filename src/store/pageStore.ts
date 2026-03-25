@@ -325,6 +325,24 @@ export const usePageStore = create<PageStore>()(
           state.categoryOrder = data.categoryOrder ?? []
           state.categoryChildOrder = data.categoryChildOrder ?? {}
         })
+
+        // ── 주기적 노트 전용 카테고리 자동 생성 ──────────────────
+        // 일간/주간 노트를 보관할 카테고리가 없으면 최초 1회 자동 생성
+        // Python으로 치면: for name in ['📅 일간 노트', '📆 주간 노트']: create_if_not_exists(name)
+        const periodicCatNames = ['📅 일간 노트', '📆 주간 노트']
+        for (const catName of periodicCatNames) {
+          if (!get().categories.find(c => c.name === catName)) {
+            try {
+              const newCat = await api.createCategory(catName)
+              set((state) => {
+                state.categories.push(newCat)
+                state.categoryOrder.push(newCat.id)
+              })
+            } catch {
+              // 카테고리 생성 실패는 조용히 무시 (서버 오프라인 등)
+            }
+          }
+        }
       } catch {
         // 서버가 꺼져있으면 로컬 초기 상태 유지 + 사용자에게 알림
         toast.warning('서버에 연결할 수 없습니다. 로컬 상태로 동작합니다.', {

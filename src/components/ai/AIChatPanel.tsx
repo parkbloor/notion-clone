@@ -297,8 +297,10 @@ export default function AIChatPanel({
 
   // ── 컨테이너 클래스 / 스타일 계산 ──────────────────
   // floating: 화면 고정 + 동적 크기 / sidebar: 블록 우측 패널
+  // floating 모드는 fixed 포지션이라 @media print의 aside 규칙에 해당 안 됨 → print-hide 직접 추가
+  // Python으로 치면: cls += ' print-hide' if floating else ''
   const containerCls = mode === 'floating'
-    ? 'fixed z-50 flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl'
+    ? 'fixed z-50 flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl print-hide'
     : 'flex flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
 
   const containerStyle = mode === 'floating'
