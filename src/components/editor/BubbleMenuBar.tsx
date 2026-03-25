@@ -98,9 +98,12 @@ function Divider() {
 
 interface BubbleMenuBarProps {
   editor: TiptapEditor
+  // 읽기 모드: true이면 텍스트 선택 시에도 메뉴 표시 안 함
+  // Python으로 치면: read_mode: bool = False
+  readMode?: boolean
 }
 
-export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
+export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBarProps) {
 
   const [visible, setVisible]       = useState(false)
   const [position, setPosition]     = useState({ top: 0, left: 0 })
@@ -406,7 +409,9 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
     }
   }, [editor, aiProvider, aiModel, aiApiKey, ollamaUrl])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!visible) return null
+  // 읽기 모드이거나 선택 없으면 숨김
+  // Python으로 치면: if read_mode or not visible: return None
+  if (!visible || readMode) return null
 
   // 현재 적용된 글자 색상 / 배경 색상 (버튼 인디케이터에 표시용)
   // Python으로 치면: current_text_color = editor.get_attr('textStyle').get('color')
@@ -669,6 +674,33 @@ export default function BubbleMenuBar({ editor }: BubbleMenuBarProps) {
             ✕
           </button>
         )}
+
+        <Divider />
+
+        {/* ── 각주 버튼 [각주] ─────────────────────── */}
+        {/* 텍스트 선택 후 클릭 → 선택 텍스트를 각주 본문으로 FootnoteInline 노드 삽입 */}
+        {/* Python으로 치면: if btn == 'footnote': editor.insert(FootnoteNode(text=selected_text)) */}
+        <button
+          title="각주 삽입 (선택한 텍스트가 각주 내용이 됩니다)"
+          onPointerDown={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            // 현재 선택된 텍스트를 각주 text로 사용
+            // Python으로 치면: selected = editor.get_selection_text()
+            const { from, to } = editor.state.selection
+            const selectedText = editor.state.doc.textBetween(from, to, ' ').trim()
+            if (!selectedText) return
+            // 선택 범위를 FootnoteInline 노드로 교체
+            // Python으로 치면: editor.replace_selection(FootnoteNode(text=selected_text))
+            editor.chain().focus()
+              .deleteSelection()
+              .insertContent({ type: 'footnoteInline', attrs: { text: selectedText } })
+              .run()
+          }}
+          className="px-2 py-1.5 rounded text-xs font-medium text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+        >
+          [각주]
+        </button>
 
         <Divider />
 
