@@ -134,7 +134,7 @@ const PLUGIN_INFO = [
   { icon: '👁', name: '읽기 모드',      shortcut: 'Ctrl+Shift+R',    desc: '편집 비활성화. BubbleMenu·툴바 숨김. 목차/토글만 동작.' },
   { icon: '🍅', name: '포모도로',       shortcut: '플로팅 위젯',     desc: '25분+5분 타이머. 최소화 지원. 완료 횟수 🍅 표시.' },
   { icon: '📑', name: '목차(TOC)',       shortcut: 'xl 이상 우측',    desc: '헤딩 기반 목차. 클릭 시 해당 블록으로 스크롤.' },
-  { icon: '📅', name: 'Periodic Notes', shortcut: 'Ctrl+Alt+D/W',    desc: '일간(Ctrl+Alt+D)·주간(Ctrl+Alt+W) 노트 생성·이동. 사이드바 패널 포함.' },
+  { icon: '📅', name: 'Periodic Notes', shortcut: 'Ctrl+Alt+D/W/M',  desc: '일간(Ctrl+Alt+D)·주간(Ctrl+Alt+W)·월간(Ctrl+Alt+M) 노트 생성·이동. 사이드바 패널 포함.' },
   { icon: '🎨', name: '캔버스',         shortcut: '/ 캔버스',        desc: '무한 캔버스. 더블클릭 노드 추가, SVG 베지어 엣지.' },
   { icon: '🎬', name: '비디오 블록',    shortcut: '/ 비디오',        desc: '로컬 비디오 파일 업로드+재생. 자동재생/반복 설정 가능.' },
   { icon: '📐', name: '레이아웃 블록',  shortcut: '/ 레이아웃',      desc: 'A4 다단 레이아웃 8종. 인쇄 시 A4에 맞게 자동 조정.' },

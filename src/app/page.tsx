@@ -397,6 +397,60 @@ export default function Home() {
   }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
+  // 이번 달 월간 노트를 열거나 없으면 템플릿으로 생성
+  // 제목 형식: "월간 노트 YYYY-MM" / 아이콘: 🗓️
+  // Python으로 치면: async def open_monthly_note(self): ...
+  // -----------------------------------------------
+  async function openMonthlyNote() {
+    const today = new Date()
+    const yy = today.getFullYear()
+    const mm = String(today.getMonth() + 1).padStart(2, '0')
+    const title = `월간 노트 ${yy}-${mm}`
+
+    const existing = pages.find(p => p.title === title)
+    if (existing) {
+      setCurrentPage(existing.id)
+      return
+    }
+
+    const cat = categories.find(c => c.name === '🗓️ 월간 노트')
+    await addPage(title, cat?.id ?? null)
+
+    const newId = usePageStore.getState().currentPageId
+    if (!newId) return
+
+    updatePageIcon(newId, '🗓️')
+    setPageBlocks(newId, [
+      { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '이번 달 목표', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '특이사항', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: '월말 회고', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    ])
+  }
+
+  // -----------------------------------------------
+  // Ctrl+Alt+M 단축키 → 이번 달 월간 노트 열기/생성
+  // periodicNotes 플러그인이 OFF이면 무시
+  // Python으로 치면:
+  //   def on_key_down(event):
+  //       if event.ctrl and event.alt and event.key == 'm': open_monthly_note()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleMonthlyKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'm' && plugins.periodicNotes) {
+        e.preventDefault()
+        openMonthlyNote()
+      }
+    }
+    window.addEventListener('keydown', handleMonthlyKey)
+    return () => window.removeEventListener('keydown', handleMonthlyKey)
+  }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
   // Ctrl+Shift+R → 읽기 모드 토글 (PageEditor에 CustomEvent 발행)
   // Python으로 치면: def on_key_down(e): if ctrl+shift+r: emit('toggle-read-mode')
   // -----------------------------------------------
