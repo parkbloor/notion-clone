@@ -735,28 +735,58 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     }
 
     // ── 블록 배경색 팔레트 ────────────────────────
-    // 모든 블록 타입에 공통 적용 (투명 + 6가지 색상)
-    // Python으로 치면: sections.append(bg_color_section)
+    // customRender: 실제 색상 스와치를 격자로 표시 (텍스트 대신 색상 직접 확인 가능)
+    // Python으로 치면: sections.append(bg_color_section_with_custom_render)
     const BG_COLORS = [
       { label: '투명', color: '' },
       { label: '노랑', color: '#fef9c3' },
-      { label: '파랑', color: '#dbeafe' },
-      { label: '초록', color: '#dcfce7' },
+      { label: '주황', color: '#fed7aa' },
       { label: '빨강', color: '#fee2e2' },
+      { label: '분홍', color: '#fce7f3' },
       { label: '보라', color: '#f3e8ff' },
+      { label: '파랑', color: '#dbeafe' },
+      { label: '하늘', color: '#cffafe' },
+      { label: '초록', color: '#dcfce7' },
       { label: '회색', color: '#f3f4f6' },
     ]
     sections.push({
       id: 'bg-color',
       title: '블록 배경색',
-      actions: BG_COLORS.map(({ label, color }) => ({
-        id: `bg-${color || 'none'}`,
-        label,
-        // 현재 색과 일치하면 체크 표시
-        // Python으로 치면: icon = '✓' if block.background_color == color else '○'
-        icon: (block.backgroundColor ?? '') === color ? '✓' : '○',
-        onClick: () => updateBlockBackground(pageId, block.id, color),
-      })),
+      // actions는 비워두고 customRender로만 표시
+      // Python으로 치면: section.custom_widget = ColorPaletteWidget(colors)
+      actions: [],
+      customRender: (
+        <div className="px-3 pb-2.5">
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {BG_COLORS.map(({ label, color }) => {
+              const isActive = (block.backgroundColor ?? '') === color
+              return (
+                <button
+                  key={color || 'none'}
+                  type="button"
+                  title={label}
+                  onClick={() => {
+                    updateBlockBackground(pageId, block.id, color)
+                    // 색 선택 즉시 메뉴 닫기
+                    setContextMenu(null)
+                  }}
+                  className={[
+                    'w-6 h-6 rounded transition-all duration-100',
+                    color === ''
+                      // 투명: 바둑판 패턴으로 표시
+                      ? 'bg-white border-2 border-dashed border-gray-300 hover:border-gray-500'
+                      : 'border-2 hover:scale-110',
+                    isActive
+                      ? 'border-blue-500 ring-1 ring-blue-400 scale-110'
+                      : 'border-gray-200 hover:border-gray-400',
+                  ].join(' ')}
+                  style={{ backgroundColor: color || undefined }}
+                />
+              )
+            })}
+          </div>
+        </div>
+      ),
     })
 
     return sections
