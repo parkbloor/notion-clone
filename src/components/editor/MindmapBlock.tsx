@@ -236,15 +236,15 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
   // 페이지 레벨 readMode도 ref로 동기화 (휠 핸들러에서 최신값 참조용)
   // Python으로 치면: self.read_mode_ref = readMode
   const readModeRef = useRef(readMode)
-  // ref 동기화 — 관련 값이 함께 변하므로 묶는 게 자연스러움
-  // Python으로 치면: @property def _sync_refs(self): self.zoom_ref = self.zoom; ...
-  useEffect(() => {
-    zoomRef.current = zoom
-    panRef.current = pan
-    nodesRef.current = nodes
-    readOnlyRef.current = readOnly
-    readModeRef.current = readMode
-  }, [zoom, pan, nodes, readOnly, readMode])
+  // ref 동기화 — useEffect 없이 렌더 중 직접 업데이트
+  // useEffect는 커밋 후 실행되므로 이벤트 타이밍에 따라 stale 발생 가능
+  // 렌더 중 직접 대입은 React 공식 패턴 (commitPhase 전에 값 반영됨)
+  // Python으로 치면: self._zoom_ref = self.zoom  (매 렌더마다)
+  zoomRef.current = zoom
+  panRef.current = pan
+  nodesRef.current = nodes
+  readOnlyRef.current = readOnly
+  readModeRef.current = readMode
 
   // ── 레이아웃 계산 ─────────────────────────────────
   const autoPositions = useMemo(() => computeLayout(nodes), [nodes])
