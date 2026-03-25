@@ -42,11 +42,32 @@ function scheduleSave(
           setState((state) => {
             const idx = state.pages.findIndex(p => p.id === pageId)
             if (idx !== -1) {
-              // 백엔드가 알지 못하는 필드(properties 등)는 현재 store 값 유지
-              // Python으로 치면: updated = {**server_page, 'properties': local_page.properties}
+              const local = state.pages[idx]
+              // 백엔드 응답을 베이스로 하되, 로컬 전용 필드 보존
+              // properties: 백엔드가 모르는 속성 데이터
+              // isLocked, canvasMode: Page 레벨 로컬 필드
+              // blocks: 서버 블록을 쓰되 backgroundColor/canvasX 등 로컬 필드 병합
+              // Python으로 치면: merged = {**server_page, **{k: local[k] for k in local_only}}
+              const mergedBlocks = (updatedPage.blocks ?? []).map(serverBlock => {
+                const localBlock = local.blocks.find(b => b.id === serverBlock.id)
+                if (!localBlock) return serverBlock
+                // 서버가 보존 못하는 클라이언트 전용 필드를 로컬 값으로 덮어쓰기
+                return {
+                  ...serverBlock,
+                  backgroundColor: localBlock.backgroundColor,
+                  canvasX: localBlock.canvasX,
+                  canvasY: localBlock.canvasY,
+                  canvasW: localBlock.canvasW,
+                  canvasH: localBlock.canvasH,
+                  children: localBlock.children,
+                }
+              })
               state.pages[idx] = {
                 ...updatedPage,
-                properties: state.pages[idx].properties,
+                properties: local.properties,
+                isLocked: local.isLocked,
+                canvasMode: local.canvasMode,
+                blocks: mergedBlocks,
               }
             }
           })

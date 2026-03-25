@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 # ── 앱 기본 디렉토리 결정 ────────────────────────────
@@ -146,7 +146,12 @@ mem_handler.setFormatter(logging.Formatter("%(message)s"))
 # -----------------------------------------------
 
 class BlockModel(BaseModel):
-    """블록 하나의 구조"""
+    """블록 하나의 구조
+    extra='allow': backgroundColor, canvasX/Y/W/H, children 등
+    프론트엔드 추가 필드를 그대로 보존 (제거하지 않음)
+    """
+    model_config = ConfigDict(extra='allow')
+
     id: str
     type: str
     content: str
@@ -155,7 +160,11 @@ class BlockModel(BaseModel):
 
 
 class PageModel(BaseModel):
-    """페이지 전체 구조 (메타 + 블록 목록)"""
+    """페이지 전체 구조 (메타 + 블록 목록)
+    extra='allow': isLocked, canvasMode 등 추가 필드 보존
+    """
+    model_config = ConfigDict(extra='allow')
+
     id: str
     title: str
     icon: str
