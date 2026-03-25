@@ -1,6 +1,6 @@
 // =============================================
 // src/components/editor/PeriodicNotesPanel.tsx
-// 역할: 사이드바 내 일간·주간 노트 목록 패널
+// 역할: 사이드바 내 일간·주간·월간 노트 목록 패널
 // Python으로 치면: class PeriodicNotesPanel(Widget): ...
 // =============================================
 
@@ -54,13 +54,30 @@ function makeWeeklyTemplate(title: string): Block[] {
 }
 
 // -----------------------------------------------
-// PeriodicNotesPanel — 일간/주간 탭 패널
+// 월간 노트 기본 템플릿 블록 생성
+// Python으로 치면: def make_monthly_template(title) -> list[Block]: ...
+// -----------------------------------------------
+function makeMonthlyTemplate(title: string): Block[] {
+  return [
+    { ...createBlock('heading1'), content: title },
+    createBlock('divider'),
+    { ...createBlock('heading2'), content: '이번 달 목표' },
+    createBlock('paragraph'),
+    { ...createBlock('heading2'), content: '특이사항' },
+    createBlock('paragraph'),
+    { ...createBlock('heading2'), content: '월말 회고' },
+    createBlock('paragraph'),
+  ]
+}
+
+// -----------------------------------------------
+// PeriodicNotesPanel — 일간/주간/월간 탭 패널
 // -----------------------------------------------
 export default function PeriodicNotesPanel() {
 
-  // 탭 상태: 'daily' | 'weekly'
+  // 탭 상태: 'daily' | 'weekly' | 'monthly'
   // Python으로 치면: self.active_tab = 'daily'
-  const [tab, setTab] = useState<'daily' | 'weekly'>('daily')
+  const [tab, setTab] = useState<'daily' | 'weekly' | 'monthly'>('daily')
 
   const {
     pages,
@@ -76,52 +93,43 @@ export default function PeriodicNotesPanel() {
   const today = new Date()
   const todayYear = today.getFullYear()
   const todayMonth = today.getMonth() + 1
-  const todayDateStr = `${todayYear}-${String(todayMonth).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const todayMonthStr = `${todayYear}-${String(todayMonth).padStart(2, '0')}`
+  const todayDateStr = `${todayMonthStr}-${String(today.getDate()).padStart(2, '0')}`
   const todayWeek = getISOWeek(today)
   const todayWeekStr = `${todayYear}-W${String(todayWeek).padStart(2, '0')}`
 
   // ── 일간 노트 목록 (이번 달만, 날짜 역순) ─────
   // Python으로 치면: [p for p in pages if p.title.startswith('일간 노트 YYYY-MM')]
   const dailyNotes = pages
-    .filter(p => {
-      const prefix = `일간 노트 ${todayYear}-${String(todayMonth).padStart(2, '0')}`
-      return p.title.startsWith(prefix)
-    })
+    .filter(p => p.title.startsWith(`일간 노트 ${todayMonthStr}`))
     .sort((a, b) => b.title.localeCompare(a.title))
 
   // ── 주간 노트 목록 (올해만, 주차 역순) ─────────
-  // Python으로 치면: [p for p in pages if p.title.startswith('주간 노트 YYYY-')]
+  // Python으로 치면: [p for p in pages if p.title.startswith('주간 노트 YYYY-W')]
   const weeklyNotes = pages
     .filter(p => p.title.startsWith(`주간 노트 ${todayYear}-W`))
     .sort((a, b) => b.title.localeCompare(a.title))
 
+  // ── 월간 노트 목록 (올해만, 월 역순) ─────────
+  // Python으로 치면: [p for p in pages if p.title.startswith('월간 노트 YYYY-')]
+  const monthlyNotes = pages
+    .filter(p => p.title.startsWith(`월간 노트 ${todayYear}-`))
+    .sort((a, b) => b.title.localeCompare(a.title))
+
   // -----------------------------------------------
   // 오늘 일간 노트 열기/생성
-  // 없으면 템플릿으로 새로 생성, 있으면 이동
   // Python으로 치면: async def open_daily_note(self): ...
   // -----------------------------------------------
   async function handleOpenDaily() {
     const title = `일간 노트 ${todayDateStr}`
-
-    // 기존 페이지 검색
     const existing = pages.find(p => p.title === title)
-    if (existing) {
-      setCurrentPage(existing.id)
-      return
-    }
+    if (existing) { setCurrentPage(existing.id); return }
 
-    // 전용 카테고리 찾기
     const cat = categories.find(c => c.name === '📅 일간 노트')
-
-    // 새 페이지 생성 (addPage가 currentPageId를 새 페이지로 설정)
     await addPage(title, cat?.id ?? null)
 
-    // 생성 직후 store에서 새 페이지 ID 가져오기
-    // Python으로 치면: new_page_id = page_store.current_page_id
     const { currentPageId: newId } = usePageStore.getState()
     if (!newId) return
-
-    // 아이콘 + 템플릿 블록 적용
     updatePageIcon(newId, '📅')
     setPageBlocks(newId, makeDailyTemplate(title))
   }
@@ -132,27 +140,41 @@ export default function PeriodicNotesPanel() {
   // -----------------------------------------------
   async function handleOpenWeekly() {
     const title = `주간 노트 ${todayWeekStr}`
-
     const existing = pages.find(p => p.title === title)
-    if (existing) {
-      setCurrentPage(existing.id)
-      return
-    }
+    if (existing) { setCurrentPage(existing.id); return }
 
     const cat = categories.find(c => c.name === '📆 주간 노트')
     await addPage(title, cat?.id ?? null)
 
     const { currentPageId: newId } = usePageStore.getState()
     if (!newId) return
-
     updatePageIcon(newId, '📆')
     setPageBlocks(newId, makeWeeklyTemplate(title))
   }
 
+  // -----------------------------------------------
+  // 이번 달 월간 노트 열기/생성
+  // 제목 형식: "월간 노트 YYYY-MM", 아이콘: 🗓️
+  // Python으로 치면: async def open_monthly_note(self): ...
+  // -----------------------------------------------
+  async function handleOpenMonthly() {
+    const title = `월간 노트 ${todayMonthStr}`
+    const existing = pages.find(p => p.title === title)
+    if (existing) { setCurrentPage(existing.id); return }
+
+    const cat = categories.find(c => c.name === '🗓️ 월간 노트')
+    await addPage(title, cat?.id ?? null)
+
+    const { currentPageId: newId } = usePageStore.getState()
+    if (!newId) return
+    updatePageIcon(newId, '🗓️')
+    setPageBlocks(newId, makeMonthlyTemplate(title))
+  }
+
   return (
     <div className="border-t border-gray-100">
-      {/* ── 탭 헤더 ─────────────────────────────── */}
-      {/* Python으로 치면: self.tab_header = TabHeader(['일간', '주간']) */}
+      {/* ── 탭 헤더 (일간/주간/월간) ─────────────── */}
+      {/* Python으로 치면: self.tab_header = TabHeader(['일간', '주간', '월간']) */}
       <div className="flex items-center px-2 pt-2 pb-1 gap-1">
         <button
           type="button"
@@ -168,12 +190,18 @@ export default function PeriodicNotesPanel() {
         >
           📆 주간
         </button>
+        <button
+          type="button"
+          onClick={() => setTab('monthly')}
+          className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${tab === 'monthly' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}
+        >
+          🗓️ 월간
+        </button>
       </div>
 
       {/* ── 일간 탭 ─────────────────────────────── */}
       {tab === 'daily' && (
         <div className="pb-1">
-          {/* 오늘 버튼 */}
           <div className="px-2 pb-1">
             <button
               type="button"
@@ -183,16 +211,13 @@ export default function PeriodicNotesPanel() {
               오늘 열기
             </button>
           </div>
-          {/* 이번 달 일간 노트 목록 */}
-          {/* Python으로 치면: for note in daily_notes: render_row(note) */}
           <div className="max-h-32 overflow-y-auto">
             {dailyNotes.length === 0 ? (
               <p className="px-3 py-1 text-xs text-gray-400">이번 달 일간 노트 없음</p>
             ) : (
               dailyNotes.map(note => {
-                // 제목에서 날짜 부분만 추출: "일간 노트 2026-03-24" → "03-24"
-                // Python으로 치면: date_str = note.title.split()[-1][5:]
-                const datePart = note.title.replace('일간 노트 ', '').slice(5) // "03-24"
+                // "일간 노트 2026-03-24" → "03-24"
+                const datePart = note.title.replace('일간 노트 ', '').slice(5)
                 const isToday = note.title === `일간 노트 ${todayDateStr}`
                 return (
                   <button
@@ -203,9 +228,7 @@ export default function PeriodicNotesPanel() {
                   >
                     <span className="text-blue-400">📅</span>
                     <span className="flex-1 truncate">{datePart}</span>
-                    {isToday && (
-                      <span className="shrink-0 px-1 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded">오늘</span>
-                    )}
+                    {isToday && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded">오늘</span>}
                   </button>
                 )
               })
@@ -217,7 +240,6 @@ export default function PeriodicNotesPanel() {
       {/* ── 주간 탭 ─────────────────────────────── */}
       {tab === 'weekly' && (
         <div className="pb-1">
-          {/* 이번 주 버튼 */}
           <div className="px-2 pb-1">
             <button
               type="button"
@@ -227,15 +249,13 @@ export default function PeriodicNotesPanel() {
               이번 주 열기
             </button>
           </div>
-          {/* 올해 주간 노트 목록 */}
-          {/* Python으로 치면: for note in weekly_notes: render_row(note) */}
           <div className="max-h-32 overflow-y-auto">
             {weeklyNotes.length === 0 ? (
               <p className="px-3 py-1 text-xs text-gray-400">올해 주간 노트 없음</p>
             ) : (
               weeklyNotes.map(note => {
                 // "주간 노트 2026-W13" → "W13"
-                const weekPart = note.title.replace(`주간 노트 ${todayYear}-`, '') // "W13"
+                const weekPart = note.title.replace(`주간 노트 ${todayYear}-`, '')
                 const isThisWeek = note.title === `주간 노트 ${todayWeekStr}`
                 return (
                   <button
@@ -246,9 +266,49 @@ export default function PeriodicNotesPanel() {
                   >
                     <span className="text-violet-400">📆</span>
                     <span className="flex-1 truncate">{weekPart}</span>
-                    {isThisWeek && (
-                      <span className="shrink-0 px-1 py-0.5 text-[10px] bg-violet-100 text-violet-600 rounded">이번 주</span>
-                    )}
+                    {isThisWeek && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-violet-100 text-violet-600 rounded">이번 주</span>}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 월간 탭 ─────────────────────────────── */}
+      {/* Python으로 치면: if tab == 'monthly': render_monthly_tab() */}
+      {tab === 'monthly' && (
+        <div className="pb-1">
+          <div className="px-2 pb-1">
+            <button
+              type="button"
+              onClick={handleOpenMonthly}
+              className="w-full py-1 text-xs bg-emerald-500 text-white rounded hover:bg-emerald-600 transition-colors"
+            >
+              이번 달 열기
+            </button>
+          </div>
+          {/* 올해 월간 노트 목록 (월 역순) */}
+          {/* Python으로 치면: for note in monthly_notes: render_row(note) */}
+          <div className="max-h-32 overflow-y-auto">
+            {monthlyNotes.length === 0 ? (
+              <p className="px-3 py-1 text-xs text-gray-400">올해 월간 노트 없음</p>
+            ) : (
+              monthlyNotes.map(note => {
+                // "월간 노트 2026-03" → "03월"
+                // Python으로 치면: month_part = note.title.split('-')[-1] + '월'
+                const monthPart = note.title.replace(`월간 노트 ${todayYear}-`, '') + '월'
+                const isThisMonth = note.title === `월간 노트 ${todayMonthStr}`
+                return (
+                  <button
+                    key={note.id}
+                    type="button"
+                    onClick={() => setCurrentPage(note.id)}
+                    className={`w-full flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                  >
+                    <span className="text-emerald-400">🗓️</span>
+                    <span className="flex-1 truncate">{monthPart}</span>
+                    {isThisMonth && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-emerald-100 text-emerald-600 rounded">이번 달</span>}
                   </button>
                 )
               })
