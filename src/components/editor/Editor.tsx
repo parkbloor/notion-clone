@@ -1711,6 +1711,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         transform: CSS.Transform.toString(transform),
         transition,
         opacity: isDragging ? 0.4 : 1,
+        backgroundColor: block.backgroundColor || undefined,
+        borderRadius: block.backgroundColor ? '4px' : undefined,
       }}
       className="group relative flex items-start px-2 py-0.5"
       onContextMenu={handleContextMenu}
