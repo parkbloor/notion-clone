@@ -92,6 +92,9 @@ export interface Block {
   canvasY?: number     // Y 좌표 (px)
   canvasW?: number     // 너비 (px, 기본값 400)
   canvasH?: number     // 높이 (px, 내용에 따라 자동 갱신)
+  // 블록 배경색 (hex 또는 undefined = 투명)
+  // Python으로 치면: background_color: str | None = None
+  backgroundColor?: string
 }
 
 
@@ -126,6 +129,9 @@ export interface Page {
   // 캔버스 모드 여부 — true이면 블록을 절대 좌표로 배치
   // Python으로 치면: canvas_mode: bool = False
   canvasMode?: boolean
+  // 잠금 여부 — true이면 편집 불가 (읽기 전용 모드와 별도 개념)
+  // Python으로 치면: is_locked: bool = False
+  isLocked?: boolean
 }
 
 

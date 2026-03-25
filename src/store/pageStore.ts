@@ -167,6 +167,10 @@ interface PageStore {
   // Python으로 치면: def duplicate_page(self, page_id): pages.insert(idx+1, copy(page))
   duplicatePage: (pageId: string) => void
 
+  // 페이지 잠금 토글 (잠금 ↔ 해제) — 잠긴 페이지는 편집 불가
+  // Python으로 치면: def toggle_page_lock(self, page_id): page.is_locked = not page.is_locked
+  togglePageLock: (pageId: string) => void
+
   // ── 캔버스 모드 액션 ──────────────────────────
   // 페이지의 캔버스 모드를 토글 (문서 ↔ 캔버스)
   // Python으로 치면: def toggle_canvas_mode(self, page_id): page.canvas_mode = not page.canvas_mode
@@ -178,6 +182,9 @@ interface PageStore {
   // 특정 블록의 캔버스 위치/크기 업데이트
   // Python으로 치면: def update_block_canvas(self, page_id, block_id, x, y, w, h): ...
   updateBlockCanvas: (pageId: string, blockId: string, canvas: { x?: number; y?: number; w?: number; h?: number }) => void
+  // 블록 배경색 변경 (hex 문자열 또는 '' = 투명)
+  // Python으로 치면: def update_block_background(self, page_id, block_id, color): ...
+  updateBlockBackground: (pageId: string, blockId: string, color: string) => void
 
   // ── 블록 액션 ─────────────────────────────────
   // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입 (템플릿 적용)
@@ -328,8 +335,8 @@ export const usePageStore = create<PageStore>()(
 
         // ── 주기적 노트 전용 카테고리 자동 생성 ──────────────────
         // 일간/주간 노트를 보관할 카테고리가 없으면 최초 1회 자동 생성
-        // Python으로 치면: for name in ['📅 일간 노트', '📆 주간 노트']: create_if_not_exists(name)
-        const periodicCatNames = ['📅 일간 노트', '📆 주간 노트']
+        // Python으로 치면: for name in ['📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트']: create_if_not_exists(name)
+        const periodicCatNames = ['📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트']
         for (const catName of periodicCatNames) {
           if (!get().categories.find(c => c.name === catName)) {
             try {
@@ -629,6 +636,18 @@ export const usePageStore = create<PageStore>()(
     },
 
 
+    // 페이지 잠금 토글 → 저장
+    // Python으로 치면: def toggle_page_lock(self, page_id): page.is_locked = not page.is_locked
+    togglePageLock: (pageId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        page.isLocked = !page.isLocked
+        page.updatedAt = new Date().toISOString()
+      })
+      scheduleSave(pageId, get, set)
+    },
+
     // ── 캔버스 모드 액션 ──────────────────────────
 
     // 페이지의 캔버스 모드를 토글 → 디바운스 저장
@@ -682,6 +701,22 @@ export const usePageStore = create<PageStore>()(
       scheduleSave(pageId, get, set)
     },
 
+
+    // 블록 배경색 변경 → 디바운스 저장
+    // Python으로 치면: def update_block_background(self, page_id, block_id, color): ...
+    updateBlockBackground: (pageId, blockId, color) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const block = page.blocks.find(b => b.id === blockId)
+        if (!block) return
+        // 빈 문자열이면 undefined로 저장 (투명)
+        // Python으로 치면: block.background_color = color or None
+        block.backgroundColor = color || undefined
+        block.updatedAt = new Date().toISOString()
+      })
+      scheduleSave(pageId, get, set)
+    },
 
     // ── 블록 액션 ──────────────────────────────
 

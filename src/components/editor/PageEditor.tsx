@@ -270,6 +270,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     addTagToPage, removeTagFromPage,
     undoPage, redoPage, canUndo, canRedo,
     applyTemplate, togglePageStar, toggleCanvasMode, sortBlocksByCanvas,
+    togglePageLock,
     pages,
   } = usePageStore()
 
@@ -841,6 +842,21 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             <span>{readMode ? '읽기 중' : '편집'}</span>
           </button>
 
+          {/* 페이지 잠금 토글 버튼 */}
+          {/* 잠긴 상태: 🔒 빨간 배경 / 해제: 🔓 회색 */}
+          {/* Python으로 치면: lock_btn.on_click = lambda: toggle_page_lock(page_id) */}
+          <button
+            type="button"
+            onClick={() => togglePageLock(pageId)}
+            title={page.isLocked ? '잠금 해제' : '페이지 잠금'}
+            className={page.isLocked
+              ? "flex items-center gap-1 px-2 py-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
+              : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
+          >
+            <span>{page.isLocked ? '🔒' : '🔓'}</span>
+            <span>{page.isLocked ? '잠김' : '잠금'}</span>
+          </button>
+
           {/* 캔버스 모드 토글 버튼 */}
           {/* Python으로 치면: canvas_btn.on_click = lambda: toggle_canvas_mode(page_id) */}
           <button
@@ -988,21 +1004,36 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           </div>
         )}
 
+        {/* 페이지 잠금 배너 — 잠긴 페이지임을 시각적으로 명시 */}
+        {/* Python으로 치면: if page.is_locked: render LockBanner() */}
+        {page.isLocked && (
+          <div className="mb-3 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 print-hide">
+            <span className="text-red-600 text-xs">🔒 페이지 잠금 — 편집이 비활성화되었습니다</span>
+            <button
+              type="button"
+              onClick={() => togglePageLock(pageId)}
+              className="ml-auto text-xs text-red-500 hover:text-red-700 underline"
+            >
+              잠금 해제
+            </button>
+          </div>
+        )}
+
         {/* ── 페이지 제목 입력 ─────────────────────── */}
         <input
           type="text"
           value={page.title}
-          readOnly={readMode}
+          readOnly={readMode || !!page.isLocked}
           placeholder="제목 없음"
-          onChange={(e) => { if (!readMode) updatePageTitle(pageId, e.target.value) }}
+          onChange={(e) => { if (!readMode && !page.isLocked) updatePageTitle(pageId, e.target.value) }}
           onKeyDown={(e) => {
-            if (readMode) return
+            if (readMode || page.isLocked) return
             if (e.key === 'Enter') {
               e.preventDefault()
               addBlock(pageId)
             }
           }}
-          className={readMode
+          className={(readMode || page.isLocked)
             ? "w-full text-4xl font-bold bg-transparent border-none outline-none placeholder:text-gray-300 text-gray-900 mb-3 cursor-default select-text"
             : "w-full text-4xl font-bold bg-transparent border-none outline-none placeholder:text-gray-300 text-gray-900 mb-3"}
         />
@@ -1080,7 +1111,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             다시 ON하면 이전 배치 그대로 복원
             Python으로 치면: use_canvas = page.canvas_mode */}
         {page.canvasMode ? (
-          <CanvasPageEditor page={page} readMode={readMode} editMode={true} />
+          <CanvasPageEditor page={page} readMode={readMode || !!page.isLocked} editMode={true} />
         ) : hasCanvasLayout(page.blocks) ? (
 
           // ── 캔버스 레이아웃 행 렌더링 ─────────────────────────────────────
@@ -1136,7 +1167,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                           hasSectionChildren={hasChild}
                           isSectionCollapsed={collapsedSections.has(block.id)}
                           onToggleSectionCollapse={() => toggleSection(block.id)}
-                          readMode={readMode}
+                          readMode={readMode || !!page.isLocked}
                         />
                       </div>
                     )
@@ -1170,7 +1201,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                               hasSectionChildren={hasChild}
                               isSectionCollapsed={collapsedSections.has(block.id)}
                               onToggleSectionCollapse={() => toggleSection(block.id)}
-                              readMode={readMode}
+                              readMode={readMode || !!page.isLocked}
                             />
                           </div>
                         )
@@ -1244,7 +1275,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                         hasSectionChildren={hasChild}
                         isSectionCollapsed={collapsedSections.has(block.id)}
                         onToggleSectionCollapse={() => toggleSection(block.id)}
-                        readMode={readMode}
+                        readMode={readMode || !!page.isLocked}
                       />
                     </div>
                   )
