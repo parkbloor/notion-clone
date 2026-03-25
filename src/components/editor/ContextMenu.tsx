@@ -55,21 +55,34 @@ interface ContextMenuProps {
 export default function ContextMenu({ x, y, sections, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
 
-  // 예상 메뉴 크기 계산 — 화면 경계 보정에 사용
+  // 예상 메뉴 높이 계산 — 화면 경계 보정에 사용
   // 항목당 34px, 섹션 헤더 28px, 구분선 9px
-  // Python으로 치면: estimated_h = sum(len(s.actions)*34 + (28 if s.title else 0) for s in sections)
+  // customRender 있는 섹션(색상 팔레트 등)은 별도 60px 추가
+  // Python으로 치면: estimated_h = sum(len(s.actions)*34 + (28 if s.title else 0) + (60 if s.custom else 0) for s in sections)
   const MENU_W = 224
   const estimatedH = sections.reduce(
-    (acc, s) => acc + s.actions.length * 34 + (s.title ? 28 : 0) + 9,
+    (acc, s) =>
+      acc +
+      s.actions.length * 34 +
+      (s.title ? 28 : 0) +
+      (s.customRender ? 60 : 0) +
+      9,
     0
   )
 
-  // 화면 오른쪽/아래 끝에서 잘리지 않도록 좌표 보정
-  // Python으로 치면: safe_x = min(x, screen.width - MENU_W - 8)
+  // 화면 오른쪽 경계 보정 — 메뉴가 오른쪽으로 잘리지 않게
+  // Python으로 치면: safe_x = min(x, vw - MENU_W - 8)
   const vw = typeof window !== 'undefined' ? window.innerWidth  : 1200
   const vh = typeof window !== 'undefined' ? window.innerHeight : 800
   const safeX = Math.min(x, vw - MENU_W - 8)
-  const safeY = Math.min(y, vh - estimatedH - 8)
+
+  // 위/아래 방향 결정 — 클릭 위치 기준으로 메뉴가 넘어가면 위로 열기
+  // 아래 공간이 부족하면 커서 위로 열기 (일반 OS 컨텍스트 메뉴 동작)
+  // Python으로 치면: open_upward = y + estimated_h + 8 > vh
+  const openUpward = y + estimatedH + 8 > vh
+  const safeY = openUpward
+    ? Math.max(8, y - estimatedH)   // 커서 위로 열기, 화면 상단 경계 보정
+    : y                              // 커서 아래로 열기
 
   useEffect(() => {
     // 메뉴 바깥 클릭 → 닫기 (mousedown: click보다 빨리 감지)
