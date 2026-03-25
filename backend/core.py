@@ -95,6 +95,18 @@ ALLOWED_VIDEO_EXTS = frozenset({'.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'}
 # Python으로 치면: MAX_VIDEO_SIZE = 500 * 1024 * 1024
 MAX_VIDEO_SIZE = 500 * 1024 * 1024
 
+# ── 일반 파일 업로드 제한 ─────────────────────
+# 허용 파일 확장자 (소문자만)
+# Python으로 치면: ALLOWED_FILE = frozenset({'.pdf', '.docx', ...})
+ALLOWED_FILE_EXTS = frozenset({
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.txt', '.md', '.csv', '.json', '.zip', '.rar', '.7z',
+})
+
+# 최대 일반 파일 크기: 100MB
+# Python으로 치면: MAX_FILE_SIZE = 100 * 1024 * 1024
+MAX_FILE_SIZE = 100 * 1024 * 1024
+
 # ── UUID 형식 검증 정규식 ──────────────────────
 # Python으로 치면: re.compile(r'^[a-f0-9]{8}-...$')
 _UUID_RE = re.compile(

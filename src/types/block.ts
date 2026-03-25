@@ -39,14 +39,16 @@ export type BlockType =
   | 'gantt'        // 타임라인/갠트 차트 블록 (태스크 + 날짜 범위 시각화)
   | 'mindmap'      // AI 마인드맵 블록 (방사형 트리 + AI 채팅 통합)
   | 'ai'           // AI 글쓰기 슬래시 커맨드 전용 (실제 블록 생성 없음 — 패널만 열림)
+  | 'toc'          // 인라인 목차 블록 (페이지 내 헤딩 목록 자동 생성)
+  | 'file'         // 파일 첨부 블록 (PDF / docx / zip 등 일반 파일)
 
 
 // -----------------------------------------------
 // 페이지 속성 타입
-// 날짜 / 상태 / 선택 / 텍스트 4종
-// Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text']
+// 날짜 / 상태 / 선택 / 텍스트 / 관계 5종
+// Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text', 'relation']
 // -----------------------------------------------
-export type PropertyType = 'date' | 'status' | 'select' | 'text'
+export type PropertyType = 'date' | 'status' | 'select' | 'text' | 'relation'
 
 // 상태 속성 선택지 (고정)
 // Python으로 치면: STATUS_OPTIONS = ['미시작', '진행 중', '완료', '보류']

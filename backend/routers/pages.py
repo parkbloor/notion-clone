@@ -16,6 +16,8 @@ from backend.core import (
     MAX_IMAGE_SIZE,
     ALLOWED_VIDEO_EXTS,
     MAX_VIDEO_SIZE,
+    ALLOWED_FILE_EXTS,
+    MAX_FILE_SIZE,
     VAULT_DIR,
     CreatePageBody,
     MoveCategoryBody,
@@ -527,3 +529,66 @@ async def upload_video(page_id: str, file: UploadFile = File(...)):
     url = f"{prefix}videos/{filename}"
 
     return {"url": url, "filename": filename}
+
+
+# -----------------------------------------------
+# 일반 파일 업로드
+# 이미지/비디오 업로드와 동일한 구조 — 저장 위치만 files/ 로 분리
+# Python으로 치면: def upload_file(page_id, file): validate → save → return url
+# -----------------------------------------------
+@router.post("/pages/{page_id}/files")
+async def upload_file(page_id: str, file: UploadFile = File(...)):
+    """
+    일반 파일 업로드 → vault/{경로}/files/{uuid}.ext 저장 → URL + 원본파일명 + 크기 반환
+    허용 확장자: .pdf .doc .docx .xls .xlsx .ppt .pptx .txt .md .csv .json .zip .rar .7z  /  최대 100MB
+    """
+    # 🔒 UUID 검증 (경로 트래버설 방지)
+    validate_uuid(page_id, "페이지 ID")
+
+    # 확장자 화이트리스트 검증 (소문자로 정규화)
+    # Python으로 치면: if suffix not in ALLOWED_FILE: raise ValueError
+    raw_suffix = Path(file.filename or "").suffix.lower()
+    if raw_suffix not in ALLOWED_FILE_EXTS:
+        raise HTTPException(
+            status_code=415,
+            detail=f"허용되지 않는 파일 형식입니다. 허용: {', '.join(sorted(ALLOWED_FILE_EXTS))}",
+        )
+
+    # 파일 내용 읽기 + 크기 제한 (100MB)
+    # Python으로 치면: content = file.read(); assert len(content) <= MAX_FILE_SIZE
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"파일 크기가 100MB를 초과합니다 ({len(content) // (1024*1024)}MB)",
+        )
+
+    # 페이지 폴더 + files/ 하위 디렉토리에 저장
+    # Python으로 치면: files_dir = get_page_dir(page_id) / 'files'
+    index = load_index()
+    page_dir = get_page_dir(page_id, index)
+    files_dir = page_dir / "files"
+
+    # 🔒 vault 탈출 방지
+    assert_inside_vault(files_dir)
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    # UUID 기반 파일명 (원본 파일명 무시 → 경로 인젝션 방지)
+    # Python으로 치면: filename = f"{uuid.uuid4()}{suffix}"
+    filename = f"{uuid.uuid4()}{raw_suffix}"
+    file_path = files_dir / filename
+    file_path.write_bytes(content)
+
+    # URL 경로 계산 (카테고리 prefix 포함, 이미지와 동일한 prefix 사용)
+    page_folder = get_folder_name(page_id, index)
+    cat_id = index.get("categoryMap", {}).get(page_id)
+    cat_folder = get_category_folder_name(cat_id, index)
+    prefix = get_image_url_prefix(page_folder, cat_folder)
+    url = f"{prefix}files/{filename}"
+
+    return {
+        "url": url,
+        "filename": filename,
+        "original_name": file.filename or filename,
+        "size": len(content),
+    }

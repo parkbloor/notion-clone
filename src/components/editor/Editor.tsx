@@ -33,6 +33,9 @@ import { TextAlign } from '@tiptap/extension-text-align'
 // 인라인 수식 확장: $...$ 패턴 → KaTeX 인라인 노드 자동 변환
 // Python으로 치면: from extensions import InlineMath
 import { InlineMath } from '@/extensions/InlineMath'
+// 인라인 각주 확장: [^텍스트] 패턴 → 번호 superscript 자동 변환
+// Python으로 치면: from extensions import FootnoteInline
+import { FootnoteInline } from '@/extensions/FootnoteInline'
 import { TaskList } from '@tiptap/extension-task-list'
 import { TaskItem } from '@tiptap/extension-task-item'
 // ── 테이블 확장 ────────────────────────────────
@@ -68,6 +71,8 @@ import MermaidBlock from './MermaidBlock'
 import ChartBlock from './ChartBlock'
 import GanttBlock from './GanttBlock'
 import MindmapBlock from './MindmapBlock'
+import TocBlock from './TocBlock'
+import FileBlock from './FileBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
 import { ChevronRight, ChevronDown } from 'lucide-react'
@@ -317,6 +322,10 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       // ArrowLayer가 해당 DOM을 스캔해 SVG 화살표 렌더링
       // Python으로 치면: extensions.append(ArrowMark)
       ArrowMark,
+      // ── 인라인 각주 확장 ────────────────────────
+      // [^각주 내용] 패턴 입력 시 번호 superscript 노드로 자동 변환
+      // Python으로 치면: extensions.append(FootnoteInline)
+      FootnoteInline,
     ],
     // 이미지·토글·칸반·Excalidraw·비디오 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // JSON content를 HTML로 파싱하는 오류 방지
@@ -325,7 +334,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: content = '' if type in ('image', 'toggle', 'layout', ...) else block.content
     // math 블록도 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
     // Python으로 치면: content = '' if type in ('image', 'toggle', ..., 'math') else block.content
-    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout' || block.type === 'math' || block.type === 'embed' || block.type === 'mermaid') ? '' : (block.content || ''),
+    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout' || block.type === 'math' || block.type === 'embed' || block.type === 'mermaid' || block.type === 'file') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -663,7 +672,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
   function buildContextSections(): ContextMenuSection[] {
     const isTextBlock = ![
       'image', 'toggle', 'kanban', 'admonition',
-      'canvas', 'excalidraw', 'video', 'layout', 'math', 'divider', 'mermaid',
+      'canvas', 'excalidraw', 'video', 'layout', 'math', 'divider', 'mermaid', 'file',
     ].includes(block.type)
 
     const sections: ContextMenuSection[] = [
@@ -953,7 +962,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: if type in ('image', ..., 'math'): return
     // video, embed도 비-Tiptap 블록 — content를 JSON으로 직접 관리하므로 조기 반환
     // 빠트리면 setParagraph()가 호출돼 onUpdate → updateBlock('<p></p>') 로 content 덮어쓰기 위험
-    if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid') return
+    if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid' || type === 'file') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -1491,6 +1500,80 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     )
   }
 
+  // -----------------------------------------------
+  // 인라인 목차 블록: TocBlock 컴포넌트로 렌더링
+  // 현재 페이지의 헤딩(H1~H6)을 실시간으로 읽어 클릭 가능한 목록으로 표시
+  // Python으로 치면: if block.type == 'toc': return render(TocBlock)
+  // -----------------------------------------------
+  if (block.type === 'toc') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <TocBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 파일 첨부 블록: FileBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { url, name, size, ext }
+  // Python으로 치면: if block.type == 'file': return render(FileBlock)
+  // -----------------------------------------------
+  if (block.type === 'file') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+        }}
+        className="group relative flex items-start px-2 py-0.5"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title="드래그하여 블록 이동"
+        >
+          ⠿
+        </div>
+        <div className="flex-1">
+          <FileBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
   // 임베드 블록: EmbedBlock 컴포넌트로 렌더링
   // content는 JSON 문자열: { url: "https://..." }
   // Python으로 치면: if block.type == 'embed': return render(EmbedBlock)
@@ -1579,7 +1662,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       </div>
 
       {/* Bubble Menu — editor가 준비됐을 때만 렌더링 */}
-      {editor ? <BubbleMenuBar editor={editor} /> : null}
+      {editor ? <BubbleMenuBar editor={editor} readMode={readMode} /> : null}
 
       {/* 테이블 블록: 커서가 테이블 안에 있을 때 툴바 표시 */}
       {/* Python으로 치면: if editor.is_active('table'): render(TableToolbar) */}

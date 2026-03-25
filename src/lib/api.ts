@@ -6,9 +6,9 @@
 
 import { Page, Category } from '@/types/block'
 
-// FastAPI 서버 주소
-// Python으로 치면: BASE_URL = 'http://localhost:8000'
-const BASE_URL = 'http://localhost:8000'
+// FastAPI 서버 주소 (Windows에서 localhost가 IPv6 ::1로 해석되는 문제로 127.0.0.1 사용)
+// Python으로 치면: BASE_URL = 'http://127.0.0.1:8000'
+const BASE_URL = 'http://127.0.0.1:8000'
 
 // -----------------------------------------------
 // Date 직렬화 헬퍼
@@ -141,6 +141,29 @@ export const api = {
     }
     const data = await res.json()
     return data.url as string
+  },
+
+  // ── 일반 파일 업로드 (PDF / docx / zip 등) ───
+  // Python으로 치면: requests.post(url, files={'file': file_obj})
+  uploadFile: async (pageId: string, file: File): Promise<{ url: string; name: string; size: number; ext: string }> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/files`, {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail ?? '파일 업로드 실패')
+    }
+    const data = await res.json()
+    const ext = ('.' + (data.original_name as string).split('.').pop()).toLowerCase()
+    return {
+      url: data.url as string,
+      name: data.original_name as string,
+      size: data.size as number,
+      ext,
+    }
   },
 
   // ── 카테고리 생성 (parentId 있으면 하위 폴더) ──
