@@ -1572,7 +1572,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           ⠿
         </div>
         <div className="flex-1">
-          <MindmapBlock block={block} pageId={pageId} />
+          <MindmapBlock block={block} pageId={pageId} readMode={readMode} />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />

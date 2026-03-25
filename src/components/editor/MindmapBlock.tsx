@@ -170,7 +170,7 @@ ${treeText}
 // =============================================
 // MindmapBlock 메인 컴포넌트
 // =============================================
-export default function MindmapBlock({ block, pageId }: { block: Block; pageId: string }) {
+export default function MindmapBlock({ block, pageId, readMode }: { block: Block; pageId: string; readMode?: boolean }) {
   const { updateBlock } = usePageStore()
   const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
 
@@ -294,13 +294,15 @@ export default function MindmapBlock({ block, pageId }: { block: Block; pageId: 
     if (!el) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      // 읽기 모드에서도 줌은 허용 (탐색 목적)
+      // 페이지 읽기 모드 / 잠금 상태에서는 휠 줌 비활성화
+      // Python으로 치면: if read_mode: return
+      if (readMode) return
       const factor = e.deltaY < 0 ? 1.12 : 0.9
       setZoom(z => Math.max(0.2, Math.min(4, z * factor)))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+  }, [readMode])
 
   // ── 언마운트 시 진행 중인 AI 스트림 취소 ──────────
   // Python으로 치면: def __del__(self): self._abort_controller?.abort()
