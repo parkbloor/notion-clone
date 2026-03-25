@@ -136,7 +136,7 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
 
 export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode }: EditorProps) {
 
-  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, pages, setCurrentPage } = usePageStore()
+  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage } = usePageStore()
 
   // -----------------------------------------------
   // useSortable: 이 블록을 dnd-kit의 드래그 가능한 아이템으로 등록
@@ -734,6 +734,31 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       })
     }
 
+    // ── 블록 배경색 팔레트 ────────────────────────
+    // 모든 블록 타입에 공통 적용 (투명 + 6가지 색상)
+    // Python으로 치면: sections.append(bg_color_section)
+    const BG_COLORS = [
+      { label: '투명', color: '' },
+      { label: '노랑', color: '#fef9c3' },
+      { label: '파랑', color: '#dbeafe' },
+      { label: '초록', color: '#dcfce7' },
+      { label: '빨강', color: '#fee2e2' },
+      { label: '보라', color: '#f3e8ff' },
+      { label: '회색', color: '#f3f4f6' },
+    ]
+    sections.push({
+      id: 'bg-color',
+      title: '블록 배경색',
+      actions: BG_COLORS.map(({ label, color }) => ({
+        id: `bg-${color || 'none'}`,
+        label,
+        // 현재 색과 일치하면 체크 표시
+        // Python으로 치면: icon = '✓' if block.background_color == color else '○'
+        icon: (block.backgroundColor ?? '') === color ? '✓' : '○',
+        onClick: () => updateBlockBackground(pageId, block.id, color),
+      })),
+    })
+
     return sections
   }
 
@@ -1009,6 +1034,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1048,6 +1075,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1085,6 +1114,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1127,6 +1158,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1168,6 +1201,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1209,6 +1244,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1251,6 +1288,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1289,6 +1328,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1330,6 +1371,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1367,6 +1410,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1404,6 +1449,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1440,6 +1487,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1477,6 +1526,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1514,6 +1565,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1551,6 +1604,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
@@ -1587,6 +1642,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           transform: CSS.Transform.toString(transform),
           transition,
           opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
         className="group relative flex items-start px-2 py-0.5"
         onContextMenu={handleContextMenu}
