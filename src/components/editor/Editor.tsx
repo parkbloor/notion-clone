@@ -70,12 +70,18 @@ import EmbedBlock, { isEmbedUrl } from './EmbedBlock'
 import MermaidBlock from './MermaidBlock'
 import ChartBlock from './ChartBlock'
 import GanttBlock from './GanttBlock'
+import DayPlannerBlock from './DayPlannerBlock'
+import WeeklyPlannerBlock from './WeeklyPlannerBlock'
+import RoutineMatrixBlock from './RoutineMatrixBlock'
+import MonthlyCalendarBlock from './MonthlyCalendarBlock'
+import QuarterlyPlannerBlock from './QuarterlyPlannerBlock'
+import YearlyPlannerBlock from './YearlyPlannerBlock'
 import MindmapBlock from './MindmapBlock'
 import TocBlock from './TocBlock'
 import FileBlock from './FileBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
-import { ChevronRight, ChevronDown } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus } from 'lucide-react'
 // ── 찾기/바꾸기 확장 ─────────────────────────
 // SearchHighlight: ProseMirror 데코레이션으로 검색어 하이라이트
 // searchHighlightKey: 검색어 변경 시 Transaction 메타 키로 전달
@@ -86,6 +92,7 @@ import { SearchHighlight, searchHighlightKey } from '@/extensions/SearchHighligh
 // Python으로 치면: from extensions import ArrowMark
 import { ArrowMark } from '@/extensions/ArrowMark'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
+import { useLocale } from '@/locales'
 
 // ── dnd-kit 임포트 ────────────────────────────
 // useSortable : 이 컴포넌트를 드래그 가능한 아이템으로 만드는 훅
@@ -135,6 +142,8 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
 }
 
 export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode }: EditorProps) {
+
+  const t = useLocale()
 
   const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage } = usePageStore()
 
@@ -281,7 +290,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3, 4, 5, 6] }, link: { openOnClick: false } }),
       Placeholder.configure({
         placeholder: ({ node }) => {
-          if (node.type.name === 'heading') return '제목을 입력하세요'
+          if (node.type.name === 'heading') return t.editor.headingPlaceholder
           return "'/' 커맨드  ·  '@' 멘션  ·  '[[' 링크"
         },
       }),
@@ -302,7 +311,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       TaskItem.configure({ nested: true }),
       // ── 테이블 확장 등록 ─────────────────────────
       // Python으로 치면: extensions = [..., Table(), TableRow(), ...]
-      Table.configure({ resizable: false }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
@@ -600,6 +609,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     function onFocus() {
       _aiInsertTarget.editor = editor
       _aiInsertTarget.pos = editor!.state.selection.from
+      // 텍스트 블록 포커스 → 전역 AI에 블록 타입 자동 전달 (링 없이 텍스트 모드 전환)
+      // Python으로 치면: window.emit('ai-block-select', {blockId, blockType})
+      window.dispatchEvent(new CustomEvent('ai-block-select', {
+        detail: { blockId: block.id, blockType: block.type }
+      }))
     }
     function onBlur() {
       // 포커스 이탈 시 현재 커서 위치 저장 (AI 패널 클릭 후 복원용)
@@ -682,13 +696,13 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         actions: [
           {
             id: 'add-above',
-            label: '위에 블록 추가',
+            label: t.editor.addBlockAbove,
             icon: '↑',
             onClick: () => addBlockBefore(pageId, block.id),
           },
           {
             id: 'add-below',
-            label: '아래에 블록 추가',
+            label: t.editor.addBlockBelow,
             icon: '↓',
             onClick: () => addBlock(pageId, block.id),
           },
@@ -700,13 +714,13 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         actions: [
           {
             id: 'duplicate',
-            label: '블록 복제',
+            label: t.editor.duplicateBlock,
             icon: '⧉',
             onClick: () => duplicateBlock(pageId, block.id),
           },
           {
             id: 'delete',
-            label: '블록 삭제',
+            label: t.editor.deleteBlock,
             icon: '✕',
             danger: true,
             onClick: () => deleteBlock(pageId, block.id),
@@ -720,16 +734,16 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (isTextBlock) {
       sections.push({
         id: 'convert',
-        title: '블록 타입 변환',
+        title: t.editor.convertTitle,
         actions: [
-          { id: 'to-para',    label: '단락',        icon: 'T',   onClick: () => updateBlockType(pageId, block.id, 'paragraph') },
-          { id: 'to-h1',     label: '제목 1',       icon: 'H1',  onClick: () => updateBlockType(pageId, block.id, 'heading1') },
-          { id: 'to-h2',     label: '제목 2',       icon: 'H2',  onClick: () => updateBlockType(pageId, block.id, 'heading2') },
-          { id: 'to-h3',     label: '제목 3',       icon: 'H3',  onClick: () => updateBlockType(pageId, block.id, 'heading3') },
-          { id: 'to-bullet', label: '글머리 목록',   icon: '•',   onClick: () => updateBlockType(pageId, block.id, 'bulletList') },
-          { id: 'to-ol',     label: '번호 목록',     icon: '1.',  onClick: () => updateBlockType(pageId, block.id, 'orderedList') },
-          { id: 'to-task',   label: '체크 목록',     icon: '☐',   onClick: () => updateBlockType(pageId, block.id, 'taskList') },
-          { id: 'to-code',   label: '코드',          icon: '</>',  onClick: () => updateBlockType(pageId, block.id, 'code') },
+          { id: 'to-para',    label: t.contextMenu.types.paragraph,    icon: 'T',   onClick: () => updateBlockType(pageId, block.id, 'paragraph') },
+          { id: 'to-h1',     label: t.contextMenu.types.heading1,      icon: 'H1',  onClick: () => updateBlockType(pageId, block.id, 'heading1') },
+          { id: 'to-h2',     label: t.contextMenu.types.heading2,      icon: 'H2',  onClick: () => updateBlockType(pageId, block.id, 'heading2') },
+          { id: 'to-h3',     label: t.contextMenu.types.heading3,      icon: 'H3',  onClick: () => updateBlockType(pageId, block.id, 'heading3') },
+          { id: 'to-bullet', label: t.contextMenu.types.bulletList,    icon: '•',   onClick: () => updateBlockType(pageId, block.id, 'bulletList') },
+          { id: 'to-ol',     label: t.contextMenu.types.orderedList,   icon: '1.',  onClick: () => updateBlockType(pageId, block.id, 'orderedList') },
+          { id: 'to-task',   label: t.contextMenu.types.taskList,      icon: '☐',   onClick: () => updateBlockType(pageId, block.id, 'taskList') },
+          { id: 'to-code',   label: t.contextMenu.types.codeBlock,     icon: '</>',  onClick: () => updateBlockType(pageId, block.id, 'code') },
         ],
       })
     }
@@ -738,20 +752,20 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // customRender: 실제 색상 스와치를 격자로 표시 (텍스트 대신 색상 직접 확인 가능)
     // Python으로 치면: sections.append(bg_color_section_with_custom_render)
     const BG_COLORS = [
-      { label: '투명', color: '' },
-      { label: '노랑', color: '#fef9c3' },
-      { label: '주황', color: '#fed7aa' },
-      { label: '빨강', color: '#fee2e2' },
-      { label: '분홍', color: '#fce7f3' },
-      { label: '보라', color: '#f3e8ff' },
-      { label: '파랑', color: '#dbeafe' },
-      { label: '하늘', color: '#cffafe' },
-      { label: '초록', color: '#dcfce7' },
-      { label: '회색', color: '#f3f4f6' },
+      { label: t.editor.colors.transparent, color: '' },
+      { label: t.editor.colors.yellow,      color: '#fef9c3' },
+      { label: t.editor.colors.orange,      color: '#fed7aa' },
+      { label: t.editor.colors.red,         color: '#fee2e2' },
+      { label: t.editor.colors.pink,        color: '#fce7f3' },
+      { label: t.editor.colors.purple,      color: '#f3e8ff' },
+      { label: t.editor.colors.blue,        color: '#dbeafe' },
+      { label: t.editor.colors.sky,         color: '#cffafe' },
+      { label: t.editor.colors.green,       color: '#dcfce7' },
+      { label: t.editor.colors.gray,        color: '#f3f4f6' },
     ]
     sections.push({
       id: 'bg-color',
-      title: '블록 배경색',
+      title: t.editor.bgColorTitle,
       // actions는 비워두고 customRender로만 표시
       // Python으로 치면: section.custom_widget = ColorPaletteWidget(colors)
       actions: [],
@@ -829,9 +843,9 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (type === 'kanban') {
       updateBlock(pageId, block.id, JSON.stringify({
         columns: [
-          { id: crypto.randomUUID(), title: '할 일',  color: '#f1f5f9', cards: [] },
-          { id: crypto.randomUUID(), title: '진행 중', color: '#dbeafe', cards: [] },
-          { id: crypto.randomUUID(), title: '완료',   color: '#dcfce7', cards: [] },
+          { id: crypto.randomUUID(), title: t.editor.kanbanDefault.todo,       color: '#f1f5f9', cards: [] },
+          { id: crypto.randomUUID(), title: t.editor.kanbanDefault.inProgress, color: '#dbeafe', cards: [] },
+          { id: crypto.randomUUID(), title: t.editor.kanbanDefault.done,       color: '#dcfce7', cards: [] },
         ],
       }))
     }
@@ -869,8 +883,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       updateBlock(pageId, block.id, JSON.stringify({
         chartType: 'bar',
         title: '',
-        labels: ['항목 1', '항목 2', '항목 3'],
-        series: [{ name: '데이터', data: [0, 0, 0], color: '#3b82f6' }],
+        labels: [t.editor.chartDefault.label1, t.editor.chartDefault.label2, t.editor.chartDefault.label3],
+        series: [{ name: t.editor.chartDefault.series, data: [0, 0, 0], color: '#3b82f6' }],
       }))
     }
     // 갠트 타입으로 전환 시 빈 content로 초기화 → GanttBlock 내부에서 기본 데이터 생성
@@ -882,7 +896,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: if type == 'mindmap': block.content = json.dumps({'nodes':[...],'chatHistory':[],'chatOpen':True})
     if (type === 'mindmap') {
       updateBlock(pageId, block.id, JSON.stringify({
-        nodes: [{ id: 'root', text: '중심 주제', parentId: null, collapsed: false }],
+        nodes: [{ id: 'root', text: t.editor.mindmapDefault, parentId: null, collapsed: false }],
         chatHistory: [],
         chatOpen: true,
       }))
@@ -915,7 +929,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       // Python으로 치면: insert_text(f'{icon} {title}', href=f'#page-{id}')
       chain.insertContent({
         type: 'text',
-        text: `${item.page.icon} ${item.page.title || '제목 없음'}`,
+        text: `${item.page.icon} ${item.page.title || t.common.untitled}`,
         marks: [{ type: 'link', attrs: { href: `#page-${item.page.id}` } }],
       }).run()
     } else {
@@ -926,7 +940,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       const snippet = item.plainText.slice(0, 30) + (item.plainText.length > 30 ? '…' : '')
       chain.insertContent({
         type: 'text',
-        text: `${item.page.icon} ${item.page.title || '제목 없음'} › ${snippet || '(내용 없음)'}`,
+        text: `${item.page.icon} ${item.page.title || t.common.untitled} › ${snippet || t.editor.emptyContent}`,
         marks: [{ type: 'link', attrs: { href: `#block-${item.page.id}:${item.block.id}` } }],
       }).run()
     }
@@ -1067,7 +1081,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         {/* + 블록 메뉴 버튼 */}
@@ -1077,11 +1091,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <ImageBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1108,7 +1122,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1116,11 +1130,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <ToggleBlock block={block} pageId={pageId} isLast={isLast} />
         </div>
         {contextMenu && (
@@ -1147,7 +1161,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1155,11 +1169,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <KanbanBlock
             blockId={block.id}
             pageId={pageId}
@@ -1191,7 +1205,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1199,11 +1213,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <AdmonitionBlock
             blockId={block.id}
             content={block.content}
@@ -1234,7 +1248,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1242,11 +1256,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <CanvasBlock
             blockId={block.id}
             content={block.content}
@@ -1278,7 +1292,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1286,11 +1300,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <ExcalidrawBlock
             blockId={block.id}
             content={block.content}
@@ -1322,7 +1336,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1330,11 +1344,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <VideoBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1362,7 +1376,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1370,11 +1384,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <LayoutBlock
             blockId={block.id}
             content={block.content}
@@ -1405,7 +1419,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1413,11 +1427,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <MathBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1444,7 +1458,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1452,11 +1466,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <MermaidBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1483,7 +1497,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1491,11 +1505,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <ChartBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1521,7 +1535,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1529,12 +1543,218 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <GanttBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // Day Planner 블록: DayPlannerBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { date: 'YYYY-MM-DD', events: [{id,title,start,end,color,done}] }
+  // Python으로 치면: if block.type == 'dayplanner': return render(DayPlannerBlock)
+  // -----------------------------------------------
+  if (block.type === 'dayplanner') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <DayPlannerBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // Weekly Planner 블록: WeeklyPlannerBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { weekStart, days: {[date]: {weather?, tasks[]}}, location? }
+  // Python으로 치면: if block.type == 'weeklyplanner': return render(WeeklyPlannerBlock)
+  // -----------------------------------------------
+  if (block.type === 'weeklyplanner') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <WeeklyPlannerBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 루틴 달성 매트릭스 블록: RoutineMatrixBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { weekStart: 'YYYY-MM-DD' }
+  // Python으로 치면: if block.type == 'routinematrix': return render(RoutineMatrixBlock)
+  // -----------------------------------------------
+  if (block.type === 'routinematrix') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <RoutineMatrixBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 월간 캘린더 블록: MonthlyCalendarBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { year, month, memos: { 'YYYY-MM-DD': '메모' } }
+  // Python으로 치면: if block.type == 'monthlycalendar': return render(MonthlyCalendarBlock)
+  // -----------------------------------------------
+  if (block.type === 'monthlycalendar') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <MonthlyCalendarBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 분기 플래너 블록: QuarterlyPlannerBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { year, quarter, objectives: [{id,title,keyResults:[{id,title,progress}]}] }
+  // Python으로 치면: if block.type == 'quarterlyplanner': return render(QuarterlyPlannerBlock)
+  // -----------------------------------------------
+  if (block.type === 'quarterlyplanner') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <QuarterlyPlannerBlock
+            block={block}
+            pageId={pageId}
+            onUpdate={content => updateBlock(pageId, block.id, content)}
+          />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 연간 플래너 블록: YearlyPlannerBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { year, goals: [{id,category,title,done}] }
+  // Python으로 치면: if block.type == 'yearlyplanner': return render(YearlyPlannerBlock)
+  // -----------------------------------------------
+  if (block.type === 'yearlyplanner') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <YearlyPlannerBlock
+            block={block}
+            pageId={pageId}
+            onUpdate={content => updateBlock(pageId, block.id, content)}
+          />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
@@ -1560,7 +1780,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1568,11 +1788,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <MindmapBlock block={block} pageId={pageId} readMode={readMode} />
         </div>
         {contextMenu && (
@@ -1599,7 +1819,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1607,11 +1827,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <TocBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1638,7 +1858,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1646,11 +1866,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <FileBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1676,7 +1896,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="group relative flex items-start px-2 py-0.5"
+        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
@@ -1684,11 +1904,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           {...attributes}
           {...listeners}
           className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-          title="드래그하여 블록 이동"
+          title={t.editor.dragHandle}
         >
           ⠿
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <EmbedBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
@@ -1715,7 +1935,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         backgroundColor: block.backgroundColor || undefined,
         borderRadius: block.backgroundColor ? '4px' : undefined,
       }}
-      className="group relative flex items-start px-2 py-0.5"
+      className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
       onContextMenu={handleContextMenu}
     >
       {/* ── 섹션 접기/펼치기 버튼 (heading 블록 + 하위 블록이 있을 때만 표시) ──
@@ -1746,22 +1966,28 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         {...attributes}
         {...listeners}
         className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
-        title="드래그하여 블록 이동"
+        title={t.editor.dragHandle}
       >
         ⠿
       </div>
 
+      {/* ── 플로팅 테이블 툴바 ────────────────────────
+          커서가 테이블 안에 있을 때만 표시
+          absolute 포지션: 블록 래퍼(relative) 기준 -top-10 에 띄움
+          Python으로 치면: if editor.is_active('table'): render FloatingTableToolbar() */}
+      {editor && editor.isActive('table') && (
+        <TableToolbar editor={editor} pageId={pageId} blockId={block.id} />
+      )}
+
       {/* Bubble Menu — editor가 준비됐을 때만 렌더링 */}
       {editor ? <BubbleMenuBar editor={editor} readMode={readMode} /> : null}
 
-      {/* 테이블 블록: 커서가 테이블 안에 있을 때 툴바 표시 */}
-      {/* Python으로 치면: if editor.is_active('table'): render(TableToolbar) */}
       {/* 내부 링크 클릭 처리 */}
       {/* #page-{id}  → 해당 페이지로 이동 */}
       {/* #block-{pageId}:{blockId} → 해당 페이지로 이동 후 블록으로 스크롤 */}
       {/* Python으로 치면: if link.startswith('#page-'): go(link[6:]); elif '#block-': go_and_scroll(link) */}
       <div
-        className="flex-1"
+        className="flex-1 min-w-0"
         onClick={(e) => {
           const link = (e.target as HTMLElement).closest('a')
           if (link) {
@@ -1789,10 +2015,22 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           }
         }}
       >
-        {editor && editor.isActive('table') && (
-          <TableToolbar editor={editor} pageId={pageId} blockId={block.id} />
-        )}
         <EditorContent editor={editor} className="outline-none" />
+
+        {/* ── 행 추가 버튼 (테이블 하단) ───────────────
+            커서가 테이블 안에 있을 때 테이블 바로 아래에 표시
+            클릭 시 마지막 행 아래에 새 행 추가
+            Python으로 치면: if editor.is_active('table'): render AddRowBtn() */}
+        {editor && editor.isActive('table') && (
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().addRowAfter().run()}
+            className="mt-1 ml-0.5 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300 transition-colors px-1.5 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <Plus size={11} />
+            <span>행 추가</span>
+          </button>
+        )}
       </div>
       {editor && (
         <SlashCommand

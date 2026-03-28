@@ -14,6 +14,7 @@ import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useLocale } from '@/locales'
 
 // ── 마인드맵 노드 ────────────────────────────────
 // Python으로 치면: @dataclass class MindNode: id, text, parentId, collapsed
@@ -40,14 +41,15 @@ interface MindmapData {
   nodePositions?: Record<string, { x: number; y: number }>
 }
 
-// ── 깊이별 색상 팔레트 ────────────────────────────
+// ── 깊이별 색상 팔레트 (Digital Atelier: 따뜻한 뉴트럴 계열) ──────────────
+// Python으로 치면: DEPTH_COLORS = ['#44403c', '#78716c', '#a78bfa', ...]
 const DEPTH_COLORS = [
-  '#3b82f6', // 파랑 (루트)
-  '#8b5cf6', // 보라 (1단계)
-  '#10b981', // 초록 (2단계)
-  '#f59e0b', // 주황 (3단계)
-  '#ef4444', // 빨강 (4단계)
-  '#06b6d4', // 하늘 (5단계+)
+  '#44403c', // stone-700 (루트 — 짙은 웜 차콜)
+  '#78716c', // stone-500 (1단계)
+  '#a78bfa', // violet-400 (2단계 — 은은한 포인트)
+  '#86efac', // 흐린 민트 (3단계)
+  '#fbbf24', // amber-400 (4단계)
+  '#94a3b8', // slate-400 (5단계+)
 ]
 
 const SVG_W = 1000
@@ -167,10 +169,16 @@ ${treeText}
 사용자: ${userMsg}`
 }
 
+// ── 모듈 레벨: 마지막 활성 MindmapBlock ID ───────
+// GlobalAIChatButton의 'ai-apply-mindmap' 이벤트를 처리할 블록 결정
+// Python으로 치면: _active_mindmap_id: str | None = None
+let _activeMindmapBlockId: string | null = null
+
 // =============================================
 // MindmapBlock 메인 컴포넌트
 // =============================================
 export default function MindmapBlock({ block, pageId, readMode }: { block: Block; pageId: string; readMode?: boolean }) {
+  const t = useLocale()
   const { updateBlock } = usePageStore()
   const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
 
@@ -214,6 +222,15 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
   const panStart = useRef({ x: 0, y: 0 })
   const chatEndRef = useRef<HTMLDivElement>(null)
   const nodesRef = useRef<MindNode[]>(nodes)
+  // chatHistoryRef: 전역 AI 이벤트 핸들러에서 최신 chatHistory 참조용 (stale closure 방지)
+  // Python으로 치면: self._chat_history_ref = WeakRef(self.chat_history)
+  const chatHistoryRef = useRef(chatHistory)
+  // applyAiActionRef: 전역 AI 이벤트에서 최신 applyAiAction을 호출하기 위한 ref
+  // Python으로 치면: self._apply_ref = WeakRef(self.apply_ai_action)
+  const applyAiActionRef = useRef<typeof applyAiAction>(() => {})
+  // isAiTarget: 전역 AI가 이 블록을 선택했을 때 링 + 배지 표시
+  // Python으로 치면: self.is_ai_target = False
+  const [isAiTarget, setIsAiTarget] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(false)
   // SSE 요청 취소용 — 컴포넌트 언마운트 시 진행 중인 AI 스트림 중단
@@ -374,10 +391,10 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
 
   const addChild = useCallback((parentId: string) => {
     if (readOnlyRef.current) return  // 읽기 모드 안전장치
-    const newNode: MindNode = { id: crypto.randomUUID(), text: '새 노드', parentId, collapsed: false }
+    const newNode: MindNode = { id: crypto.randomUUID(), text: t.blocks.mindmap.newNode, parentId, collapsed: false }
     setNodes(prev => [...prev, newNode])
     setSelectedId(newNode.id)
-    setTimeout(() => { setEditingId(newNode.id); setEditingText('새 노드') }, 30)
+    setTimeout(() => { setEditingId(newNode.id); setEditingText(t.blocks.mindmap.newNode) }, 30)
     return newNode
   }, [])
 
@@ -388,7 +405,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     const newNode: MindNode = { id: crypto.randomUUID(), text: '새 노드', parentId: node.parentId, collapsed: false }
     setNodes(prev => [...prev, newNode])
     setSelectedId(newNode.id)
-    setTimeout(() => { setEditingId(newNode.id); setEditingText('새 노드') }, 30)
+    setTimeout(() => { setEditingId(newNode.id); setEditingText(t.blocks.mindmap.newNode) }, 30)
   }, [])
 
   const deleteNode = useCallback((nodeId: string) => {
@@ -414,7 +431,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
 
   const finishEdit = useCallback(() => {
     if (!editingId) return
-    const trimmed = editingText.trim() || '새 노드'
+    const trimmed = editingText.trim() || t.blocks.mindmap.newNode
     setNodes(prev => prev.map(n => n.id === editingId ? { ...n, text: trimmed } : n))
     setEditingId(null)
     setEditingText('')
@@ -536,14 +553,14 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
         if (!Array.isArray(action.nodes)) throw new Error('nodes 배열 없음')
         const newNodes: MindNode[] = action.nodes.map((n: { id?: string; text?: string; parentId?: string | null }) => ({
           id: n.id || crypto.randomUUID(),
-          text: (n.text || '노드').slice(0, 30),
+          text: (n.text || t.blocks.mindmap.newNode).slice(0, 30),
           parentId: n.parentId ?? null,
           collapsed: false,
         }))
         setNodes(newNodes)
         // 새 트리 생성 시 위치 오버라이드 초기화
         setNodePosOverrides(new Map())
-        setChatHistory([...history, { role: 'assistant', content: `✅ 마인드맵 생성 완료 (${newNodes.length}개 노드)` }])
+        setChatHistory([...history, { role: 'assistant', content: `✅ ${t.blocks.mindmap.aiCreated.replace('{count}', String(newNodes.length))}` }])
 
       } else if (action.action === 'add_children') {
         const targetId = action.targetId as string
@@ -552,62 +569,96 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
         if (!Array.isArray(action.nodes)) throw new Error('nodes 배열 없음')
         const newNodes: MindNode[] = action.nodes.map((n: { text?: string }) => ({
           id: crypto.randomUUID(),
-          text: (n.text || '새 노드').slice(0, 30),
+          text: (n.text || t.blocks.mindmap.newNode).slice(0, 30),
           parentId: targetId,
           collapsed: false,
         }))
         setNodes(prev => [...prev, ...newNodes])
-        setChatHistory([...history, { role: 'assistant', content: `✅ "${parent.text}"에 ${newNodes.length}개 노드 추가` }])
+        setChatHistory([...history, { role: 'assistant', content: `✅ ${t.blocks.mindmap.aiAdded.replace('{count}', String(newNodes.length)).replace('{name}', parent.text)}` }])
 
       } else if (action.action === 'rename') {
         const newText = (action.text as string || '').slice(0, 30)
         setNodes(prev => prev.map(n => n.id === action.targetId ? { ...n, text: newText } : n))
-        setChatHistory([...history, { role: 'assistant', content: `✅ 노드 이름 → "${newText}"` }])
+        setChatHistory([...history, { role: 'assistant', content: `✅ ${t.blocks.mindmap.aiRenamed.replace('{name}', newText)}` }])
 
       } else {
         throw new Error(`알 수 없는 액션: ${action.action}`)
       }
     } catch {
       const fallback = jsonText.length > 300 ? jsonText.slice(0, 300) + '…' : jsonText
-      setChatHistory([...history, { role: 'assistant', content: fallback || '(빈 응답)' }])
+      setChatHistory([...history, { role: 'assistant', content: fallback || t.blocks.mindmap.aiEmptyResponse }])
     }
   }
+
+  // ── 전역 AI → 마인드맵 적용 연동 ─────────────────
+  // 매 렌더마다 최신 함수/상태로 ref 동기화 (stale closure 방지)
+  // Python으로 치면: def on_render(self): self._refs.update(chat_history=..., apply=...)
+  chatHistoryRef.current = chatHistory
+  applyAiActionRef.current = applyAiAction
+
+  // 마운트 시 전역 활성 마인드맵으로 등록 + 이벤트 리스너 등록
+  // GlobalAIChatButton의 🧠 모드 '적용' 버튼이 'ai-apply-mindmap' 이벤트 발행
+  // + AI 블록 선택/해제 인디케이터 (파란 링 + 배지)
+  // Python으로 치면: def on_mount(self): global _active; _active = self; window.on(...)
+  useEffect(() => {
+    _activeMindmapBlockId = block.id
+    function handleGlobalMindmap(e: Event) {
+      if (_activeMindmapBlockId !== block.id) return
+      applyAiActionRef.current((e as CustomEvent<string>).detail, chatHistoryRef.current)
+    }
+    function handleSelect(e: Event) {
+      const { blockId } = (e as CustomEvent<{ blockId: string; blockType: string }>).detail
+      setIsAiTarget(blockId === block.id)
+    }
+    function handleDeselect() { setIsAiTarget(false) }
+    window.addEventListener('ai-apply-mindmap', handleGlobalMindmap)
+    window.addEventListener('ai-block-select', handleSelect)
+    window.addEventListener('ai-block-deselect', handleDeselect)
+    return () => {
+      window.removeEventListener('ai-apply-mindmap', handleGlobalMindmap)
+      window.removeEventListener('ai-block-select', handleSelect)
+      window.removeEventListener('ai-block-deselect', handleDeselect)
+      if (_activeMindmapBlockId === block.id) _activeMindmapBlockId = null
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.id])
 
   // ── 렌더 ──────────────────────────────────────────
   return (
     <div
-      className="mindmap-block border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden select-none"
+      data-ai-block="mindmap"
+      onClick={() => window.dispatchEvent(new CustomEvent('ai-block-select', { detail: { blockId: block.id, blockType: 'mindmap' } }))}
+      className={`mindmap-block relative rounded-xl overflow-hidden select-none transition-shadow ${isAiTarget ? 'border-2 border-violet-400 ring-2 ring-violet-400 ring-offset-1 shadow-violet-100 shadow-md' : 'border border-black/8 dark:border-white/8 shadow-sm'}`}
       style={{ height: '580px' }}
     >
+      {/* ── AI 대상 배지 ──────────────────────────
+          isAiTarget일 때만 표시 — 보라색 링과 함께 우상단에 위치
+          Python으로 치면: if self.is_ai_target: render Badge('🤖 AI 대상') */}
+      {isAiTarget && (
+        <span className="absolute top-1.5 right-1.5 z-10 text-[10px] bg-violet-500 text-white px-1.5 py-0.5 rounded-full pointer-events-none select-none">
+          {t.blocks.mindmap.aiTarget}
+        </span>
+      )}
       <div className="flex h-full">
 
         {/* ══ 캔버스 영역 ══ */}
         <div
           ref={containerRef}
-          className="flex-1 relative overflow-hidden bg-gray-50 dark:bg-gray-900"
+          className="flex-1 relative overflow-hidden dot-grid-bg dark:bg-[#191919]"
         >
           {/* 헤더 툴바 */}
           <div className="absolute top-2 left-2 z-10 flex items-center gap-2">
-            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">🧠 마인드맵</span>
+            <span className="text-xs font-semibold text-gray-400 dark:text-gray-500">{t.blocks.mindmap.mapLabel}</span>
             {/* 읽기/편집 모드 토글 버튼 */}
             <button
               onClick={() => { setReadOnly(v => !v); setEditingId(null); setNodeCtxMenu(null) }}
-              title={readOnly ? '편집 모드로 전환' : '읽기 모드로 전환'}
+              title={readOnly ? t.blocks.mindmap.readModeTitle : t.blocks.mindmap.editModeTitle}
               className={readOnly
-                ? 'text-xs px-2 py-0.5 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors'
-                : 'text-xs px-2 py-0.5 rounded-md bg-blue-500 border border-blue-500 text-white hover:bg-blue-600 transition-colors'}
+                ? 'text-xs px-2.5 py-0.5 rounded-full bg-white/80 dark:bg-gray-800/80 border border-black/8 dark:border-white/10 text-gray-400 hover:text-gray-700 hover:bg-white transition-colors backdrop-blur-sm'
+                : 'text-xs px-2.5 py-0.5 rounded-full bg-stone-700 border border-stone-700 text-white hover:bg-stone-600 transition-colors'}
             >
-              {readOnly ? '🔒 읽기' : '✏️ 편집'}
+              {readOnly ? t.blocks.mindmap.readLabel : t.blocks.mindmap.editLabel}
             </button>
-            {/* 읽기 모드에서는 AI 버튼 숨김 */}
-            {!readOnly && (
-              <button
-                onClick={() => setChatOpen(v => !v)}
-                className="text-xs px-2 py-0.5 rounded-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                {chatOpen ? 'AI 숨기기' : '🤖 AI 채팅'}
-              </button>
-            )}
           </div>
 
           {/* 줌 컨트롤 — 읽기 모드에서 숨김 (휠로만 줌 가능) */}
@@ -615,19 +666,19 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
             <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
               <button
                 onClick={() => setZoom(z => Math.min(4, z * 1.2))}
-                className="w-7 h-7 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 flex items-center justify-center text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                title="확대"
+                className="w-7 h-7 rounded-full bg-white/80 dark:bg-gray-800/80 border border-black/8 dark:border-white/10 text-gray-500 dark:text-gray-400 flex items-center justify-center text-sm hover:bg-white dark:hover:bg-gray-700 backdrop-blur-sm transition-colors"
+                title={t.blocks.mindmap.zoomIn}
               >+</button>
               <button
                 onClick={() => setZoom(z => Math.max(0.2, z * 0.8))}
-                className="w-7 h-7 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 flex items-center justify-center text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
-                title="축소"
+                className="w-7 h-7 rounded-full bg-white/80 dark:bg-gray-800/80 border border-black/8 dark:border-white/10 text-gray-500 dark:text-gray-400 flex items-center justify-center text-sm hover:bg-white dark:hover:bg-gray-700 backdrop-blur-sm transition-colors"
+                title={t.blocks.mindmap.zoomOut}
               >−</button>
               <button
                 onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }}
-                className="px-2 h-7 rounded bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-xs hover:bg-gray-100 dark:hover:bg-gray-700"
-                title="원래 위치로"
-              >리셋</button>
+                className="px-2.5 h-7 rounded-full bg-white/80 dark:bg-gray-800/80 border border-black/8 dark:border-white/10 text-gray-500 dark:text-gray-400 text-xs hover:bg-white dark:hover:bg-gray-700 backdrop-blur-sm transition-colors"
+                title={t.blocks.mindmap.resetView}
+              >{t.blocks.mindmap.resetBtn}</button>
             </div>
           )}
 
@@ -772,7 +823,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                       height={nodeH}
                       rx={nodeH / 2}
                       ry={nodeH / 2}
-                      fill={isRoot ? color : 'white'}
+                      fill={isRoot ? color : '#fafaf9'}
                       stroke={color}
                       strokeWidth={isRoot ? 0 : isSelected ? 2.5 : 1.8}
                       style={{
@@ -794,7 +845,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                         rx={nodeH / 2}
                         ry={nodeH / 2}
                         fill="white"
-                        opacity={0.12}
+                        opacity={0.15}
                         style={{ pointerEvents: 'none' }}
                       />
                     )}
@@ -881,7 +932,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
           {/* 단축키 안내 — 편집 모드에서만 표시 */}
           {!readOnly && (
             <div className="absolute bottom-2 left-2 text-xs text-gray-400 dark:text-gray-600 select-none pointer-events-none">
-              스크롤: 줌 &nbsp;·&nbsp; Tab: 자식추가 &nbsp;·&nbsp; Enter: 형제추가 &nbsp;·&nbsp; Del: 삭제 &nbsp;·&nbsp; 더블클릭: 편집 &nbsp;·&nbsp; 드래그: 이동
+              {t.blocks.mindmap.shortcutHint}
             </div>
           )}
 
@@ -890,13 +941,13 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
             <>
               <div className="fixed inset-0 z-40" onClick={() => setNodeCtxMenu(null)} />
               <div
-                className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1 min-w-40 text-sm"
+                className="fixed z-50 bg-white/95 dark:bg-gray-800/95 border border-black/8 dark:border-white/8 rounded-xl shadow-lg backdrop-blur-sm py-1 min-w-40 text-sm"
                 style={{ left: nodeCtxMenu.x, top: nodeCtxMenu.y }}
               >
                 <button
                   className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200"
                   onClick={() => { addChild(nodeCtxMenu.nodeId); setNodeCtxMenu(null) }}
-                >➕ 자식 노드 추가</button>
+                >{t.blocks.mindmap.addChildMenu}</button>
                 <button
                   className="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200"
                   onClick={() => {
@@ -904,9 +955,9 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                     if (node) { setEditingId(node.id); setEditingText(node.text) }
                     setNodeCtxMenu(null)
                   }}
-                >✏️ 이름 편집</button>
+                >{t.blocks.mindmap.editMenu}</button>
                 <button
-                  className="w-full text-left px-4 py-2 hover:bg-purple-50 dark:hover:bg-purple-900/30 text-purple-600 dark:text-purple-400"
+                  className="w-full text-left px-4 py-2 hover:bg-violet-50 dark:hover:bg-violet-900/30 text-violet-600 dark:text-violet-400"
                   onClick={() => {
                     const node = nodes.find(n => n.id === nodeCtxMenu.nodeId)
                     if (node) {
@@ -915,14 +966,14 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                     }
                     setNodeCtxMenu(null)
                   }}
-                >🤖 AI로 확장</button>
+                >{t.blocks.mindmap.aiExpandMenu}</button>
                 {nodes.find(n => n.id === nodeCtxMenu.nodeId)?.parentId && (
                   <>
                     <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                     <button
                       className="w-full text-left px-4 py-2 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-500"
                       onClick={() => { deleteNode(nodeCtxMenu.nodeId); setNodeCtxMenu(null) }}
-                    >🗑️ 삭제 (하위 포함)</button>
+                    >{t.blocks.mindmap.deleteMenu}</button>
                   </>
                 )}
               </div>
@@ -930,14 +981,14 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
           )}
         </div>
 
-        {/* ══ AI 채팅 패널 — 읽기 모드에서 숨김 ══ */}
-        {chatOpen && !readOnly && (
+        {/* ══ AI 채팅 패널 — 통합 GlobalAIChatButton으로 대체되어 숨김 ══ */}
+        {false && chatOpen && !readOnly && (
           <div className="w-72 flex flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shrink-0">
             {/* 헤더 */}
             <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm">🤖</span>
-                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">AI 마인드맵</span>
+                <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t.blocks.mindmap.aiChatTitle}</span>
               </div>
               <button
                 onClick={() => setChatOpen(false)}
@@ -951,7 +1002,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                 <div className="text-center py-6 space-y-2">
                   <div className="text-2xl">🧠</div>
                   <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
-                    주제를 말하면 AI가<br />마인드맵을 만들어드립니다.
+                    {t.blocks.mindmap.aiChatHint.split('\n').map((line, i) => <span key={i}>{line}{i === 0 ? <br /> : null}</span>)}
                   </p>
                 </div>
               )}
@@ -987,7 +1038,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
 
             {/* 빠른 명령어 */}
             <div className="px-3 py-2 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-1 shrink-0">
-              {['전체 구조 만들어줘', '각 가지를 더 자세히', '비슷한 가지 3개 추가'].map(cmd => (
+              {t.blocks.mindmap.quickCommands.map(cmd => (
                 <button
                   key={cmd}
                   onClick={() => setChatInput(cmd)}
@@ -1002,7 +1053,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
               {selectedId && (
                 <div className="flex items-center gap-1 text-xs text-gray-400">
                   <span className="truncate">
-                    선택: <span className="font-medium text-gray-600 dark:text-gray-300">{nodes.find(n => n.id === selectedId)?.text}</span>
+                    {t.blocks.mindmap.selectedLabel} <span className="font-medium text-gray-600 dark:text-gray-300">{nodes.find(n => n.id === selectedId)?.text}</span>
                   </span>
                   <button
                     onClick={() => {
@@ -1010,7 +1061,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                       if (node) setChatInput(`"${node.text}" 노드(targetId: "${node.id}")를 더 구체적으로 발전시켜줘. 자식 노드 3~5개를 추가해줘.`)
                     }}
                     className="shrink-0 text-purple-500 hover:text-purple-700 underline underline-offset-2"
-                  >AI 확장 →</button>
+                  >{t.blocks.mindmap.aiExpandBtn}</button>
                 </div>
               )}
               <div className="flex gap-1.5">
@@ -1020,7 +1071,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(chatInput) }
                   }}
-                  placeholder="AI에게 물어보세요… (Enter 전송)"
+                  placeholder={t.blocks.mindmap.aiChatPlaceholder}
                   rows={2}
                   disabled={isAiLoading}
                   className="flex-1 text-xs rounded-lg border border-gray-200 dark:border-gray-700 px-2.5 py-2 resize-none outline-none focus:border-blue-400 dark:focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 disabled:opacity-50 placeholder-gray-400 dark:placeholder-gray-600 transition-colors"
@@ -1029,7 +1080,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
                   onClick={() => sendAiMessage(chatInput)}
                   disabled={isAiLoading || !chatInput.trim()}
                   className="px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-                >{isAiLoading ? '…' : '전송'}</button>
+                >{isAiLoading ? '…' : t.blocks.mindmap.aiSend}</button>
               </div>
             </div>
           </div>

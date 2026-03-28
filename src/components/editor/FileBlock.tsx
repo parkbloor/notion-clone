@@ -12,6 +12,7 @@ import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
 import { toast } from 'sonner'
+import { useLocale } from '@/locales'
 
 interface FileBlockProps {
   block: Block      // 현재 파일 블록
@@ -79,6 +80,7 @@ function parseContent(content: string): FileContent | null {
 
 export default function FileBlock({ block, pageId }: FileBlockProps) {
   const { updateBlock } = usePageStore()
+  const t = useLocale()
 
   // 현재 파일 정보 (업로드 완료 후 저장된 content)
   const fileData = parseContent(block.content)
@@ -97,11 +99,11 @@ export default function FileBlock({ block, pageId }: FileBlockProps) {
   const handleFile = useCallback(async (file: File) => {
     const ext = '.' + file.name.split('.').pop()!.toLowerCase()
     if (!ALLOWED_EXTS.has(ext)) {
-      toast.error(`허용되지 않는 파일 형식입니다: ${ext}`)
+      toast.error(t.blocks.file.typeError)
       return
     }
     if (file.size > 100 * 1024 * 1024) {
-      toast.error('파일 크기가 100MB를 초과합니다')
+      toast.error(t.blocks.file.sizeError)
       return
     }
 
@@ -116,7 +118,7 @@ export default function FileBlock({ block, pageId }: FileBlockProps) {
       }
       updateBlock(pageId, block.id, JSON.stringify(content))
     } catch (e) {
-      toast.error((e as Error).message ?? '파일 업로드 실패')
+      toast.error((e as Error).message ?? t.blocks.file.uploadError)
     } finally {
       setUploading(false)
     }
@@ -174,10 +176,10 @@ export default function FileBlock({ block, pageId }: FileBlockProps) {
         <button
           type="button"
           onClick={handleDownload}
-          title="파일 다운로드"
+          title={t.blocks.file.downloadTitle}
           className="shrink-0 px-3 py-1.5 text-xs rounded-md bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors font-medium"
         >
-          다운로드
+          {t.blocks.file.download}
         </button>
       </div>
     )
@@ -212,17 +214,17 @@ export default function FileBlock({ block, pageId }: FileBlockProps) {
         // 업로드 중 스피너
         <>
           <div className="w-8 h-8 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
-          <p className="text-sm text-gray-500">업로드 중...</p>
+          <p className="text-sm text-gray-500">{t.blocks.file.uploading}</p>
         </>
       ) : (
         // 기본 안내 UI
         <>
           <span className="text-3xl">📎</span>
           <p className="text-sm font-medium text-gray-600">
-            클릭하거나 파일을 여기에 드래그하세요
+            {t.blocks.file.instruction}
           </p>
           <p className="text-xs text-gray-400">
-            PDF · Word · Excel · PowerPoint · Zip · 텍스트 (최대 100MB)
+            {t.blocks.file.formatInfo}
           </p>
         </>
       )}

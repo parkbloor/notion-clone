@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
+import { useLocale } from '@/locales'
 
 interface ImageBlockProps {
   block: Block
@@ -35,6 +36,7 @@ function parseContent(content: string): { src: string; width?: number; caption?:
 
 export default function ImageBlock({ block, pageId }: ImageBlockProps) {
   const { updateBlock, updateBlockCanvas } = usePageStore()
+  const t = useLocale()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   // 이미지 컨테이너 DOM 참조 — 리사이즈 시 실제 렌더링 너비 측정용
@@ -109,7 +111,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
       saveContent(url, savedWidth, localCaption || undefined)
     } catch {
       // 업로드 실패 시 에러 표시만 — base64 fallback 제거
-      toast.error('이미지 업로드에 실패했습니다. 서버 연결을 확인해 주세요.')
+      toast.error(t.blocks.image.uploadError)
     } finally {
       setIsUploading(false)
     }
@@ -204,13 +206,13 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
           // Python으로 치면: show_spinner()
           <>
             <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-blue-400">업로드 중...</p>
+            <p className="text-sm text-blue-400">{t.blocks.image.uploading}</p>
           </>
         ) : (
           <>
             <span className="text-3xl select-none">🖼️</span>
-            <p className="text-sm text-gray-400">클릭하거나 이미지를 드래그하여 업로드</p>
-            <p className="text-xs text-gray-300">PNG, JPG, GIF, WebP 지원</p>
+            <p className="text-sm text-gray-400">{t.blocks.image.instruction}</p>
+            <p className="text-xs text-gray-300">{t.blocks.image.formatInfo}</p>
           </>
         )}
       </div>
@@ -239,7 +241,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
       >
         <img
           src={src}
-          alt="업로드된 이미지"
+          alt={t.blocks.image.alt}
           // displayWidth가 있으면 컨테이너를 꽉 채움, 없으면 자연 크기
           className={displayWidth ? "block w-full rounded-lg" : "block max-w-full rounded-lg"}
           // 브라우저 기본 드래그 방지 (리사이즈 핸들과 충돌 방지)
@@ -253,16 +255,16 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
             <button
               onClick={() => fileInputRef.current?.click()}
               className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100"
-              title="이미지 교체"
+              title={t.blocks.image.replaceTitle}
             >
-              교체
+              {t.blocks.image.replaceBtn}
             </button>
             <button
               onClick={() => updateBlock(pageId, block.id, '')}
               className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50"
-              title="이미지 삭제"
+              title={t.blocks.image.deleteTitle}
             >
-              삭제
+              {t.blocks.image.deleteBtn}
             </button>
           </div>
         )}
@@ -277,7 +279,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
           className={isResizing
             ? "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10"
             : "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10 opacity-0 group-hover/img:opacity-100 transition-opacity"}
-          title="드래그하여 크기 조절"
+          title={t.blocks.image.resizeTitle}
         >
           {/* 파란 수직 막대 — 리사이즈 핸들 시각 표시 */}
           <div className="w-1 h-10 bg-blue-400 rounded-full shadow" />
@@ -300,7 +302,7 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
           value={localCaption}
           onChange={(e) => setLocalCaption(e.target.value)}
           onBlur={() => saveContent(src, savedWidth, localCaption || undefined)}
-          placeholder="설명 추가..."
+          placeholder={t.blocks.image.captionAdd}
           className="w-full text-center text-xs text-gray-400 bg-transparent border-none outline-none placeholder:text-gray-300 focus:placeholder:text-gray-400 mt-1 py-0.5"
         />
       </div>

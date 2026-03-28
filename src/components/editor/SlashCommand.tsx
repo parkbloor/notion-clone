@@ -9,59 +9,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { BlockType } from '@/types/block'
 import { useSettingsStore } from '@/store/settingsStore'
-
-const COMMANDS = [
-  {
-    group: '기본 블록',
-    items: [
-      { icon: '📝', name: '텍스트', description: '일반 텍스트를 작성합니다', type: 'paragraph' as BlockType },
-      { icon: '▶', name: '토글', description: '클릭으로 내용 접고 펼치기', type: 'toggle' as BlockType },
-      { icon: '🔠', name: '제목 1', description: '가장 큰 제목', type: 'heading1' as BlockType },
-      { icon: '🔡', name: '제목 2', description: '중간 크기 제목', type: 'heading2' as BlockType },
-      { icon: '🔤', name: '제목 3', description: '작은 제목', type: 'heading3' as BlockType },
-      { icon: 'H4', name: '제목 4', description: '소제목 (H4)', type: 'heading4' as BlockType },
-      { icon: 'H5', name: '제목 5', description: '소제목 (H5)', type: 'heading5' as BlockType },
-      { icon: 'H6', name: '제목 6', description: '최소 제목 (H6)', type: 'heading6' as BlockType },
-    ]
-  },
-  {
-    group: '목록',
-    items: [
-      { icon: '•', name: '글머리 기호', description: '순서 없는 목록', type: 'bulletList' as BlockType },
-      { icon: '1.', name: '번호 목록', description: '순서 있는 목록', type: 'orderedList' as BlockType },
-      { icon: '☑️', name: '체크박스', description: '할 일 목록', type: 'taskList' as BlockType },
-    ]
-  },
-  {
-    group: '고급',
-    items: [
-      { icon: '🖼️', name: '이미지', description: '이미지를 삽입합니다', type: 'image' as BlockType },
-      { icon: '📊', name: '표', description: '3×3 테이블을 삽입합니다', type: 'table' as BlockType },
-      { icon: '💻', name: '코드', description: '코드 블록 삽입', type: 'code' as BlockType },
-      { icon: '➖', name: '구분선', description: '구분선을 삽입합니다', type: 'divider' as BlockType },
-      { icon: '📋', name: '칸반', description: '칸반 보드를 삽입합니다', type: 'kanban' as BlockType },
-      { icon: '💡', name: '콜아웃', description: '팁/정보/경고/위험 강조 박스를 삽입합니다', type: 'admonition' as BlockType },
-      { icon: '🖼️', name: '캔버스', description: '무한 캔버스 — 카드와 화살표로 다이어그램 작성', type: 'canvas' as BlockType },
-      { icon: '✏️', name: 'Excalidraw', description: '손그림 스타일 다이어그램을 자유롭게 그립니다', type: 'excalidraw' as BlockType },
-      { icon: '🎬', name: '비디오', description: '로컬 비디오 파일을 업로드하여 재생합니다', type: 'video' as BlockType },
-      { icon: '📐', name: '레이아웃', description: 'A4 용지 기준 다단 레이아웃 (잡지 편집 스타일)', type: 'layout' as BlockType },
-      { icon: '∑', name: '수식', description: 'LaTeX 수식 블록 — KaTeX 렌더링', type: 'math' as BlockType },
-      { icon: '🔗', name: '임베드', description: 'YouTube · Vimeo · 웹페이지 URL을 iframe으로 삽입합니다', type: 'embed' as BlockType },
-      { icon: '📊', name: 'Mermaid', description: 'flowchart · sequence · gantt 등 텍스트로 다이어그램 작성', type: 'mermaid' as BlockType },
-      { icon: '📈', name: '차트', description: '막대 · 선 · 파이 차트로 데이터를 시각화합니다', type: 'chart' as BlockType },
-      { icon: '📅', name: '갠트', description: '태스크 일정과 기간을 타임라인으로 시각화합니다', type: 'gantt' as BlockType },
-      { icon: '🧠', name: '마인드맵', description: 'AI와 대화하며 만드는 방사형 마인드맵', type: 'mindmap' as BlockType },
-      { icon: '📑', name: '목차', description: '페이지 내 제목(H1~H6)을 자동으로 목록화합니다', type: 'toc' as BlockType },
-      { icon: '📎', name: '파일', description: 'PDF · docx · zip 등 파일을 첨부합니다', type: 'file' as BlockType },
-    ]
-  },
-  {
-    group: 'AI',
-    items: [
-      { icon: '✨', name: 'AI 글쓰기', description: 'AI와 대화하며 현재 위치에 글 삽입 (Ctrl+I)', type: 'ai' as BlockType },
-    ]
-  },
-]
+import { useLocale } from '@/locales'
 
 interface SlashCommandProps {
   editor: TiptapEditor
@@ -92,9 +40,75 @@ export default function SlashCommand({
   // Python으로 치면: self.popup_ref = None
   const popupRef = useRef<HTMLDivElement>(null)
 
+  // 번역 훅
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
+
   // 플러그인 설정 읽기 — 비활성화된 플러그인은 메뉴에서 숨김
   // Python으로 치면: plugins = settings_store.plugins
   const { plugins } = useSettingsStore()
+
+  // ── 슬래시 커맨드 항목 목록 (번역 적용, useMemo로 t 변경 시 재생성) ──
+  // COMMANDS가 모듈 레벨 상수였으나 번역 적용을 위해 컴포넌트 내부 useMemo로 이동
+  // Python으로 치면: commands = compute_commands(t)
+  const COMMANDS = useMemo(() => [
+    {
+      group: t.slash.groupText,
+      items: [
+        { icon: '📝', name: t.slash.paragraph.label,  description: t.slash.paragraph.desc,  type: 'paragraph' as BlockType },
+        { icon: '▶',  name: t.slash.toggle.label,     description: t.slash.toggle.desc,     type: 'toggle'    as BlockType },
+        { icon: '🔠', name: t.slash.heading1.label,   description: t.slash.heading1.desc,   type: 'heading1'  as BlockType },
+        { icon: '🔡', name: t.slash.heading2.label,   description: t.slash.heading2.desc,   type: 'heading2'  as BlockType },
+        { icon: '🔤', name: t.slash.heading3.label,   description: t.slash.heading3.desc,   type: 'heading3'  as BlockType },
+        { icon: 'H4', name: t.slash.heading4.label,   description: t.slash.heading4.desc,   type: 'heading4'  as BlockType },
+        { icon: 'H5', name: t.slash.heading5.label,   description: t.slash.heading5.desc,   type: 'heading5'  as BlockType },
+        { icon: 'H6', name: t.slash.heading6.label,   description: t.slash.heading6.desc,   type: 'heading6'  as BlockType },
+      ]
+    },
+    {
+      group: t.slash.groupList,
+      items: [
+        { icon: '•',  name: t.slash.bulletList.label,  description: t.slash.bulletList.desc,  type: 'bulletList'  as BlockType },
+        { icon: '1.', name: t.slash.orderedList.label, description: t.slash.orderedList.desc, type: 'orderedList' as BlockType },
+        { icon: '☑️', name: t.slash.taskList.label,    description: t.slash.taskList.desc,    type: 'taskList'    as BlockType },
+      ]
+    },
+    {
+      group: t.slash.groupAdvanced,
+      items: [
+        { icon: '🖼️', name: t.slash.image.label,         description: t.slash.image.desc,         type: 'image'          as BlockType },
+        { icon: '📊', name: t.slash.table.label,         description: t.slash.table.desc,         type: 'table'          as BlockType },
+        { icon: '💻', name: t.slash.codeBlock.label,     description: t.slash.codeBlock.desc,     type: 'code'           as BlockType },
+        { icon: '➖', name: t.slash.divider.label,       description: t.slash.divider.desc,       type: 'divider'        as BlockType },
+        { icon: '📋', name: t.slash.kanban.label,        description: t.slash.kanban.desc,        type: 'kanban'         as BlockType },
+        { icon: '💡', name: t.slash.admonition.label,    description: t.slash.admonition.desc,    type: 'admonition'     as BlockType },
+        { icon: '🖼️', name: t.slash.canvas.label,        description: t.slash.canvas.desc,        type: 'canvas'         as BlockType },
+        { icon: '✏️', name: t.slash.excalidraw.label,    description: t.slash.excalidraw.desc,    type: 'excalidraw'     as BlockType },
+        { icon: '🎬', name: t.slash.video.label,         description: t.slash.video.desc,         type: 'video'          as BlockType },
+        { icon: '📐', name: t.slash.layout.label,        description: t.slash.layout.desc,        type: 'layout'         as BlockType },
+        { icon: '∑',  name: t.slash.math.label,          description: t.slash.math.desc,          type: 'math'           as BlockType },
+        { icon: '🔗', name: t.slash.embed.label,         description: t.slash.embed.desc,         type: 'embed'          as BlockType },
+        { icon: '📊', name: t.slash.mermaid.label,       description: t.slash.mermaid.desc,       type: 'mermaid'        as BlockType },
+        { icon: '📈', name: t.slash.chart.label,         description: t.slash.chart.desc,         type: 'chart'          as BlockType },
+        { icon: '📅', name: t.slash.gantt.label,         description: t.slash.gantt.desc,         type: 'gantt'          as BlockType },
+        { icon: '🧠', name: t.slash.mindmap.label,       description: t.slash.mindmap.desc,       type: 'mindmap'        as BlockType },
+        { icon: '📑', name: t.slash.toc.label,           description: t.slash.toc.desc,           type: 'toc'            as BlockType },
+        { icon: '📎', name: t.slash.file.label,          description: t.slash.file.desc,          type: 'file'           as BlockType },
+        { icon: '🗓️', name: t.slash.dayPlanner.label,    description: t.slash.dayPlanner.desc,    type: 'dayplanner'     as BlockType },
+        { icon: '📆', name: t.slash.weeklyPlanner.label, description: t.slash.weeklyPlanner.desc, type: 'weeklyplanner'  as BlockType },
+        { icon: '🔄', name: t.slash.routineMatrix.label, description: t.slash.routineMatrix.desc, type: 'routinematrix'  as BlockType },
+        { icon: '📅', name: t.slash.monthly.label,       description: t.slash.monthly.desc,       type: 'monthlycalendar' as BlockType },
+        { icon: '📊', name: t.slash.quarterly.label,     description: t.slash.quarterly.desc,     type: 'quarterlyplanner' as BlockType },
+        { icon: '🌟', name: t.slash.yearly.label,        description: t.slash.yearly.desc,        type: 'yearlyplanner'  as BlockType },
+      ]
+    },
+    {
+      group: t.slash.groupAI,
+      items: [
+        { icon: '✨', name: t.slash.aiWrite.label, description: t.slash.aiWrite.desc, type: 'ai' as BlockType },
+      ]
+    },
+  ], [t])
 
   // 플러그인 토글 → BlockType 매핑 (false이면 해당 블록 타입을 메뉴에서 제거)
   // Python으로 치면: PLUGIN_BLOCK_MAP = {'kanban': 'kanban', ...}
@@ -198,7 +212,7 @@ export default function SlashCommand({
         style={{ top: position.top, left: adjustedLeft }}
         className="fixed z-50 w-72 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
       >
-        <p className="text-sm text-gray-400 text-center">검색 결과가 없습니다</p>
+        <p className="text-sm text-gray-400 text-center">{t.common.noResults}</p>
       </div>
     )
   }
@@ -214,7 +228,7 @@ export default function SlashCommand({
       {searchQuery && (
         <div className="px-3 py-2 border-b border-gray-100">
           <p className="text-xs text-gray-400">
-            검색: <span className="text-gray-600 font-medium">{searchQuery}</span>
+            {t.common.search}: <span className="text-gray-600 font-medium">{searchQuery}</span>
           </p>
         </div>
       )}

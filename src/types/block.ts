@@ -41,6 +41,12 @@ export type BlockType =
   | 'ai'           // AI 글쓰기 슬래시 커맨드 전용 (실제 블록 생성 없음 — 패널만 열림)
   | 'toc'          // 인라인 목차 블록 (페이지 내 헤딩 목록 자동 생성)
   | 'file'         // 파일 첨부 블록 (PDF / docx / zip 등 일반 파일)
+  | 'dayplanner'       // Day Planner 블록 — 인라인 타임라인 일정표
+  | 'weeklyplanner'   // Weekly Planner 블록 — 주간 캘린더 + 날씨 + 루틴 달성 매트릭스
+  | 'routinematrix'   // 루틴 달성 매트릭스 블록 — 주간 루틴 꾸준함 시각화
+  | 'monthlycalendar'   // 월간 캘린더 블록 — 달력 그리드 + 일간 노트 연결 + 메모
+  | 'quarterlyplanner'  // 분기 플래너 블록 — OKR + 3개월 미니뷰 + 루틴 히트맵
+  | 'yearlyplanner'     // 연간 플래너 블록 — 연간 목표 + 12개월 그리드 + 52주 히트맵
 
 
 // -----------------------------------------------
@@ -48,7 +54,9 @@ export type BlockType =
 // 날짜 / 상태 / 선택 / 텍스트 / 관계 5종
 // Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text', 'relation']
 // -----------------------------------------------
-export type PropertyType = 'date' | 'status' | 'select' | 'text' | 'relation'
+// time 타입: 'HH:MM-HH:MM' 형식으로 시작~종료 시간 저장 (타임 블록 전용)
+// Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text', 'relation', 'time']
+export type PropertyType = 'date' | 'status' | 'select' | 'text' | 'relation' | 'time'
 
 // 상태 속성 선택지 (고정)
 // Python으로 치면: STATUS_OPTIONS = ['미시작', '진행 중', '완료', '보류']
@@ -64,6 +72,17 @@ export interface PageProperty {
   type: PropertyType   // 속성 종류
   value: string        // 속성 값 (문자열로 통일)
   options?: string[]   // select 타입 전용 — 선택 가능한 값 목록
+  // date 타입 전용 — true이면 해당 날짜에 Web Notification 알림 발송
+  // Python으로 치면: reminder: bool = False
+  reminder?: boolean
+  // date 타입 전용 — Open-Meteo에서 fetch한 날씨 데이터 (선택 사항)
+  // Python으로 치면: weather_data: dict | None = None
+  weatherData?: {
+    icon:     string   // WMO 코드 → 이모지 (예: '⛅')
+    tempMin:  number   // 최저 기온 (°C)
+    tempMax:  number   // 최고 기온 (°C)
+    location: string   // 도시명 (예: 'Seoul')
+  }
 }
 
 
@@ -132,6 +151,24 @@ export interface Page {
   // 잠금 여부 — true이면 편집 불가 (읽기 전용 모드와 별도 개념)
   // Python으로 치면: is_locked: bool = False
   isLocked?: boolean
+  // PIN 해시 — SHA-256(pin) hex 문자열. 설정 안 하면 undefined
+  // Python으로 치면: lock_pin: str | None = None
+  lockPin?: string
+  // 캔버스 모드 가상 박스 목록 — 각 박스는 블록 배치 영역을 시각적으로 구분
+  // Python으로 치면: canvas_boxes: list[CanvasBox] = field(default_factory=list)
+  canvasBoxes?: CanvasBox[]
+}
+
+// 캔버스 모드 가상 박스 — 블록 배치 영역을 나타내는 시각적 컨테이너
+// hover 시 경계선 표시, 드래그로 크기 조절 가능
+// Python으로 치면: @dataclass class CanvasBox: id, x, y, w, h, label
+export interface CanvasBox {
+  id: string
+  x: number     // 캔버스 내 X 좌표 (px)
+  y: number     // 캔버스 내 Y 좌표 (px)
+  w: number     // 너비 (px)
+  h: number     // 높이 (px)
+  label?: string  // 박스 레이블 (선택)
 }
 
 

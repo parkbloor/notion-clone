@@ -13,6 +13,7 @@
 import { useState, useCallback, useRef } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { useLocale } from '@/locales'
 
 // ── 태스크 하나의 구조 ────────────────────────
 // Python으로 치면: @dataclass class GanttTask: id:str; name:str; start:str; end:str; color:str; progress:int
@@ -94,7 +95,7 @@ interface MonthHeader {
   left: number    // 시작 위치 (%)
   width: number   // 너비 (%)
 }
-function getMonthHeaders(minDate: Date, totalDays: number): MonthHeader[] {
+function getMonthHeaders(minDate: Date, totalDays: number, formatLabel: (year: number, month: number) => string): MonthHeader[] {
   const headers: MonthHeader[] = []
   // 첫 달의 1일부터 시작
   const cursor = new Date(minDate.getFullYear(), minDate.getMonth(), 1)
@@ -108,7 +109,7 @@ function getMonthHeaders(minDate: Date, totalDays: number): MonthHeader[] {
     const width = ((endDay - startDay) / totalDays) * 100
     if (width > 0) {
       headers.push({
-        label: `${cursor.getFullYear()}년 ${cursor.getMonth() + 1}월`,
+        label: formatLabel(cursor.getFullYear(), cursor.getMonth() + 1),
         left,
         width,
       })
@@ -138,6 +139,7 @@ interface GanttBlockProps {
 
 export default function GanttBlock({ block, pageId }: GanttBlockProps) {
   const { updateBlock } = usePageStore()
+  const t = useLocale()
   // ── 상태 ────────────────────────────────────
   const [gantt, setGantt] = useState<GanttData>(() => parseGantt(block.content))
   // 편집 모드 (true = 테이블 편집, false = 갠트 차트 미리보기)
@@ -183,7 +185,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
       ...g,
       tasks: [...g.tasks, {
         id: crypto.randomUUID(),
-        name: `태스크 ${g.tasks.length + 1}`,
+        name: `${t.blocks.gantt.newTaskPrefix} ${g.tasks.length + 1}`,
         start,
         end,
         color: PALETTE[g.tasks.length % PALETTE.length],
@@ -231,7 +233,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
               type="text"
               value={gantt.title}
               onChange={e => update(g => ({ ...g, title: e.target.value }))}
-              placeholder="갠트 제목 (선택)"
+              placeholder={t.blocks.gantt.titlePlaceholder}
               className="text-sm font-semibold text-gray-700 border-none outline-none bg-transparent placeholder-gray-300 w-48"
             />
           </div>
@@ -241,7 +243,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
             onClick={() => setIsEditing(false)}
             className="px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors"
           >
-            차트 보기
+            {t.blocks.gantt.viewChart}
           </button>
         </div>
 
@@ -250,11 +252,11 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-40">태스크</th>
-                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-32">시작일</th>
-                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-32">종료일</th>
-                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-24">진행률 (%)</th>
-                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-12">색상</th>
+                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-40">{t.blocks.gantt.taskHeader}</th>
+                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-32">{t.blocks.gantt.startDate}</th>
+                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-32">{t.blocks.gantt.endDate}</th>
+                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-24">{t.blocks.gantt.progressPct}</th>
+                <th className="text-left py-1.5 px-2 text-gray-400 font-medium w-12">{t.blocks.gantt.colorHeader}</th>
                 <th className="w-6" />
               </tr>
             </thead>
@@ -268,7 +270,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
                       value={task.name}
                       onChange={e => setTaskField(task.id, 'name', e.target.value)}
                       className="w-full border-none outline-none bg-transparent text-gray-700 placeholder-gray-300"
-                      placeholder="태스크 이름"
+                      placeholder={t.blocks.gantt.taskNamePlaceholder}
                     />
                   </td>
                   {/* 시작일 */}
@@ -307,7 +309,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
                       value={task.color}
                       onChange={e => setTaskField(task.id, 'color', e.target.value)}
                       className="w-7 h-7 rounded cursor-pointer border border-gray-200"
-                      title="색상 선택"
+                      title={t.blocks.gantt.colorTitle}
                     />
                   </td>
                   {/* 삭제 버튼 */}
@@ -316,7 +318,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
                       type="button"
                       onClick={() => removeTask(task.id)}
                       className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 transition-all text-sm leading-none"
-                      title="태스크 삭제"
+                      title={t.blocks.gantt.deleteTaskTitle}
                     >
                       ×
                     </button>
@@ -334,7 +336,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
           className="mt-2 flex items-center gap-1 text-xs text-gray-400 hover:text-blue-500 transition-colors"
         >
           <span>+</span>
-          <span>태스크 추가</span>
+          <span>{t.blocks.gantt.addTaskBtn}</span>
         </button>
       </div>
     )
@@ -348,20 +350,22 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
   if (!chartInfo) {
     return (
       <div className="border border-gray-200 rounded-xl p-6 bg-white my-2 text-center">
-        <p className="text-sm text-gray-400">유효한 태스크가 없습니다</p>
+        <p className="text-sm text-gray-400">{t.blocks.gantt.noTasks}</p>
         <button
           type="button"
           onClick={() => setIsEditing(true)}
           className="mt-2 text-xs text-blue-500 hover:underline"
         >
-          편집
+          {t.blocks.gantt.edit}
         </button>
       </div>
     )
   }
 
   const { minDate, totalDays, validTasks } = chartInfo
-  const monthHeaders = getMonthHeaders(minDate, totalDays)
+  const monthHeaders = getMonthHeaders(minDate, totalDays, (year, month) =>
+    t.blocks.gantt.monthFormat.replace('{year}', String(year)).replace('{month}', String(month))
+  )
   const todayPct = getTodayPct(minDate, totalDays)
   // 좌측 태스크 이름 컬럼 너비 (px)
   const LABEL_W = 120
@@ -381,9 +385,9 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
           type="button"
           onClick={() => setIsEditing(true)}
           className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-all"
-          title="편집"
+          title={t.blocks.gantt.edit}
         >
-          ✏️ 편집
+          {t.blocks.gantt.editBtn}
         </button>
       </div>
 
@@ -395,7 +399,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
           <div className="flex border-b border-gray-100 bg-gray-50">
             {/* 태스크 이름 컬럼 헤더 */}
             <div style={{ width: LABEL_W, minWidth: LABEL_W }} className="shrink-0 px-3 py-1.5 text-xs text-gray-400 font-medium border-r border-gray-100">
-              태스크
+              {t.blocks.gantt.taskHeader}
             </div>
             {/* 월 헤더 — relative 컨테이너 */}
             <div className="flex-1 relative h-7">
@@ -481,7 +485,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
                     >
                       <div className="font-medium">{task.name}</div>
                       <div className="text-gray-300 text-[10px]">{task.start} ~ {task.end}</div>
-                      <div className="text-gray-300 text-[10px]">진행률: {task.progress}%</div>
+                      <div className="text-gray-300 text-[10px]">{t.blocks.gantt.progressLabel} {task.progress}%</div>
                     </div>
                   )}
                 </div>
@@ -493,7 +497,7 @@ export default function GanttBlock({ block, pageId }: GanttBlockProps) {
           {todayPct !== null && (
             <div className="flex items-center gap-1.5 px-4 py-2 border-t border-gray-50">
               <div className="w-3 h-px bg-red-400" />
-              <span className="text-[10px] text-gray-400">오늘</span>
+              <span className="text-[10px] text-gray-400">{t.blocks.gantt.today}</span>
             </div>
           )}
         </div>

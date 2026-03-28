@@ -8,6 +8,7 @@
 
 import { useState } from 'react'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // 제공자별 지원 모델 목록
@@ -29,6 +30,8 @@ const CLAUDE_MODELS = [
 ]
 
 export default function AITab() {
+  // 로케일 훅 — Python으로 치면: t = get_translation()
+  const t = useLocale()
   const {
     aiProvider, aiModel, aiApiKey, ollamaUrl,
     setAiProvider, setAiModel, setAiApiKey, setOllamaUrl,
@@ -63,7 +66,7 @@ export default function AITab() {
   async function handleTest() {
     if (aiProvider !== 'ollama' && !aiApiKey.trim()) {
       setTestStatus('error')
-      setTestMsg('API 키를 먼저 입력해 주세요.')
+      setTestMsg(t.settings.ai.apiKeyRequired)
       return
     }
     setTestStatus('loading')
@@ -85,14 +88,14 @@ export default function AITab() {
       const data = await res.json()
       if (res.ok) {
         setTestStatus('ok')
-        setTestMsg(`연결 성공! 모델: ${data.model}`)
+        setTestMsg(`${t.settings.ai.testSuccessPrefix}${data.model}`)
       } else {
         setTestStatus('error')
-        setTestMsg(data.detail ?? '연결 실패')
+        setTestMsg(data.detail ?? t.settings.ai.testFail)
       }
     } catch {
       setTestStatus('error')
-      setTestMsg('서버 연결 실패. 백엔드가 실행 중인지 확인해 주세요.')
+      setTestMsg(t.settings.ai.serverError)
     }
   }
 
@@ -111,15 +114,15 @@ export default function AITab() {
 
       {/* ── 헤더 ─────────────────────────────── */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-800">AI 어시스턴트</h3>
+        <h3 className="text-sm font-semibold text-gray-800">{t.settings.ai.header}</h3>
         <p className="text-xs text-gray-500 mt-0.5">
-          텍스트 선택 후 BubbleMenu의 ✨ 버튼으로 AI 기능을 사용합니다.
+          {t.settings.ai.headerDesc}
         </p>
       </div>
 
       {/* ── 제공자 선택 ─────────────────────── */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-gray-700">AI 제공자</label>
+        <label className="text-xs font-medium text-gray-700">{t.settings.ai.providerLabel}</label>
         <div className="flex gap-2">
           {/* OpenAI 버튼 */}
           <button
@@ -153,7 +156,7 @@ export default function AITab() {
       {/* Python으로 치면: if provider in ('openai', 'claude'): render_model_select() */}
       {aiProvider !== 'ollama' && getModels() && (
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-700">모델</label>
+          <label className="text-xs font-medium text-gray-700">{t.settings.ai.model}</label>
           <select
             value={aiModel}
             onChange={(e) => setAiModel(e.target.value)}
@@ -170,7 +173,7 @@ export default function AITab() {
       {/* Python으로 치면: if provider != 'ollama': render_api_key_input() */}
       {aiProvider !== 'ollama' && (
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-700">API 키</label>
+          <label className="text-xs font-medium text-gray-700">{t.settings.ai.apiKey}</label>
           <div className="relative">
             <input
               type={showKey ? 'text' : 'password'}
@@ -186,11 +189,11 @@ export default function AITab() {
               onClick={() => setShowKey(v => !v)}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded"
             >
-              {showKey ? '숨김' : '표시'}
+              {showKey ? t.settings.ai.keyHide : t.settings.ai.keyShow}
             </button>
           </div>
           <p className="text-xs text-gray-400">
-            키는 이 기기의 localStorage에만 저장됩니다 (서버·vault 저장 안 함).
+            {t.settings.ai.apiKeyHint}
           </p>
         </div>
       )}
@@ -201,7 +204,7 @@ export default function AITab() {
         <div className="space-y-4">
           {/* 서버 URL */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-700">Ollama 서버 URL</label>
+            <label className="text-xs font-medium text-gray-700">{t.settings.ai.ollamaUrl}</label>
             <input
               type="text"
               value={ollamaUrl}
@@ -211,12 +214,12 @@ export default function AITab() {
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-blue-400 font-mono text-gray-700"
             />
             <p className="text-xs text-gray-400">
-              Ollama가 다른 포트·호스트에서 실행 중인 경우 변경하세요.
+              {t.settings.ai.ollamaUrlDesc}
             </p>
           </div>
           {/* 모델 이름 (자유 입력) */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-gray-700">모델 이름</label>
+            <label className="text-xs font-medium text-gray-700">{t.settings.ai.ollamaModelLabel}</label>
             <input
               type="text"
               value={aiModel}
@@ -226,15 +229,15 @@ export default function AITab() {
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-blue-400 font-mono text-gray-700"
             />
             <p className="text-xs text-gray-400">
-              예: llama3.2, mistral, gemma3, qwen2.5, phi4 — ollama list로 확인
+              {t.settings.ai.ollamaModelDesc}
             </p>
           </div>
           {/* Ollama 설치 안내 */}
           <div className="bg-blue-50 rounded-xl p-3 space-y-1">
-            <p className="text-xs font-medium text-blue-700">Ollama 시작하기</p>
-            <p className="text-xs text-blue-600">1. ollama.com 에서 다운로드·설치</p>
-            <p className="text-xs text-blue-600">2. <code className="bg-blue-100 px-1 rounded font-mono">ollama pull llama3.2</code> 실행</p>
-            <p className="text-xs text-blue-600">3. Ollama는 자동으로 백그라운드에서 실행됩니다</p>
+            <p className="text-xs font-medium text-blue-700">{t.settings.ai.ollamaGuideTitle}</p>
+            <p className="text-xs text-blue-600">{t.settings.ai.ollamaStep1}</p>
+            <p className="text-xs text-blue-600">{t.settings.ai.ollamaStep2.replace('{cmd}', '')}<code className="bg-blue-100 px-1 rounded font-mono">ollama pull llama3.2</code></p>
+            <p className="text-xs text-blue-600">{t.settings.ai.ollamaStep3}</p>
           </div>
         </div>
       )}
@@ -247,7 +250,7 @@ export default function AITab() {
           disabled={testStatus === 'loading'}
           className="px-4 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {testStatus === 'loading' ? '테스트 중...' : '연결 테스트'}
+          {testStatus === 'loading' ? t.settings.ai.testing : t.settings.ai.testConnection}
         </button>
 
         {/* 테스트 결과 메시지 */}
@@ -257,11 +260,11 @@ export default function AITab() {
 
       {/* ── 사용 안내 ───────────────────────── */}
       <div className="bg-blue-50 rounded-xl p-4 space-y-1.5">
-        <p className="text-xs font-medium text-blue-700">사용 방법</p>
+        <p className="text-xs font-medium text-blue-700">{t.settings.ai.usageTitle}</p>
         <ul className="text-xs text-blue-600 space-y-1 list-disc list-inside">
-          <li>에디터에서 텍스트를 드래그로 선택합니다</li>
-          <li>툴바의 <strong>✨</strong> 버튼을 클릭합니다</li>
-          <li>다듬기 / 요약 / 계속 쓰기 / 번역 중 선택합니다</li>
+          <li>{t.settings.ai.usageStep1}</li>
+          <li>{t.settings.ai.usageStep2}</li>
+          <li>{t.settings.ai.usageStep3}</li>
         </ul>
       </div>
 

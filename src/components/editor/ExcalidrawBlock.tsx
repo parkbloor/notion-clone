@@ -11,6 +11,7 @@ import { useCallback, useRef, useState, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 // Excalidraw UI 스타일시트 — 클라이언트 번들에만 포함됨
 import '@excalidraw/excalidraw/index.css'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // SSR 없이 동적 임포트
@@ -60,6 +61,7 @@ const DEBOUNCE_MS = 800
 // Python으로 치면: class ExcalidrawBlock(React.Component): ...
 // -----------------------------------------------
 export default function ExcalidrawBlock({ blockId, content, onChange }: ExcalidrawBlockProps) {
+  const t = useLocale()
 
   // ── 디바운스 타이머 ref ──────────────────────
   // Python으로 치면: self._save_timer = None
@@ -134,10 +136,10 @@ export default function ExcalidrawBlock({ blockId, content, onChange }: Excalidr
         <button
           type="button"
           onClick={() => setIsFullscreen(f => !f)}
-          title={isFullscreen ? '축소 (Esc)' : '전체화면으로 보기'}
+          title={isFullscreen ? t.blocks.excalidraw.shrink : '전체화면으로 보기'}
           className="px-2.5 py-1 text-xs font-medium bg-white border border-gray-200 rounded-md shadow-sm text-gray-600 hover:bg-gray-50 transition-colors select-none"
         >
-          {isFullscreen ? '⊡ 축소' : '⊞ 전체화면'}
+          {isFullscreen ? t.blocks.excalidraw.exit : t.blocks.excalidraw.fullscreen}
         </button>
       </div>
 

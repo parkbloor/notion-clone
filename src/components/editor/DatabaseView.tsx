@@ -9,10 +9,15 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { Page, PageProperty, PropertyType, STATUS_OPTIONS } from '@/types/block'
-import { X, Plus, ChevronUp, ChevronDown, Filter } from 'lucide-react'
+import { X, Plus, ChevronUp, ChevronDown, Filter, Table2, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useLocale } from '@/locales'
+
+// ── 뷰 모드 타입 ──────────────────────────────────
+// Python으로 치면: ViewMode = Literal['table', 'calendar']
+type ViewMode = 'table' | 'calendar'
 
 interface DatabaseViewProps {
   // 테이블 뷰 닫기 콜백 — page.tsx에서 전달
@@ -68,29 +73,18 @@ function fmtDate(val: Date | string | undefined): string {
   return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
 }
 
-// ── 컬럼 타입에 따라 사용 가능한 연산자 목록 반환 ──
-// Python으로 치면: def get_operators(prop_type) -> list[tuple[FilterOperator, str]]: ...
-function getOperatorsForType(
+// ── 컬럼 타입에 따라 사용 가능한 연산자 값 목록 반환 ──
+// Python으로 치면: def get_operator_values(prop_type) -> list[FilterOperator]: ...
+function getOperatorValuesForType(
   propType: PropertyType | 'title' | 'updatedAt'
-): { value: FilterOperator; label: string }[] {
+): FilterOperator[] {
   if (propType === 'date' || propType === 'updatedAt') {
-    return [
-      { value: 'before', label: '이전' },
-      { value: 'after',  label: '이후' },
-      { value: 'equals', label: '같음' },
-    ]
+    return ['before', 'after', 'equals']
   }
   if (propType === 'status' || propType === 'select') {
-    return [
-      { value: 'equals',      label: '포함' },
-      { value: 'not_contains', label: '포함 안함' },
-    ]
+    return ['equals', 'not_contains']
   }
-  // text, title, relation 공통
-  return [
-    { value: 'contains', label: '포함' },
-    { value: 'equals',   label: '같음' },
-  ]
+  return ['contains', 'equals']
 }
 
 // ── 정렬 적용: Page[] → 정렬된 Page[] ──────────────
@@ -163,6 +157,8 @@ function PropertyCell({
   propType, value, options,
   isEditing, onStartEdit, onEndEdit, onChange,
 }: PropertyCellProps) {
+  // 로케일 훅
+  const t = useLocale()
 
   // ── 상태 타입 ──────────────────────────────
   // 클릭 → 피커 드롭다운 (STATUS_OPTIONS 4종)
@@ -190,7 +186,7 @@ function PropertyCell({
               onClick={onEndEdit}
               className="text-xs px-2 py-1 text-gray-400 hover:bg-gray-50 rounded text-left mt-0.5 border-t border-gray-100"
             >
-              취소
+              {t.overlay.database.cancelEdit}
             </button>
           </div>
         </div>
@@ -203,7 +199,7 @@ function PropertyCell({
           onClick={onStartEdit}
           className="text-[10px] text-gray-300 hover:text-gray-500 px-1 py-0.5 rounded hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
         >
-          + 설정
+          {t.overlay.database.setCellValue}
         </button>
       )
     }
@@ -280,7 +276,7 @@ function PropertyCell({
             ))}
             {options.length === 0 && (
               <span className="text-[10px] text-gray-400 px-2 py-1">
-                옵션 없음
+                {t.overlay.database.noOptions}
               </span>
             )}
             <button
@@ -288,7 +284,7 @@ function PropertyCell({
               onClick={onEndEdit}
               className="text-xs px-2 py-1 text-gray-400 hover:bg-gray-50 rounded text-left mt-0.5 border-t border-gray-100"
             >
-              취소
+              {t.overlay.database.cancelEdit}
             </button>
           </div>
         </div>
@@ -301,7 +297,7 @@ function PropertyCell({
           onClick={onStartEdit}
           className="text-[10px] text-gray-300 hover:text-gray-500 px-1 py-0.5 rounded hover:bg-gray-100 transition-colors opacity-0 group-hover:opacity-100"
         >
-          + 설정
+          {t.overlay.database.setCellValue}
         </button>
       )
     }
@@ -374,17 +370,31 @@ interface FilterRowProps {
 }
 
 function FilterRow({ condition, columnOptions, onChange, onRemove }: FilterRowProps) {
+  // 로케일 훅
+  const t = useLocale()
+
   // 현재 선택된 컬럼의 타입 — 연산자 목록 결정에 사용
   // Python으로 치면: col_type = next(c.type for c in col_opts if c.key == condition.column)
   const colType = columnOptions.find(c => c.key === condition.column)?.type ?? 'text'
-  const operators = getOperatorsForType(colType)
+  const operatorValues = getOperatorValuesForType(colType)
+
+  // 연산자 값 → 로케일 레이블 매핑
+  // Python으로 치면: OP_LABELS = {'before': t.overlay.database.operatorBefore, ...}
+  const opLabel: Record<string, string> = {
+    before:       t.overlay.database.operatorBefore,
+    after:        t.overlay.database.operatorAfter,
+    equals:       t.overlay.database.operatorEquals,
+    contains:     t.overlay.database.operatorContains,
+    not_contains: t.overlay.database.operatorNotContains,
+  }
+  const operators = operatorValues.map(v => ({ value: v, label: opLabel[v] ?? v }))
 
   // 컬럼 변경 시 연산자·값 초기화
   // Python으로 치면: def on_col_change(col): self.operator = ops[0].value; self.value = ''
   function handleColumnChange(key: string) {
     const newColType = columnOptions.find(c => c.key === key)?.type ?? 'text'
-    const newOps = getOperatorsForType(newColType)
-    onChange({ ...condition, column: key, operator: newOps[0].value, value: '' })
+    const newOpValues = getOperatorValuesForType(newColType)
+    onChange({ ...condition, column: key, operator: newOpValues[0], value: '' })
   }
 
   // 값 입력 영역: 타입별 분기
@@ -408,7 +418,7 @@ function FilterRow({ condition, columnOptions, onChange, onRemove }: FilterRowPr
           onChange={e => onChange({ ...condition, value: e.target.value })}
           className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:border-blue-400 h-7 bg-white"
         >
-          <option value="">선택...</option>
+          <option value="">{t.overlay.database.filterSelectPlaceholder}</option>
           {STATUS_OPTIONS.map(opt => (
             <option key={opt} value={opt}>{opt}</option>
           ))}
@@ -418,7 +428,7 @@ function FilterRow({ condition, columnOptions, onChange, onRemove }: FilterRowPr
     return (
       <input
         type="text"
-        placeholder="값 입력..."
+        placeholder={t.overlay.database.filterValuePlaceholder}
         value={condition.value}
         onChange={e => onChange({ ...condition, value: e.target.value })}
         className="text-xs border border-gray-200 rounded px-1.5 py-1 focus:outline-none focus:border-blue-400 h-7 w-28"
@@ -458,7 +468,7 @@ function FilterRow({ condition, columnOptions, onChange, onRemove }: FilterRowPr
         type="button"
         onClick={onRemove}
         className="text-gray-400 hover:text-red-500 p-0.5 rounded hover:bg-red-50 transition-colors"
-        title="필터 삭제"
+        title={t.overlay.database.filterRemove}
       >
         <X size={12} />
       </button>
@@ -471,6 +481,9 @@ function FilterRow({ condition, columnOptions, onChange, onRemove }: FilterRowPr
 // DatabaseView — 메인 컴포넌트
 // =============================================
 export default function DatabaseView({ onClose }: DatabaseViewProps) {
+  // 로케일 훅
+  const t = useLocale()
+
   // ── 스토어 ──────────────────────────────────
   const {
     pages,
@@ -492,8 +505,8 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
   // ── 현재 카테고리 이름 ─────────────────────
   // Python으로 치면: cat_name = cats[current_cat].name if current_cat else '전체보기'
   const categoryName = currentCategoryId === null
-    ? '전체보기'
-    : categories.find(c => c.id === currentCategoryId)?.name ?? '전체보기'
+    ? t.overlay.database.allCategories
+    : categories.find(c => c.id === currentCategoryId)?.name ?? t.overlay.database.allCategories
 
   // ── 모든 페이지에서 고유 속성 컬럼 수집 ──────
   // 이름 기준으로 중복 제거, type별 정렬
@@ -514,10 +527,19 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
   // 내장 컬럼(제목, 수정일) + 속성 컬럼 순서
   // Python으로 치면: all_cols = [title_col, updated_col] + prop_cols
   const allColumnOptions: { key: string; label: string; type: PropertyType | 'title' | 'updatedAt' }[] = [
-    { key: COL_TITLE,   label: '제목',  type: 'title' },
-    { key: COL_UPDATED, label: '수정일', type: 'updatedAt' },
+    { key: COL_TITLE,   label: t.overlay.database.colTitle,   type: 'title' },
+    { key: COL_UPDATED, label: t.overlay.database.colUpdated, type: 'updatedAt' },
     ...propColumns.map(col => ({ key: col.name, label: col.name, type: col.type })),
   ]
+
+  // ── 뷰 모드 (테이블 | 달력) ───────────────────
+  // Python으로 치면: view_mode: ViewMode = 'table'
+  const [viewMode, setViewMode] = useState<ViewMode>('table')
+
+  // ── 달력 현재 월 (YYYY-MM 기준) ───────────────
+  // Python으로 치면: cal_year, cal_month = today.year, today.month
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear())
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth()) // 0-indexed
 
   // ── 인라인 편집 상태 ───────────────────────
   // 현재 편집 중인 셀: { pageId, propName } 또는 null
@@ -533,6 +555,55 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
   // 빈 배열이면 필터 없음; AND 조합으로 적용
   // Python으로 치면: filters: list[FilterCondition] = []
   const [filters, setFilters] = useState<FilterCondition[]>([])
+
+  // ── 달력 그리드 계산 ──────────────────────────
+  // 현재 월의 날짜 배열(null=이전/다음 달 빈 칸) 생성
+  // Python으로 치면: cal_days = generate_calendar_grid(year, month)
+  const calDays = useMemo<(number | null)[]>(() => {
+    const firstDay = new Date(calYear, calMonth, 1).getDay() // 0=일
+    const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate()
+    const cells: (number | null)[] = Array(firstDay).fill(null)
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+    while (cells.length % 7 !== 0) cells.push(null)
+    return cells
+  }, [calYear, calMonth])
+
+  // ── 날짜 속성 기준으로 페이지를 날짜별로 분류 ──
+  // 날짜 속성(type==='date')의 value를 YYYY-MM-DD 형식으로 가정
+  // Python으로 치면: date_map = {day: [page, ...] for page in pages if page.date_prop}
+  const calPageMap = useMemo<Map<number, Page[]>>(() => {
+    const map = new Map<number, Page[]>()
+    for (const page of categoryPages) {
+      const dateProp = page.properties?.find(p => p.type === 'date' && p.value)
+      if (!dateProp?.value) continue
+      const d = new Date(dateProp.value)
+      if (isNaN(d.getTime())) continue
+      if (d.getFullYear() === calYear && d.getMonth() === calMonth) {
+        const day = d.getDate()
+        if (!map.has(day)) map.set(day, [])
+        map.get(day)!.push(page)
+      }
+    }
+    return map
+  }, [categoryPages, calYear, calMonth])
+
+  // ── 달력에서 날짜 없는 페이지 목록 ──────────────
+  // Python으로 치면: no_date_pages = [p for p in pages if not p.date_prop]
+  const calNoDates = useMemo(() =>
+    categoryPages.filter(p => !p.properties?.some(prop => prop.type === 'date' && prop.value)),
+    [categoryPages]
+  )
+
+  // ── 달력 이전/다음 달 이동 ──────────────────────
+  // Python으로 치면: def go_prev(): month -= 1 (with year wrap)
+  function calPrev() {
+    if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11) }
+    else setCalMonth(m => m - 1)
+  }
+  function calNext() {
+    if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0) }
+    else setCalMonth(m => m + 1)
+  }
 
   // ── 필터 → 정렬 파이프라인 파생값 ────────────
   // Python으로 치면: display_pages = apply_sort(apply_filters(cat_pages, filters), sort_config)
@@ -575,7 +646,7 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
   function handleAddFilter() {
     const firstCol  = allColumnOptions[0]?.key ?? COL_TITLE
     const firstType = allColumnOptions[0]?.type ?? 'title'
-    const firstOp   = getOperatorsForType(firstType)[0].value
+    const firstOp   = getOperatorValuesForType(firstType)[0]
     setFilters(prev => [
       ...prev,
       { id: crypto.randomUUID(), column: firstCol, operator: firstOp, value: '' },
@@ -615,44 +686,68 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
     <div className="flex flex-col h-full overflow-hidden">
 
       {/* ── 헤더 ─────────────────────────────── */}
-      {/* Python으로 치면: header = HBox([cat_label, page_count, close_btn]) */}
+      {/* Python으로 치면: header = HBox([cat_label, page_count, view_tabs, close_btn]) */}
       <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-3 shrink-0">
         <h2 className="text-base font-semibold text-gray-800 flex-1">
           {categoryName}
           <span className="ml-2 text-xs font-normal text-gray-400">
-            데이터베이스 — {categoryPages.length}개 페이지
+            {t.overlay.database.subtitle.replace('{count}', String(categoryPages.length))}
           </span>
         </h2>
-        {/* ── 필터 추가 버튼 ─────────────────────── */}
+        {/* ── 뷰 모드 탭 (테이블 | 달력) ─────────── */}
+        {/* Python으로 치면: view_tabs.on_change = set_view_mode */}
+        <div className="flex items-center gap-0.5 bg-gray-100 rounded-lg p-0.5">
+          <button
+            type="button"
+            onClick={() => setViewMode('table')}
+            className={['flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md transition-colors', viewMode === 'table' ? 'bg-white shadow-sm text-gray-700 font-medium' : 'text-gray-500 hover:text-gray-700'].join(' ')}
+            title={t.overlay.database.viewTable}
+          >
+            <Table2 size={12} />
+            <span>{t.overlay.database.tableTab}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('calendar')}
+            className={['flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md transition-colors', viewMode === 'calendar' ? 'bg-white shadow-sm text-gray-700 font-medium' : 'text-gray-500 hover:text-gray-700'].join(' ')}
+            title={t.overlay.database.viewCalendar}
+          >
+            <CalendarDays size={12} />
+            <span>{t.overlay.database.calendarTab}</span>
+          </button>
+        </div>
+        {/* ── 필터 추가 버튼 (테이블 모드에서만) ──── */}
         {/* Python으로 치면: filter_btn.on_click = handle_add_filter */}
-        <button
-          type="button"
-          onClick={handleAddFilter}
-          className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 px-2 py-1 rounded hover:bg-blue-50 border border-gray-200 hover:border-blue-300 transition-colors"
-          title="필터 조건 추가"
-        >
-          <Filter size={12} />
-          <span>필터</span>
-          {filters.length > 0 && (
-            <span className="bg-blue-500 text-white text-[9px] px-1 py-0.5 rounded-full leading-none">
-              {filters.length}
-            </span>
-          )}
-        </button>
+        {viewMode === 'table' && (
+          <button
+            type="button"
+            onClick={handleAddFilter}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 px-2 py-1 rounded hover:bg-blue-50 border border-gray-200 hover:border-blue-300 transition-colors"
+            title={t.overlay.database.filterAdd}
+          >
+            <Filter size={12} />
+            <span>{t.overlay.database.filter}</span>
+            {filters.length > 0 && (
+              <span className="bg-blue-500 text-white text-[9px] px-1 py-0.5 rounded-full leading-none">
+                {filters.length}
+              </span>
+            )}
+          </button>
+        )}
         <button
           type="button"
           onClick={onClose}
           className="text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors"
-          title="테이블 뷰 닫기"
+          title={t.overlay.database.closeView}
         >
           <X size={16} />
         </button>
       </div>
 
-      {/* ── 필터 조건 행 ─────────────────────────── */}
+      {/* ── 필터 조건 행 (테이블 모드에서만) ──────── */}
       {/* filters.length === 0이면 렌더링 안 함 */}
-      {/* Python으로 치면: if filters: render_filter_rows() */}
-      {filters.length > 0 && (
+      {/* Python으로 치면: if filters and view_mode == 'table': render_filter_rows() */}
+      {viewMode === 'table' && filters.length > 0 && (
         <div className="px-6 py-2 border-b border-gray-200 bg-blue-50 flex flex-col gap-1.5 shrink-0">
           {filters.map(f => (
             <FilterRow
@@ -666,10 +761,109 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
         </div>
       )}
 
+      {/* ── 달력 뷰 ──────────────────────────── */}
+      {/* Python으로 치면: if view_mode == 'calendar': render_calendar() */}
+      {viewMode === 'calendar' && (
+        <div className="flex-1 overflow-auto p-4">
+          {/* 달력 헤더 — 년/월 + 이전/다음 버튼 */}
+          {/* Python으로 치면: cal_header = HBox([prev_btn, year_month_label, next_btn]) */}
+          <div className="flex items-center justify-between mb-4">
+            <button
+              type="button"
+              onClick={calPrev}
+              className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm font-semibold text-gray-700">
+              {calYear}년 {calMonth + 1}월
+            </span>
+            <button
+              type="button"
+              onClick={calNext}
+              className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-800 transition-colors"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {/* 요일 헤더 */}
+          {/* Python으로 치면: ['일','월','화','수','목','금','토'] */}
+          <div className="grid grid-cols-7 mb-1">
+            {t.overlay.database.calDays.map((d, di) => (
+              <div key={d} className={['text-center text-[11px] font-medium py-1', di === 0 ? 'text-red-400' : di === 6 ? 'text-blue-400' : 'text-gray-400'].join(' ')}>
+                {d}
+              </div>
+            ))}
+          </div>
+
+          {/* 날짜 그리드 */}
+          {/* Python으로 치면: for row in chunks(cal_days, 7): render_week_row(row) */}
+          <div className="grid grid-cols-7 gap-1">
+            {calDays.map((day, idx) => {
+              const today = new Date()
+              const isToday = day !== null && today.getFullYear() === calYear && today.getMonth() === calMonth && today.getDate() === day
+              const pagesOnDay = day !== null ? (calPageMap.get(day) ?? []) : []
+              return (
+                <div
+                  key={idx}
+                  className={['min-h-20 rounded-lg border p-1.5', day === null ? 'bg-gray-50 border-transparent' : 'bg-white border-gray-100 hover:border-gray-200'].join(' ')}
+                >
+                  {day !== null && (
+                    <>
+                      {/* 날짜 숫자 */}
+                      <div className={['text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1', isToday ? 'bg-blue-500 text-white' : idx % 7 === 0 ? 'text-red-400' : idx % 7 === 6 ? 'text-blue-400' : 'text-gray-600'].join(' ')}>
+                        {day}
+                      </div>
+                      {/* 해당 날짜 페이지 카드 */}
+                      {/* Python으로 치면: for page in pages_on_day: render_page_card(page) */}
+                      {pagesOnDay.map(page => (
+                        <button
+                          key={page.id}
+                          type="button"
+                          onClick={() => { setCurrentPage(page.id); pushRecentPage(page.id) }}
+                          className="w-full text-left text-[10px] px-1.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-700 truncate mb-0.5 transition-colors"
+                          title={page.title}
+                        >
+                          <span className="mr-0.5">{page.icon}</span>
+                          {page.title || t.common.untitled}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* 날짜 없는 페이지 섹션 */}
+          {/* Python으로 치면: if no_date_pages: render_no_date_section() */}
+          {calNoDates.length > 0 && (
+            <div className="mt-6">
+              <p className="text-xs font-medium text-gray-400 mb-2">{t.overlay.database.calNoDate.replace('{count}', String(calNoDates.length))}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {calNoDates.map(page => (
+                  <button
+                    key={page.id}
+                    type="button"
+                    onClick={() => { setCurrentPage(page.id); pushRecentPage(page.id) }}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
+                    title={page.title}
+                  >
+                    <span className="mr-0.5">{page.icon}</span>
+                    {page.title || t.common.untitled}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── 테이블 영역 ───────────────────────── */}
       {/* flex-1 + overflow-auto: 헤더 아래 공간을 모두 차지하고 스크롤 */}
       {/* Python으로 치면: scroll_area = QScrollArea(); scroll_area.setWidget(table) */}
-      <div className="flex-1 overflow-auto">
+      {viewMode === 'table' && <div className="flex-1 overflow-auto">
         <table className="w-full text-sm border-collapse">
 
           {/* 테이블 헤더 — sticky top으로 스크롤 시 고정 */}
@@ -684,7 +878,7 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
                   onClick={() => handleToggleSort(COL_TITLE)}
                   className="flex items-center gap-1 hover:text-gray-800 transition-colors"
                 >
-                  <span>제목</span>
+                  <span>{t.overlay.database.colTitle}</span>
                   {sortConfig?.key === COL_TITLE ? (
                     sortConfig.dir === 'asc'
                       ? <ChevronUp size={11} className="text-blue-500" />
@@ -719,7 +913,7 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
               ))}
               {/* 태그 컬럼 */}
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 whitespace-nowrap" style={{ minWidth: '80px' }}>
-                태그
+                {t.overlay.database.colTags}
               </th>
               {/* 수정일 컬럼 — 클릭 정렬 가능 */}
               <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 w-24 whitespace-nowrap">
@@ -728,7 +922,7 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
                   onClick={() => handleToggleSort(COL_UPDATED)}
                   className="flex items-center gap-1 hover:text-gray-800 transition-colors"
                 >
-                  <span>수정일</span>
+                  <span>{t.overlay.database.colUpdated}</span>
                   {sortConfig?.key === COL_UPDATED ? (
                     sortConfig.dir === 'asc'
                       ? <ChevronUp size={11} className="text-blue-500" />
@@ -757,11 +951,11 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
                     type="button"
                     onClick={() => { setCurrentPage(page.id); pushRecentPage(page.id); onClose() }}
                     className="flex items-center gap-2 text-left w-full"
-                    title="페이지 열기"
+                    title={t.overlay.database.openPage}
                   >
                     <span className="text-sm shrink-0">{page.icon}</span>
                     <span className="text-xs font-medium text-gray-800 truncate max-w-36">
-                      {page.title || '제목 없음'}
+                      {page.title || t.common.untitled}
                     </span>
                   </button>
                 </td>
@@ -811,8 +1005,8 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
           <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-2">
             <p className="text-sm">
               {filters.length > 0
-                ? '필터 조건에 맞는 페이지가 없습니다'
-                : '이 카테고리에 메모가 없습니다'}
+                ? t.overlay.database.filterNoResults
+                : t.overlay.database.noPages}
             </p>
             {filters.length > 0 && (
               <button
@@ -820,7 +1014,7 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
                 onClick={() => setFilters([])}
                 className="text-xs text-blue-500 hover:text-blue-700 underline"
               >
-                필터 모두 지우기
+                {t.overlay.database.filterClearAll}
               </button>
             )}
           </div>
@@ -835,10 +1029,10 @@ export default function DatabaseView({ onClose }: DatabaseViewProps) {
             className="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 px-2 py-1.5 rounded transition-colors"
           >
             <Plus size={12} />
-            <span>새 페이지</span>
+            <span>{t.overlay.database.addPage}</span>
           </button>
         </div>
-      </div>
+      </div>}
 
     </div>
   )

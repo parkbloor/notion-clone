@@ -567,6 +567,216 @@ def export_html(page_id: str):
 
 
 # -----------------------------------------------
+# PDF 내보내기 (xhtml2pdf — 서버사이드)
+# -----------------------------------------------
+
+def _find_korean_font() -> "Path | None":
+    """
+    한국어 TTF 폰트 파일 경로 탐색 (OS별)
+    Python으로 치면: next((p for p in candidates if p.exists()), None)
+    """
+    candidates = [
+        Path("C:/Windows/Fonts/malgun.ttf"),                                       # Windows — 맑은 고딕
+        Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"),                        # macOS
+        Path("/System/Library/Fonts/AppleGothic.ttf"),                             # macOS 구버전
+        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"),            # Linux (Ubuntu)
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),            # Linux (Debian)
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return None
+
+
+def _patch_xhtml2pdf_named_tmp_file() -> None:
+    """
+    Windows에서 NamedTemporaryFile(delete=True) 잠금 문제 패치
+    xhtml2pdf의 get_named_tmp_file이 임시 TTF 파일을 열어둔 채 ReportLab에 전달하면
+    Windows는 같은 파일을 두 번 열 수 없어 PermissionError 발생
+    → delete=False + close() 로 잠금 해제 후 ReportLab이 열 수 있게 함
+    Python으로 치면: monkeypatch(BaseFile.get_named_tmp_file)
+    """
+    import sys
+    if sys.platform != "win32":
+        return
+    try:
+        import tempfile as _tempfile
+        from xhtml2pdf import files as _xfiles
+
+        def _win32_get_named_tmp_file(self):
+            # Python으로 치면: def get_named_tmp_file(self): ...
+            data = self.get_data()
+            # delete=False: 파일 닫은 뒤에도 존재 → ReportLab이 이름으로 열 수 있음
+            tmp = _tempfile.NamedTemporaryFile(suffix=self.suffix, delete=False)
+            if data:
+                tmp.write(data)
+                tmp.flush()
+            tmp.close()  # 닫아야 ReportLab이 같은 경로를 open() 할 수 있음
+            _xfiles.files_tmp.append(tmp)
+            if self.path is None:
+                self.path = tmp.name
+            return tmp
+
+        _xfiles.BaseFile.get_named_tmp_file = _win32_get_named_tmp_file
+    except Exception:
+        pass  # 패치 실패해도 계속 진행 (폰트만 깨질 뿐 PDF는 생성됨)
+
+
+def _make_pdf_html(title: str, icon: str, body_html: str, font_path: "Path | None" = None) -> str:
+    """
+    xhtml2pdf 전용 간소화 HTML 생성
+    — @font-face src에 폰트 파일 경로 직접 명시 (패치 후 temp 파일 없이 로드됨)
+    Python으로 치면: def make_pdf_html(title, body): return f'<html>...'
+    """
+    if font_path:
+        # Windows 경로를 CSS url()에 쓰려면 슬래시로 변환
+        font_path_str = font_path.as_posix()
+        font_face_css = f"@font-face {{ font-family: 'KR'; src: url('{font_path_str}'); }}"
+        body_font_family = "'KR', Arial, sans-serif"
+    else:
+        font_face_css = ""
+        body_font_family = "Arial, sans-serif"
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>{title}</title>
+  <style>
+    {font_face_css}
+    @page {{ margin: 1.5cm 2cm; }}
+    body {{
+      font-family: {body_font_family};
+      font-size: 11pt;
+      line-height: 1.7;
+      color: #1a1a1a;
+    }}
+    h1 {{ font-size: 22pt; margin-bottom: 8pt; }}
+    h2 {{ font-size: 16pt; margin-top: 14pt; }}
+    h3 {{ font-size: 13pt; margin-top: 11pt; }}
+    h4, h5, h6 {{ font-size: 11pt; margin-top: 9pt; font-weight: bold; }}
+    p {{ margin: 5pt 0; }}
+    ul, ol {{ padding-left: 18pt; }}
+    li {{ margin: 3pt 0; }}
+    pre {{
+      background: #f5f5f5;
+      border: 1pt solid #ddd;
+      border-radius: 4pt;
+      padding: 8pt 10pt;
+      font-size: 9pt;
+      font-family: 'Courier New', monospace;
+    }}
+    blockquote {{
+      border-left: 3pt solid #ccc;
+      margin: 0;
+      padding-left: 10pt;
+      color: #555;
+    }}
+    hr {{ border: none; border-top: 1pt solid #ddd; margin: 10pt 0; }}
+    img {{ max-width: 100%; }}
+    table {{ border-collapse: collapse; width: 100%; margin: 8pt 0; }}
+    th, td {{ border: 1pt solid #ddd; padding: 5pt 8pt; text-align: left; }}
+    th {{ background: #f0f0f0; font-weight: bold; }}
+    .admonition {{ border-left: 3pt solid #7c3aed; background: #f5f3ff; padding: 8pt 10pt; margin: 8pt 0; }}
+    .block-children {{ padding-left: 14pt; border-left: 2pt solid #e0e0e0; margin: 4pt 0; }}
+    .layout-row {{ margin: 8pt 0; }}
+    .layout-col {{ margin-bottom: 6pt; }}
+    .kanban-col {{ margin-bottom: 8pt; }}
+    .task-item {{ margin: 3pt 0; }}
+    details summary {{ font-weight: bold; }}
+  </style>
+</head>
+<body>
+  <h1>{icon} {title}</h1>
+  {body_html}
+</body>
+</html>"""
+
+
+@router.get("/export/pdf/{page_id}")
+def export_pdf(page_id: str):
+    """
+    단일 페이지를 서버사이드 PDF로 내보내기 (xhtml2pdf)
+    이미지는 base64로 인라인 임베딩
+    Python으로 치면: return send_file(pdf_bytes, filename='{title}.pdf')
+    """
+    # xhtml2pdf 임포트 — 미설치 시 503 반환
+    # Python으로 치면: try: import pisa except ImportError: raise HTTPException(503)
+    try:
+        from xhtml2pdf import pisa  # type: ignore
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="xhtml2pdf 패키지가 설치되지 않았습니다. pip install xhtml2pdf 후 재시작하세요."
+        )
+
+    validate_uuid(page_id, "page_id")
+
+    # 페이지 파일 경로 조회
+    # Python으로 치면: folder = index['folderMap'][page_id]
+    index = load_index()
+    folder_map = index.get("folderMap", {})
+    category_map = index.get("categoryMap", {})
+    categories = {c["id"]: c["folderName"] for c in index.get("categories", [])}
+
+    folder_name = folder_map.get(page_id)
+    if not folder_name:
+        raise HTTPException(status_code=404, detail="페이지를 찾을 수 없습니다")
+
+    cat_id = category_map.get(page_id)
+    cat_folder = categories.get(cat_id) if cat_id else None
+
+    if cat_folder:
+        content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
+    else:
+        content_path = resolve_content_file(VAULT_DIR / folder_name)
+
+    if not content_path.exists():
+        raise HTTPException(status_code=404, detail="페이지 파일을 찾을 수 없습니다")
+
+    page_data = json.loads(content_path.read_text(encoding="utf-8"))
+    title = page_data.get("title", "제목 없음")
+    icon = page_data.get("icon", "📝")
+    blocks = page_data.get("blocks", [])
+
+    # Windows NamedTemporaryFile 잠금 패치 적용 (폰트 로딩용)
+    # Python으로 치면: monkeypatch_xhtml2pdf()
+    _patch_xhtml2pdf_named_tmp_file()
+    font_path = _find_korean_font()
+
+    # HTML 생성 (기존 _blocks_to_html 재사용)
+    # Python으로 치면: body = blocks_to_html(blocks)
+    body_html = _blocks_to_html(blocks)
+    html_str = _make_pdf_html(title, icon, body_html, font_path)
+
+    # xhtml2pdf로 HTML → PDF 변환
+    # Python으로 치면: pisa.CreatePDF(html, dest=pdf_buffer)
+    pdf_buffer = io.BytesIO()
+    result = pisa.CreatePDF(
+        src=html_str,
+        dest=pdf_buffer,
+        encoding="utf-8",
+    )
+
+    if result.err:
+        raise HTTPException(status_code=500, detail=f"PDF 변환 오류: {result.err}")
+
+    pdf_buffer.seek(0)
+
+    # 파일명 RFC 5987 인코딩 (한국어 지원)
+    # Python으로 치면: encoded = urllib.parse.quote(f'{title}.pdf')
+    safe_title = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', title).strip() or "export"
+    encoded_filename = urllib.parse.quote(f"{safe_title}.pdf", safe='')
+    content_disposition = f"attachment; filename*=UTF-8''{encoded_filename}"
+
+    return StreamingResponse(
+        pdf_buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition},
+    )
+
+
+# -----------------------------------------------
 # 가져오기
 # -----------------------------------------------
 

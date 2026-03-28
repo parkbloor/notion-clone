@@ -8,6 +8,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // 탭 1 — 단축키 목록 데이터 (그룹별)
@@ -59,6 +60,9 @@ const SHORTCUT_GROUPS = [
       { keys: ['[['], label: '페이지 링크 팝업' },
       { keys: ['Escape'], label: '팝업·메뉴 닫기' },
       { keys: ['?'], label: '도움말 열기' },
+      { keys: ['Ctrl', 'G'], label: '그래프 뷰 열기/닫기' },
+      { keys: ['Ctrl', 'Shift', 'C'], label: '전체 캘린더 열기/닫기' },
+      { keys: ['Ctrl', 'Shift', 'D'], label: 'Day Planner 패널 열기/닫기' },
     ],
   },
   {
@@ -141,17 +145,14 @@ const PLUGIN_INFO = [
   { icon: '🔗', name: '백링크 패널',    shortcut: '페이지 하단',     desc: '@멘션·[[ 링크로 이 페이지를 참조하는 페이지 목록.' },
 ]
 
-// -----------------------------------------------
-// 탭 버튼 레이블 목록
-// Python으로 치면: TABS = ['단축키', '슬래시 커맨드', '플러그인']
-// -----------------------------------------------
-const TABS = ['단축키', '슬래시 커맨드', '플러그인'] as const
 
 interface ShortcutModalProps {
   onClose: () => void
 }
 
 export default function ShortcutModal({ onClose }: ShortcutModalProps) {
+  // 로케일 훅 — Python으로 치면: t = get_translation()
+  const t = useLocale()
   const overlayRef = useRef<HTMLDivElement>(null)
   // 활성 탭 인덱스 (0=단축키, 1=슬래시 커맨드, 2=플러그인)
   // Python으로 치면: self.active_tab = 0
@@ -189,7 +190,7 @@ export default function ShortcutModal({ onClose }: ShortcutModalProps) {
           {/* 탭 버튼 목록 */}
           {/* Python으로 치면: QTabBar with 3 tabs */}
           <div className="flex gap-1">
-            {TABS.map((tab, i) => (
+            {[t.overlay.shortcuts.tabShortcuts, t.overlay.shortcuts.tabSlash, t.overlay.shortcuts.tabPlugins].map((tab, i) => (
               <button
                 key={tab}
                 type="button"
@@ -207,7 +208,7 @@ export default function ShortcutModal({ onClose }: ShortcutModalProps) {
             type="button"
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-lg leading-none transition-colors mb-2"
-            title="닫기"
+            title={t.common.close}
           >
             ✕
           </button>
@@ -255,7 +256,7 @@ export default function ShortcutModal({ onClose }: ShortcutModalProps) {
             <div className="space-y-5">
               {/* 슬래시 입력 방법 안내 */}
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                빈 블록에서 <kbd className="px-1 py-0.5 font-mono bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded">/</kbd> 를 입력하면 커맨드 메뉴가 나타납니다. 검색어를 입력해 필터링할 수 있습니다.
+                {t.overlay.shortcuts.slashIntro}
               </p>
               {SLASH_GROUPS.map(group => (
                 <div key={group.group}>
@@ -282,7 +283,7 @@ export default function ShortcutModal({ onClose }: ShortcutModalProps) {
             <div className="space-y-1">
               {/* 설정 안내 */}
               <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
-                각 플러그인은 <span className="font-medium">설정(⚙️) → 플러그인</span> 탭에서 ON/OFF 할 수 있습니다.
+                {t.overlay.shortcuts.pluginIntro}
               </p>
               {PLUGIN_INFO.map(plugin => (
                 <div key={plugin.name} className="flex items-start gap-3 py-2 border-b border-gray-50 dark:border-gray-800 last:border-0">
@@ -307,9 +308,7 @@ export default function ShortcutModal({ onClose }: ShortcutModalProps) {
         {/* ── 푸터 ──────────────────────────────── */}
         <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-800 text-center shrink-0">
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            언제든지{' '}
-            <kbd className="px-1 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded">?</kbd>
-            {' '}키를 눌러 이 화면을 열 수 있습니다
+            {t.overlay.shortcuts.footerHint}
           </p>
         </div>
 

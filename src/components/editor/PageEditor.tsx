@@ -7,7 +7,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
-import { Undo2, Redo2 } from 'lucide-react'
+import { Undo2, Redo2, Lock, Unlock } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
@@ -24,6 +24,7 @@ import PropertyPanel from './PropertyPanel'
 // 버전 히스토리 슬라이드-인 패널
 // Python으로 치면: from components import VersionHistoryPanel
 import VersionHistoryPanel from './VersionHistoryPanel'
+import LockModal from './LockModal'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
 import { groupBlocksIntoRows, getColumnFlexValues, hasCanvasLayout } from '@/lib/canvasLayout'
@@ -33,6 +34,7 @@ import ArrowLayer from './ArrowLayer'
 // ArrowContextMenu: 화살표 우클릭 설정 메뉴
 // Python으로 치면: from components import ArrowContextMenu
 import ArrowContextMenu from './ArrowContextMenu'
+import { useLocale } from '@/locales'
 
 // =============================================
 // 마크다운 내보내기 헬퍼 함수들
@@ -258,6 +260,10 @@ interface PageEditorProps {
 
 export default function PageEditor({ pageId }: PageEditorProps) {
 
+  // 로케일 훅
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
+
   // -----------------------------------------------
   // 스토어에서 현재 페이지 데이터 + 액션 가져오기
   // -----------------------------------------------
@@ -270,7 +276,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     addTagToPage, removeTagFromPage,
     undoPage, redoPage, canUndo, canRedo,
     applyTemplate, togglePageStar, toggleCanvasMode, sortBlocksByCanvas,
-    togglePageLock,
+    lockPage, unlockPage,
     pages,
   } = usePageStore()
 
@@ -291,6 +297,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   // 버전 히스토리 패널 열림 여부
   // Python으로 치면: self.history_panel_open = False
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
+
+  // ── 잠금 모달 모드 ──────────────────────────
+  // 'lock' = PIN 설정, 'unlock' = PIN 입력, null = 닫힘
+  // Python으로 치면: self.lock_modal_mode: Literal['lock','unlock'] | None = None
+  const [lockModalMode, setLockModalMode] = useState<'lock' | 'unlock' | null>(null)
 
   // ── 호버 미리보기 상태 ─────────────────────
   // 링크 위에 마우스를 올리면 해당 페이지 팝업 표시
@@ -393,7 +404,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${page.title || '제목없음'}.md`
+    a.download = `${page.title || t.page.untitled}.md`
     a.click()
     URL.revokeObjectURL(url)
     setExportOpen(false)
@@ -416,7 +427,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${page.title || '제목없음'}.html`
+      a.download = `${page.title || t.page.untitled}.html`
       a.click()
       URL.revokeObjectURL(url)
     } catch (err) {
@@ -426,20 +437,43 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   }
 
   // -----------------------------------------------
-  // PDF 내보내기 — window.print() 브라우저 인쇄 다이얼로그
-  // @media print 규칙이 직접 작동하므로 별도 클래스 불필요
-  // 토스트는 afterprint 이벤트 후 표시 — 인쇄 중 토스트가 PDF에 찍히는 버그 방지
-  // Python으로 치면: def export_pdf(): print(); on_after_print: show_toast()
+  // PDF 내보내기 (서버사이드) — xhtml2pdf 백엔드 호출
+  // 백엔드가 HTML → PDF 변환 후 파일로 응답
+  // Python으로 치면: def export_pdf_server(): fetch('/api/export/pdf/{id}') → download
   // -----------------------------------------------
-  function handleExportPdf() {
+  async function handleExportPdf() {
+    if (!page) return
     setExportOpen(false)
-    // 드롭다운이 닫힌 후 인쇄 다이얼로그를 열도록 50ms 지연
-    // Python으로 치면: time.sleep(0.05); print()
+    const toastId = toast.loading('PDF 생성 중...')
+    try {
+      const res = await fetch(`http://localhost:8000/api/export/pdf/${page.id}`)
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '')
+        throw new Error(`서버 오류 ${res.status}: ${detail}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${page.title || t.page.untitled}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('PDF 저장 완료', { id: toastId, duration: 2000 })
+    } catch (err) {
+      console.error('PDF 내보내기 오류:', err)
+      toast.error(`PDF 실패: ${err instanceof Error ? err.message : err}`, { id: toastId })
+    }
+  }
+
+  // -----------------------------------------------
+  // PDF 인쇄 — window.print() 브라우저 인쇄 다이얼로그 (폴백용)
+  // Python으로 치면: def export_print(): window.print()
+  // -----------------------------------------------
+  function handleExportPrint() {
+    setExportOpen(false)
     setTimeout(() => {
-      // 인쇄 완료(또는 취소) 후 토스트 표시
-      // Python으로 치면: def on_after_print(): show_toast('완료')
       function onAfterPrint() {
-        toast.success('PDF 저장이 완료됐습니다.', { id: 'pdf-export', duration: 2000 })
+        toast.success(t.page.printSuccess, { id: 'pdf-print', duration: 2000 })
         window.removeEventListener('afterprint', onAfterPrint)
       }
       window.addEventListener('afterprint', onAfterPrint)
@@ -583,7 +617,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       updatePageCover(pageId, url)
     } catch {
       // 업로드 실패 시 에러 표시만 — base64 fallback 제거
-      toast.error('커버 이미지 업로드에 실패했습니다. 서버 연결을 확인해 주세요.')
+      toast.error(t.page.coverUploadError)
     }
   }
 
@@ -799,7 +833,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             onClick={() => undoPage(pageId)}
             disabled={historyVersion >= 0 && !canUndo(pageId)}
             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="실행 취소 (Ctrl+Z)"
+            title={t.page.undoTitle}
           >
             <Undo2 size={14} />
           </button>
@@ -810,7 +844,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             onClick={() => redoPage(pageId)}
             disabled={historyVersion >= 0 && !canRedo(pageId)}
             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            title="다시 실행 (Ctrl+Y)"
+            title={t.page.redoTitle}
           >
             <Redo2 size={14} />
           </button>
@@ -820,7 +854,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           <button
             type="button"
             onClick={() => togglePageStar(pageId)}
-            title={page.starred ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+            title={page.starred ? t.page.starRemove : t.page.starAdd}
             className={page.starred
               ? "p-1.5 text-yellow-400 hover:text-yellow-500 hover:bg-yellow-50 rounded-md transition-colors"
               : "p-1.5 text-gray-300 hover:text-yellow-400 hover:bg-yellow-50 rounded-md transition-colors"}
@@ -833,28 +867,28 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           <button
             type="button"
             onClick={() => setReadMode(v => !v)}
-            title={readMode ? '편집 모드로 전환' : '읽기 모드로 전환'}
+            title={readMode ? t.page.editModeTitle : t.page.readModeTitle}
             className={readMode
               ? "flex items-center gap-1 px-2 py-1 text-xs text-green-600 bg-green-50 hover:bg-green-100 rounded-md transition-colors"
               : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
           >
             <span>{readMode ? '👁' : '✏️'}</span>
-            <span>{readMode ? '읽기 중' : '편집'}</span>
+            <span>{readMode ? t.page.reading : t.page.editing}</span>
           </button>
 
-          {/* 페이지 잠금 토글 버튼 */}
-          {/* 잠긴 상태: 🔒 빨간 배경 / 해제: 🔓 회색 */}
-          {/* Python으로 치면: lock_btn.on_click = lambda: toggle_page_lock(page_id) */}
+          {/* 페이지 잠금 버튼 — PIN 모달 경유 */}
+          {/* 잠긴 상태 클릭 → 해제 모달 / 해제 상태 클릭 → 설정 모달 */}
+          {/* Python으로 치면: lock_btn.on_click = lambda: open_lock_modal() */}
           <button
             type="button"
-            onClick={() => togglePageLock(pageId)}
-            title={page.isLocked ? '잠금 해제' : '페이지 잠금'}
+            onClick={() => setLockModalMode(page.isLocked ? 'unlock' : 'lock')}
+            title={page.isLocked ? t.page.lockUnlockTitle : t.page.lockSetTitle}
             className={page.isLocked
               ? "flex items-center gap-1 px-2 py-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition-colors"
               : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
           >
-            <span>{page.isLocked ? '🔒' : '🔓'}</span>
-            <span>{page.isLocked ? '잠김' : '잠금'}</span>
+            {page.isLocked ? <Lock size={12} /> : <Unlock size={12} />}
+            <span>{page.isLocked ? t.page.locked : t.page.lockLabel}</span>
           </button>
 
           {/* 캔버스 모드 토글 버튼 */}
@@ -868,13 +902,13 @@ export default function PageEditor({ pageId }: PageEditorProps) {
               if (page.canvasMode) sortBlocksByCanvas(pageId)
               toggleCanvasMode(pageId)
             }}
-            title={page.canvasMode ? '문서 모드로 전환' : '캔버스 모드로 전환'}
+            title={page.canvasMode ? t.page.documentModeTitle : t.page.canvasModeTitle}
             className={page.canvasMode
               ? "flex items-center gap-1 px-2 py-1 text-xs text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-md transition-colors"
               : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
           >
             <span>⊞</span>
-            <span>{page.canvasMode ? '캔버스' : '캔버스'}</span>
+            <span>{t.page.canvasLabel}</span>
           </button>
 
           {/* 집중 모드 종료 버튼 (집중 모드 플러그인 ON + 집중 모드 활성 시만 표시) */}
@@ -886,10 +920,10 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                 type="button"
                 onClick={toggleFocusMode}
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors"
-                title="집중 모드 종료 (Ctrl+Shift+F)"
+                title={t.page.focusModeExitTitle}
               >
                 <span>🎯</span>
-                <span>집중 모드 종료</span>
+                <span>{t.page.focusModeExit}</span>
               </button>
             </>
           )}
@@ -938,15 +972,27 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                     <div className="text-xs text-gray-400">.md 파일 다운로드</div>
                   </div>
                 </button>
-                {/* PDF 내보내기 */}
+                {/* PDF 내보내기 (서버사이드 xhtml2pdf) */}
                 <button
                   type="button"
                   onClick={handleExportPdf}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
                 >
+                  <span>📕</span>
+                  <div>
+                    <div className="font-medium text-xs">PDF 다운로드</div>
+                    <div className="text-xs text-gray-400">서버 변환 · .pdf 파일</div>
+                  </div>
+                </button>
+                {/* 인쇄 (브라우저 인쇄 다이얼로그 폴백) */}
+                <button
+                  type="button"
+                  onClick={handleExportPrint}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                >
                   <span>🖨️</span>
                   <div>
-                    <div className="font-medium text-xs">PDF로 저장</div>
+                    <div className="font-medium text-xs">인쇄</div>
                     <div className="text-xs text-gray-400">브라우저 인쇄 다이얼로그</div>
                   </div>
                 </button>
@@ -1008,13 +1054,14 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         {/* Python으로 치면: if page.is_locked: render LockBanner() */}
         {page.isLocked && (
           <div className="mb-3 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 print-hide">
-            <span className="text-red-600 text-xs">🔒 페이지 잠금 — 편집이 비활성화되었습니다</span>
+            <Lock size={12} className="text-red-500 shrink-0" />
+            <span className="text-red-600 text-xs">페이지 잠금 — 편집이 비활성화되었습니다</span>
             <button
               type="button"
-              onClick={() => togglePageLock(pageId)}
-              className="ml-auto text-xs text-red-500 hover:text-red-700 underline"
+              onClick={() => setLockModalMode('unlock')}
+              className="ml-auto text-xs text-red-500 hover:text-red-700 underline shrink-0"
             >
-              잠금 해제
+              PIN으로 해제
             </button>
           </div>
         )}
@@ -1335,6 +1382,27 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         />
       )}
 
+      {/* ── 잠금 PIN 모달 ──────────────────────────────────────────────
+          lockModalMode='lock' → PIN 설정 / 'unlock' → PIN 검증
+          Python으로 치면: if lock_modal_mode: render LockModal() */}
+      {lockModalMode && (
+        <LockModal
+          mode={lockModalMode}
+          storedPinHash={page?.lockPin}
+          onLock={(pinHash) => {
+            lockPage(pageId, pinHash)
+            setLockModalMode(null)
+            toast.success(t.page.lockSuccess)
+          }}
+          onUnlock={() => {
+            unlockPage(pageId)
+            setLockModalMode(null)
+            toast.success(t.page.unlockSuccess)
+          }}
+          onCancel={() => setLockModalMode(null)}
+        />
+      )}
+
       {/* ── 화살표 SVG 오버레이 ────────────────────────────────────────
           blocks 변경 시 자동으로 [data-arrow-id] DOM 재스캔 후 곡선 갱신
           Python으로 치면: render ArrowLayer(dep=page.blocks) */}
@@ -1365,7 +1433,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             {/* 아이콘 + 제목 */}
             <div className="flex items-center gap-2 mb-1.5">
               <span className="text-xl shrink-0">{previewPage.icon}</span>
-              <span className="font-semibold text-gray-800 text-sm truncate">{previewPage.title || '제목 없음'}</span>
+              <span className="font-semibold text-gray-800 text-sm truncate">{previewPage.title || t.page.untitled}</span>
             </div>
             {/* 본문 스니펫 */}
             {snippets.length > 0 ? (
@@ -1375,7 +1443,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-gray-400 italic">내용 없음</p>
+              <p className="text-xs text-gray-400 italic">{t.page.previewEmpty}</p>
             )}
             {/* 태그 */}
             {(previewPage.tags ?? []).length > 0 && (

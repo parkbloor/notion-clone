@@ -22,8 +22,11 @@ import BottomBar from '@/components/editor/BottomBar'
 import TabBar from '@/components/editor/TabBar'
 import GraphView from '@/components/editor/GraphView'
 import TrashPanel from '@/components/editor/TrashPanel'
-import AIChatPanel from '@/components/ai/AIChatPanel'
+import GlobalAIChatButton from '@/components/ai/GlobalAIChatButton'
+import CalendarOverlay from '@/components/editor/CalendarOverlay'
+import DayPlannerPanel from '@/components/editor/DayPlannerPanel'
 import { X } from 'lucide-react'
+import { useLocale } from '@/locales'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
 // Python으로 치면: from dnd import DndContext, arrayMove
@@ -39,6 +42,9 @@ import {
 import { arrayMove } from '@dnd-kit/sortable'
 
 export default function Home() {
+
+  // 로케일 훅
+  const t = useLocale()
 
   // 단축키 안내 모달 열림 여부
   // Python으로 치면: self.shortcut_modal_open = False
@@ -77,9 +83,13 @@ export default function Home() {
   // Python으로 치면: self.graph_view_open = False
   const [graphViewOpen, setGraphViewOpen] = useState(false)
 
-  // 플로팅 AI 패널 열림 여부 (Ctrl+I 또는 /ai 슬래시 커맨드)
-  // Python으로 치면: self.ai_panel_open = False
-  const [aiPanelOpen, setAiPanelOpen] = useState(false)
+  // 전체 캘린더 오버레이 열림 여부 (Ctrl+Shift+C)
+  // Python으로 치면: self.calendar_open = False
+  const [calendarOpen, setCalendarOpen] = useState(false)
+
+  // Day Planner 패널 열림 여부 (Ctrl+Shift+D)
+  // Python으로 치면: self.day_planner_open = False
+  const [dayPlannerOpen, setDayPlannerOpen] = useState(false)
 
   // 휴지통 패널 열림 여부
   // Python으로 치면: self.trash_open = False
@@ -149,30 +159,6 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleCommandPaletteKey)
     return () => window.removeEventListener('keydown', handleCommandPaletteKey)
-  }, [])
-
-  // -----------------------------------------------
-  // Ctrl+I 단축키 → 플로팅 AI 패널 ON/OFF 토글
-  // /ai 슬래시 커맨드에서 발생하는 'open-ai-panel' 이벤트도 같이 수신
-  // Python으로 치면:
-  //   def on_key_down(e): if e.ctrl and e.key == 'i': toggle_ai_panel()
-  // -----------------------------------------------
-  useEffect(() => {
-    function handleAiPanelKey(e: KeyboardEvent) {
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'i') {
-        e.preventDefault()
-        setAiPanelOpen(prev => !prev)
-      }
-    }
-    function handleAiPanelEvent() {
-      setAiPanelOpen(true)
-    }
-    window.addEventListener('keydown', handleAiPanelKey)
-    window.addEventListener('open-ai-panel', handleAiPanelEvent)
-    return () => {
-      window.removeEventListener('keydown', handleAiPanelKey)
-      window.removeEventListener('open-ai-panel', handleAiPanelEvent)
-    }
   }, [])
 
   // -----------------------------------------------
@@ -273,6 +259,57 @@ export default function Home() {
   } = usePageStore()
 
   // -----------------------------------------------
+  // Web Notification 알림 스케줄러
+  // pages 로드 완료 후 한 번 실행 — reminder=true인 date 속성을 오늘 날짜와 비교
+  // Python으로 치면: def schedule_reminders(self): ...
+  // -----------------------------------------------
+  useEffect(() => {
+    // pages가 비어있으면 아직 로딩 중이므로 건너뜀
+    if (pages.length === 0) return
+
+    // 브라우저 Notification API 지원 확인
+    // Python으로 치면: if not hasattr(window, 'Notification'): return
+    if (typeof Notification === 'undefined') return
+
+    const todayStr = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
+    // 이미 알림된 항목 ID 집합 (새로고침 후 중복 방지)
+    // Python으로 치면: notified = set(json.loads(localStorage['notion-clone-notified']))
+    const notifiedRaw = localStorage.getItem('notion-clone-notified')
+    const notified = new Set<string>(notifiedRaw ? JSON.parse(notifiedRaw) : [])
+
+    // reminder=true + 날짜가 오늘이거나 이미 지난 속성 탐색
+    // Python으로 치면: targets = [(page, prop) for page in pages for prop in page.properties if prop.reminder and prop.value <= today]
+    const targets: { pageTitle: string; propName: string; propId: string }[] = []
+    for (const page of pages) {
+      for (const prop of page.properties ?? []) {
+        if (prop.type !== 'date' || !prop.reminder || !prop.value) continue
+        if (prop.value > todayStr) continue // 미래 날짜는 건너뜀
+        const notifyKey = `${page.id}:${prop.id}:${prop.value}`
+        if (notified.has(notifyKey)) continue // 이미 알림됨
+        targets.push({ pageTitle: page.title, propName: prop.name, propId: notifyKey })
+      }
+    }
+
+    if (targets.length === 0) return
+
+    // Notification 권한 요청 → 알림 발송
+    // Python으로 치면: Notification.requestPermission().then(lambda p: send_if_granted(p))
+    Notification.requestPermission().then(permission => {
+      if (permission !== 'granted') return
+      for (const t of targets) {
+        new Notification(`📅 ${t.pageTitle}`, {
+          body: `${t.propName} 알림`,
+          icon: '/favicon.ico',
+        })
+        notified.add(t.propId)
+      }
+      // 알림된 항목 저장 (최대 500개 유지)
+      const arr = [...notified].slice(-500)
+      localStorage.setItem('notion-clone-notified', JSON.stringify(arr))
+    })
+  }, [pages]) // pages 변경 시마다 재검사 (앱 시작 후 로딩 완료 시점 포착)
+
+  // -----------------------------------------------
   // ISO 8601 주차 계산 헬퍼 (1월 첫째 목요일이 속한 주 = 1주)
   // Python으로 치면: date.isocalendar()[1]
   // -----------------------------------------------
@@ -319,9 +356,9 @@ export default function Home() {
     setPageBlocks(newId, [
       { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '오늘의 할 일', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.dailyTodo, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'taskList', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '메모', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.dailyMemo, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
   }
@@ -353,9 +390,9 @@ export default function Home() {
     setPageBlocks(newId, [
       { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '이번 주 목표', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.weeklyGoal, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '회고', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.weeklyReview, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
   }
@@ -423,11 +460,11 @@ export default function Home() {
     setPageBlocks(newId, [
       { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '이번 달 목표', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.monthlyGoal, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '특이사항', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.monthlyNotes, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: '월말 회고', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.monthlyReview, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
   }
@@ -589,6 +626,40 @@ export default function Home() {
   }, [])
 
   // -----------------------------------------------
+  // Ctrl+Shift+C 단축키 → 전체 캘린더 오버레이 열기/닫기
+  // Python으로 치면:
+  //   def on_key_down(e):
+  //       if e.ctrl and e.shift and e.key == 'c': toggle_calendar()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleCalendarKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault()
+        setCalendarOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleCalendarKey)
+    return () => window.removeEventListener('keydown', handleCalendarKey)
+  }, [])
+
+  // -----------------------------------------------
+  // Ctrl+Shift+D 단축키 → Day Planner 패널 ON/OFF
+  // Python으로 치면:
+  //   def on_key_down(e):
+  //       if e.ctrl and e.shift and e.key == 'd': toggle_day_planner()
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleDayPlannerKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        setDayPlannerOpen(prev => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleDayPlannerKey)
+    return () => window.removeEventListener('keydown', handleDayPlannerKey)
+  }, [])
+
+  // -----------------------------------------------
   // Ctrl+\ 단축키 → 스플릿 뷰 토글
   // 스플릿 없음: 현재 탭 이외의 마지막 탭을 오른쪽 패널로 열기
   // 스플릿 있음: 스플릿 닫기
@@ -708,7 +779,7 @@ export default function Home() {
 
       {/* 전체 레이아웃: 3패널 가로 배치 */}
       {/* id="app-layout": @media print에서 flex→block으로 전환하여 인쇄 시 사이드바 공간 제거 */}
-      <div id="app-layout" className="flex h-screen bg-white overflow-hidden relative">
+      <div id="app-layout" className="flex h-screen bg-[#fcf9f8] dark:bg-[#191919] overflow-hidden relative">
 
         {/* ── 사이드바 패널 래퍼 ──────────────────────
             데스크탑(md+): 항상 인라인 flex로 표시
@@ -742,7 +813,7 @@ export default function Home() {
             type="button"
             onClick={() => setSidebarOpen(prev => !prev)}
             className="md:hidden fixed top-3 left-3 z-50 w-9 h-9 flex items-center justify-center bg-white rounded-lg shadow border border-gray-200 text-gray-600 text-lg"
-            title="메뉴 열기/닫기"
+            title={t.sidebar.menuToggle}
           >
             ☰
           </button>
@@ -752,7 +823,7 @@ export default function Home() {
             flex-col: TabBar + 에디터 + BottomBar를 세로로 배치
             min-h-0: flex-col 자식이 넘치지 않도록 최소 높이 제한
             Python으로 치면: main_panel = VBox([tab_bar, scrollable_area, bottom_bar]) */}
-        <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0">
+        <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0 dot-grid-bg">
           {/* ── 크롬 스타일 탭 바 ───────────────────
               집중 모드 시 숨김 / 탭 없으면 자동 미표시
               onSplit: 탭의 ⊞ 버튼 클릭 시 스플릿 뷰 활성화
@@ -793,7 +864,7 @@ export default function Home() {
               <div
                 onMouseDown={handleSplitResizeStart}
                 className="w-px shrink-0 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors print-hide"
-                title="드래그하여 크기 조절"
+                title={t.sidebar.splitViewResize}
               />
             )}
 
@@ -811,13 +882,13 @@ export default function Home() {
                   <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 border-b border-gray-200 shrink-0">
                     <span className="text-sm shrink-0">{splitPage?.icon || '📄'}</span>
                     <span className="text-xs font-medium text-gray-600 truncate flex-1">
-                      {splitPage?.title || '제목 없음'}
+                      {splitPage?.title || t.common.untitled}
                     </span>
                     <button
                       type="button"
                       onClick={() => setSplitPageId(null)}
                       className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
-                      title="분할 뷰 닫기 (Ctrl+\)"
+                      title={t.sidebar.splitViewClose}
                     >
                       <X size={12} />
                     </button>
@@ -836,10 +907,24 @@ export default function Home() {
           {!dbViewActive && currentPageId && <BottomBar pageId={currentPageId} />}
         </main>
 
+        {/* ── Day Planner 패널 (Ctrl+Shift+D) ──────────
+            에디터 오른쪽에 나란히 붙는 인라인 패널
+            본문 작성하면서 오늘 일정을 항상 확인 가능
+            Python으로 치면: if day_planner_open: render(DayPlannerPanel) */}
+        {dayPlannerOpen && !isFocusMode && (
+          <DayPlannerPanel onClose={() => setDayPlannerOpen(false)} />
+        )}
+
         {/* ── 포모도로 타이머 위젯 (pomodoro 플러그인 ON 시만 표시) ──
             fixed 포지션으로 화면 우측 하단에 플로팅
             Python으로 치면: if plugins.pomodoro: render PomodoroWidget() */}
         {plugins.pomodoro && <PomodoroWidget />}
+
+        {/* ── 전역 AI 어시스턴트 플로팅 버튼 ────────────
+            globalAiChat 플러그인 ON 시 우하단에 🤖 버튼 표시
+            클릭 시 AIChatPanel(floating) 토글 — 현재 페이지 컨텍스트 자동 주입
+            Python으로 치면: if plugins.global_ai_chat: render GlobalAIChatButton() */}
+        {plugins.globalAiChat && <GlobalAIChatButton />}
 
         {/* ── ? 단축키 안내 버튼 (우측 하단 고정) ──────
             Pomodoro 위젯 위쪽에 위치 (bottom-5 vs bottom-16)
@@ -848,7 +933,7 @@ export default function Home() {
           type="button"
           onClick={() => setShortcutOpen(true)}
           className="absolute bottom-12 right-5 w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 hover:text-gray-800 text-sm font-bold flex items-center justify-center shadow-sm transition-colors z-40"
-          title="단축키 안내 (?)">
+          title={t.sidebar.shortcutHelp}>
           ?
         </button>
 
@@ -885,6 +970,7 @@ export default function Home() {
             onOpenSettings={() => { setCommandPaletteOpen(false); setSettingsOpen(true) }}
             onOpenShortcuts={() => { setCommandPaletteOpen(false); setShortcutOpen(true) }}
             onOpenSearch={() => { setCommandPaletteOpen(false); setSearchOpen(true) }}
+            onOpenCalendar={() => { setCommandPaletteOpen(false); setCalendarOpen(true) }}
           />
         )}
 
@@ -902,38 +988,13 @@ export default function Home() {
           <TrashPanel onClose={() => setTrashOpen(false)} />
         )}
 
-        {/* ── 플로팅 AI 패널 (Ctrl+I / /ai 슬래시) ───────────────
-            에디터 우측 하단에 고정. 현재 페이지 전체 텍스트를 컨텍스트로 전달.
-            '적용' 클릭 시 'ai-insert-text' 이벤트로 Editor.tsx에 삽입 위임
-            Python으로 치면: if ai_panel_open: render(AIChatPanel) */}
-        {aiPanelOpen && (
-          <AIChatPanel
-            title="AI 글쓰기 보조"
-            icon="✨"
-            emptyHint={'현재 페이지를 읽고 있습니다.\n무엇이든 물어보거나\n글 작성을 부탁해보세요.'}
-            systemPrompt="당신은 글쓰기 전문 AI 어시스턴트입니다. 사용자의 노트/문서 작성을 도와줍니다. 현재 문서 내용을 참고해 자연스럽게 이어지는 글을 작성해주세요."
-            context={() => {
-              const page = pages.find(p => p.id === currentPageId)
-              if (!page) return ''
-              return page.blocks
-                .filter(b => b.type === 'paragraph' || b.type.startsWith('heading'))
-                .map(b => b.content)
-                .filter(Boolean)
-                .join('\n')
-            }}
-            placeholder="글 작성을 도와드릴까요? (Enter 전송)"
-            quickCommands={['다음 단락 이어써줘', '요약해줘', '더 간결하게 다듬어줘', '제목 추천해줘']}
-            mode="floating"
-            applyLabel="✏️ 커서에 삽입"
-            onApply={(text) => {
-              // 'ai-insert-text' 이벤트로 현재 포커스된 Editor.tsx에 삽입 위임
-              // Python으로 치면: window.emit('ai-insert-text', text)
-              window.dispatchEvent(new CustomEvent('ai-insert-text', { detail: text }))
-              return '커서 위치에 삽입됨'
-            }}
-            onClose={() => setAiPanelOpen(false)}
-          />
+        {/* ── 전체 캘린더 오버레이 (Ctrl+Shift+C) ─────
+            vault 전체 date 속성 페이지를 월간/주간/일간 뷰로 표시
+            Python으로 치면: if calendar_open: render(CalendarOverlay) */}
+        {calendarOpen && (
+          <CalendarOverlay onClose={() => setCalendarOpen(false)} />
         )}
+
 
       </div>
     </DndContext>

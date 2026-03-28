@@ -181,6 +181,12 @@ interface PageStore {
   // Python으로 치면: def remove_property(self, page_id, property_id): page.properties.remove(id)
   removePageProperty: (pageId: string, propertyId: string) => void
 
+  // ── 페이지 잠금 액션 ──────────────────────────
+  // Python으로 치면: def lock_page(self, page_id, pin_hash): page.is_locked = True
+  lockPage: (pageId: string, pinHash: string) => void
+  // Python으로 치면: def unlock_page(self, page_id): page.is_locked = False
+  unlockPage: (pageId: string) => void
+
   // ── 즐겨찾기 / 복제 액션 ─────────────────────
   // Python으로 치면: def toggle_star(self, page_id): page.starred = not page.starred
   togglePageStar: (pageId: string) => void
@@ -203,6 +209,12 @@ interface PageStore {
   // 특정 블록의 캔버스 위치/크기 업데이트
   // Python으로 치면: def update_block_canvas(self, page_id, block_id, x, y, w, h): ...
   updateBlockCanvas: (pageId: string, blockId: string, canvas: { x?: number; y?: number; w?: number; h?: number }) => void
+  // 가상 박스 추가
+  addCanvasBox: (pageId: string, box: import('@/types/block').CanvasBox) => void
+  // 가상 박스 위치/크기 업데이트
+  updateCanvasBox: (pageId: string, boxId: string, update: Partial<import('@/types/block').CanvasBox>) => void
+  // 가상 박스 삭제
+  deleteCanvasBox: (pageId: string, boxId: string) => void
   // 블록 배경색 변경 (hex 문자열 또는 '' = 투명)
   // Python으로 치면: def update_block_background(self, page_id, block_id, color): ...
   updateBlockBackground: (pageId: string, blockId: string, color: string) => void
@@ -608,6 +620,36 @@ export const usePageStore = create<PageStore>()(
     },
 
 
+    // ── 페이지 잠금 액션 ──────────────────────
+
+    // 페이지 잠금 — isLocked=true + lockPin(SHA-256 해시) 저장
+    // Python으로 치면: def lock_page(self, page_id, pin_hash): page.is_locked = True
+    lockPage: (pageId, pinHash) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page) {
+          page.isLocked = true
+          page.lockPin = pinHash
+          page.updatedAt = new Date().toISOString()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 페이지 잠금 해제 — isLocked=false (lockPin은 유지, 재잠금 시 재사용)
+    // Python으로 치면: def unlock_page(self, page_id): page.is_locked = False
+    unlockPage: (pageId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page) {
+          page.isLocked = false
+          page.updatedAt = new Date().toISOString()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+
     // ── 즐겨찾기 / 복제 액션 ──────────────────
 
     // 즐겨찾기 토글 — starred: true/false 반전
@@ -722,6 +764,42 @@ export const usePageStore = create<PageStore>()(
       scheduleSave(pageId, get, set)
     },
 
+
+    // 가상 박스 추가
+    // Python으로 치면: def add_canvas_box(self, page_id, box): page.canvas_boxes.append(box)
+    addCanvasBox: (pageId, box) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        if (!page.canvasBoxes) page.canvasBoxes = []
+        page.canvasBoxes.push(box)
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 가상 박스 위치/크기 업데이트
+    // Python으로 치면: def update_canvas_box(self, page_id, box_id, **kwargs): box.update(kwargs)
+    updateCanvasBox: (pageId, boxId, update) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page?.canvasBoxes) return
+        const box = page.canvasBoxes.find(b => b.id === boxId)
+        if (!box) return
+        Object.assign(box, update)
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 가상 박스 삭제
+    // Python으로 치면: def delete_canvas_box(self, page_id, box_id): page.canvas_boxes.remove(id)
+    deleteCanvasBox: (pageId, boxId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page?.canvasBoxes) return
+        page.canvasBoxes = page.canvasBoxes.filter(b => b.id !== boxId)
+      })
+      scheduleSave(pageId, get, set)
+    },
 
     // 블록 배경색 변경 → 디바운스 저장
     // Python으로 치면: def update_block_background(self, page_id, block_id, color): ...

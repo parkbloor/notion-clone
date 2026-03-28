@@ -10,6 +10,7 @@ import { useState, useCallback } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extension-placeholder'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // 콜아웃 종류 정의
@@ -86,6 +87,8 @@ interface AdmonitionBlockProps {
 
 // Python으로 치면: def AdmonitionBlock(block_id, content, on_change): ...
 export default function AdmonitionBlock({ blockId: _blockId, content, onChange }: AdmonitionBlockProps) {
+  const t = useLocale()
+
   // content JSON 파싱
   // Python으로 치면: self.data = parse_content(content)
   const parsed = parseContent(content)
@@ -94,6 +97,14 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
   // 현재 종류의 스타일 정보
   // Python으로 치면: style = VARIANTS[self.variant]
   const style = VARIANTS[variant]
+
+  // 로케일 기반 레이블 맵 (모듈 상수 VARIANTS의 label 대신 사용)
+  const VARIANT_LABELS: Record<AdmonitionVariant, string> = {
+    tip: t.blocks.admonition.types.tip,
+    info: t.blocks.admonition.types.info,
+    warning: t.blocks.admonition.types.caution,
+    danger: t.blocks.admonition.types.danger,
+  }
 
   // -----------------------------------------------
   // 텍스트 저장 헬퍼 — variant와 text를 JSON으로 직렬화
@@ -134,7 +145,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
         codeBlock: false,
       }),
       Placeholder.configure({
-        placeholder: '내용을 입력하세요...',
+        placeholder: t.blocks.admonition.contentPlaceholder,
       }),
     ],
     content: parsed.text || '',
@@ -157,7 +168,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
       <button
         type="button"
         onClick={cycleVariant}
-        title="클릭하여 콜아웃 종류 변경"
+        title={t.blocks.admonition.changeTypeTitle}
         className="text-xl shrink-0 leading-none mt-0.5 hover:scale-110 transition-transform cursor-pointer select-none"
       >
         {style.icon}
@@ -169,7 +180,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
         {/* 종류 레이블 (팁 / 정보 / 주의 / 위험) */}
         {/* Python으로 치면: Label(style.label, color=style.text_color) */}
         <div className={`text-xs font-semibold mb-1 ${style.textColor}`}>
-          {style.label}
+          {VARIANT_LABELS[variant]}
         </div>
 
         {/* Tiptap 에디터 — 콜아웃 내용 입력 */}

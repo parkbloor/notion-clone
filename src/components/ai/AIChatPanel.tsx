@@ -10,6 +10,7 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useLocale } from '@/locales'
 
 // ── 채팅 메시지 타입 ────────────────────────────────
 // Python으로 치면: @dataclass class ChatMsg: role: str; content: str
@@ -40,6 +41,9 @@ interface AIChatPanelProps {
   // 히스토리 지속성 — 초기값 주입 + 변경 알림 (저장 연동용)
   initialHistory?: ChatMsg[]
   onHistoryChange?: (history: ChatMsg[]) => void
+  // floating 모드 초기 위치 — 기본값: { right: 16, bottom: 16 }
+  // Python으로 치면: self.initial_pos: tuple[int,int] = (16, 16)
+  initialPos?: { right: number; bottom: number }
 }
 
 // =============================================
@@ -51,16 +55,25 @@ export default function AIChatPanel({
   emptyHint,
   systemPrompt,
   context,
-  placeholder = 'AI에게 물어보세요… (Enter 전송)',
+  placeholder,
   quickCommands = [],
   mode,
-  applyLabel = '✓ 적용',
+  applyLabel,
   onApply,
   onClose,
   initialHistory = [],
   onHistoryChange,
+  initialPos,
 }: AIChatPanelProps) {
   const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
+
+  // ── 로케일 ────────────────────────────────────────────────
+  // Python으로 치면: t = use_locale()
+  const t = useLocale()
+
+  // placeholder/applyLabel 기본값 — prop이 없으면 로케일 사용
+  const resolvedPlaceholder = placeholder ?? t.ai.chatPlaceholder
+  const resolvedApplyLabel  = applyLabel  ?? t.ai.applyShort
 
   // ── 채팅 상태 ─────────────────────────────────────
   // Python으로 치면: self.history: list[ChatMsg] = []
@@ -92,7 +105,8 @@ export default function AIChatPanel({
 
   // ── 드래그 이동 + 리사이즈 (floating 모드 전용) ──────
   // Python으로 치면: self.pos = (right,bottom); self.size = (w,h)
-  const [pos, setPos] = useState({ right: 16, bottom: 16 })
+  // initialPos prop이 있으면 사용 (GlobalAIChatButton에서 버튼과 겹치지 않도록 bottom 오프셋)
+  const [pos, setPos] = useState(initialPos ?? { right: 16, bottom: 16 })
   const [size, setSize] = useState({ width: 320, height: 480 })
 
   // 이동 드래그
@@ -211,8 +225,8 @@ export default function AIChatPanel({
 
     const fullPrompt = [
       systemPrompt,
-      ctx ? '\n\n현재 내용:\n' + ctx : '',
-      historyText ? '\n\n대화 기록:\n' + historyText : '',
+      ctx ? '\n\n' + t.ai.contextLabel + '\n' + ctx : '',
+      historyText ? '\n\n' + t.ai.historyLabel + '\n' + historyText : '',
       '\n\nUser: ' + userMsg,
     ].filter(Boolean).join('')
 
@@ -236,8 +250,8 @@ export default function AIChatPanel({
         }),
         signal: controller.signal,  // 언마운트·중복 요청 시 중단
       })
-      if (!res.ok) throw new Error('서버 오류 ' + res.status)
-      if (!res.body) throw new Error('스트림 없음')
+      if (!res.ok) throw new Error(t.ai.serverError + res.status)
+      if (!res.body) throw new Error(t.ai.noStream)
 
       reader = res.body.getReader()
       const decoder = new TextDecoder()
@@ -317,19 +331,19 @@ export default function AIChatPanel({
           <div
             onMouseDown={e => startResize(e, 'left')}
             className="absolute top-4 bottom-4 left-0 w-1.5 cursor-ew-resize rounded-l-2xl hover:bg-blue-400/30 transition-colors"
-            title="너비 조절"
+            title={t.ai.resizeWidth}
           />
           {/* 위쪽 가장자리 — 높이 조절 */}
           <div
             onMouseDown={e => startResize(e, 'top')}
             className="absolute top-0 left-4 right-4 h-1.5 cursor-ns-resize rounded-t-2xl hover:bg-blue-400/30 transition-colors"
-            title="높이 조절"
+            title={t.ai.resizeHeight}
           />
           {/* 왼쪽 위 모서리 — 너비+높이 동시 조절 */}
           <div
             onMouseDown={e => startResize(e, 'corner')}
             className="absolute top-0 left-0 w-4 h-4 cursor-nwse-resize flex items-center justify-center rounded-tl-2xl hover:bg-blue-400/30 transition-colors"
-            title="크기 조절"
+            title={t.ai.resize}
           >
             <svg width="8" height="8" viewBox="0 0 8 8" className="text-gray-300 dark:text-gray-600">
               <line x1="1" y1="7" x2="7" y2="1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -396,7 +410,7 @@ export default function AIChatPanel({
                     : 'ml-1 text-xs px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors font-medium'
                 }
               >
-                {appliedIndices.has(i) ? '✓ 적용됨' : applyLabel}
+                {appliedIndices.has(i) ? t.ai.appliedLabel : resolvedApplyLabel}
               </button>
             )}
           </div>
@@ -446,7 +460,7 @@ export default function AIChatPanel({
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
             }}
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             rows={2}
             disabled={isLoading}
             className="flex-1 text-xs rounded-lg border border-gray-200 dark:border-gray-700 px-2.5 py-2 resize-none outline-none focus:border-blue-400 dark:focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 disabled:opacity-50 placeholder-gray-400 dark:placeholder-gray-600 transition-colors"
@@ -455,7 +469,7 @@ export default function AIChatPanel({
             onClick={() => send(input)}
             disabled={isLoading || !input.trim()}
             className="px-2.5 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
-          >{isLoading ? '…' : '전송'}</button>
+          >{isLoading ? '…' : t.ai.sendBtn}</button>
         </div>
       </div>
     </div>

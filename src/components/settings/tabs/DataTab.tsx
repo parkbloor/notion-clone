@@ -8,10 +8,13 @@
 
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { useLocale } from '@/locales'
 
 const BASE_URL = 'http://localhost:8000'
 
 export default function DataTab() {
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
 
   // 복구 파일 선택 input 참조
   // Python으로 치면: self.file_input_ref = None
@@ -38,7 +41,7 @@ export default function DataTab() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      toast.error('JSON 내보내기 중 오류가 발생했습니다.')
+      toast.error(t.settings.data.exportError)
     } finally {
       setIsExporting(false)
     }
@@ -61,7 +64,7 @@ export default function DataTab() {
       a.click()
       URL.revokeObjectURL(url)
     } catch {
-      toast.error('마크다운 내보내기 중 오류가 발생했습니다.')
+      toast.error(t.settings.data.exportMarkdownError)
     } finally {
       setIsExporting(false)
     }
@@ -75,11 +78,11 @@ export default function DataTab() {
     const file = e.target.files?.[0]
     if (!file) return
     if (!file.name.endsWith('.json')) {
-      setImportStatus({ type: 'error', msg: '.json 파일만 가능합니다' })
+      setImportStatus({ type: 'error', msg: t.settings.data.jsonOnly })
       return
     }
     // 기존 데이터 덮어쓰기 확인
-    if (!confirm('기존 모든 데이터가 덮어쓰입니다. 계속하시겠습니까?')) {
+    if (!confirm(t.settings.data.importConfirm)) {
       e.target.value = ''
       return
     }
@@ -91,10 +94,10 @@ export default function DataTab() {
         body: text,
       })
       if (!res.ok) throw new Error('복구 실패')
-      setImportStatus({ type: 'ok', msg: '복구 완료! 페이지를 새로고침합니다.' })
+      setImportStatus({ type: 'ok', msg: t.settings.data.importSuccess })
       setTimeout(() => window.location.reload(), 1500)
     } catch (err) {
-      setImportStatus({ type: 'error', msg: '복구 중 오류가 발생했습니다.' })
+      setImportStatus({ type: 'error', msg: t.settings.data.importFail })
     }
     e.target.value = ''
   }
@@ -102,21 +105,21 @@ export default function DataTab() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">데이터 관리</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.data.title}</h3>
         <p className="text-xs text-gray-400 mb-6">
-          전체 데이터를 내보내거나 백업 파일에서 복구합니다
+          {t.settings.data.titleDesc}
         </p>
       </div>
 
       {/* 내보내기 섹션 */}
       <section className="space-y-3">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">내보내기</h4>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.data.exportSection}</h4>
 
         {/* JSON 내보내기 */}
         <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 bg-white">
           <div>
-            <p className="text-sm font-medium text-gray-800">📦 JSON 백업</p>
-            <p className="text-xs text-gray-400 mt-0.5">모든 페이지와 블록 데이터를 JSON으로 저장</p>
+            <p className="text-sm font-medium text-gray-800">{t.settings.data.jsonBackup}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{t.settings.data.jsonBackupDesc}</p>
           </div>
           <button
             type="button"
@@ -124,15 +127,15 @@ export default function DataTab() {
             disabled={isExporting}
             className="px-4 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
           >
-            {isExporting ? '처리 중...' : '다운로드'}
+            {isExporting ? t.settings.data.processing : t.settings.data.download}
           </button>
         </div>
 
         {/* 마크다운 내보내기 */}
         <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 bg-white">
           <div>
-            <p className="text-sm font-medium text-gray-800">📝 마크다운 내보내기</p>
-            <p className="text-xs text-gray-400 mt-0.5">모든 페이지를 .md 파일 ZIP으로 저장</p>
+            <p className="text-sm font-medium text-gray-800">{t.settings.data.markdownExportTitle}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{t.settings.data.markdownExportDesc}</p>
           </div>
           <button
             type="button"
@@ -140,25 +143,25 @@ export default function DataTab() {
             disabled={isExporting}
             className="px-4 py-1.5 text-sm bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
-            {isExporting ? '처리 중...' : '다운로드'}
+            {isExporting ? t.settings.data.processing : t.settings.data.download}
           </button>
         </div>
       </section>
 
       {/* 복구 섹션 */}
       <section className="space-y-3">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">복구</h4>
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.data.restoreSection}</h4>
 
         <div className="px-4 py-3 rounded-xl border border-orange-200 bg-orange-50">
           <p className="text-xs text-orange-700 font-medium mb-3">
-            ⚠️ 복구 시 기존 모든 데이터가 덮어쓰입니다
+            {t.settings.data.restoreWarning}
           </p>
           <button
             type="button"
             onClick={() => importRef.current?.click()}
             className="px-4 py-1.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
           >
-            📂 백업 파일에서 복구
+            {t.settings.data.restoreBtn}
           </button>
           <input
             ref={importRef}

@@ -11,6 +11,7 @@ import { useState, useEffect, useRef } from 'react'
 import katex from 'katex'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { useLocale } from '@/locales'
 
 interface MathBlockProps {
   block: Block
@@ -19,6 +20,7 @@ interface MathBlockProps {
 
 export default function MathBlock({ block, pageId }: MathBlockProps) {
   const { updateBlock } = usePageStore()
+  const t = useLocale()
 
   // -----------------------------------------------
   // 편집 모드 초기값: 내용 비어있으면 바로 편집 모드로 시작
@@ -62,7 +64,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
       setError('')
     } catch (e) {
       setRenderedHtml('')
-      setError(e instanceof Error ? e.message.replace(/^KaTeX parse error:\s*/i, '') : '수식 파싱 오류')
+      setError(e instanceof Error ? e.message.replace(/^KaTeX parse error:\s*/i, '') : t.blocks.math.parseError)
     }
   }, [latex])
 
@@ -167,7 +169,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
 
         {/* 힌트 텍스트 */}
         <p className="text-xs text-blue-400">
-          Enter 또는 포커스 이탈로 저장 · Escape로 취소 · Shift+Enter로 줄바꿈
+          {t.blocks.math.hint}
         </p>
       </div>
     )
@@ -183,7 +185,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
       onClick={() => setIsEditing(true)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsEditing(true) }}
       className="group rounded-xl border border-transparent hover:border-gray-200 hover:bg-gray-50 py-3 px-4 cursor-pointer transition-colors"
-      title="클릭하여 수식 편집"
+      title={t.blocks.math.clickToEdit}
     >
       {renderedHtml ? (
         // KaTeX 렌더링 결과 출력
@@ -194,7 +196,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
       ) : (
         // 비어있는 수식 블록 플레이스홀더
         <p className="text-gray-400 text-sm text-center select-none">
-          수식을 입력하려면 클릭하세요 (LaTeX)
+          {t.blocks.math.clickHint}
         </p>
       )}
     </div>

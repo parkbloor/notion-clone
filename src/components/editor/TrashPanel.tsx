@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { TrashItem } from '@/types/block'
 import { toast } from 'sonner'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // 삭제 날짜 포맷 헬퍼
@@ -32,24 +33,27 @@ function formatDate(iso: string): string {
 
 // -----------------------------------------------
 // 원래 위치 텍스트 헬퍼
-// Python으로 치면: def origin_label(item, cats): ...
+// Python으로 치면: def origin_label(item, cats, labels): ...
 // -----------------------------------------------
-function OriginLabel({ item, categories }: {
+function OriginLabel({ item, categories, labels }: {
   item: TrashItem
   categories: { id: string; name: string }[]
+  labels: { uncategorized: string; topLevel: string; subfolder: string }
 }) {
   if (item.itemType === 'page') {
     const cat = categories.find(c => c.id === item.originalCategoryId)
     return (
       <span className="text-gray-400">
-        {cat ? `📁 ${cat.name}` : '📋 미분류'}
+        {cat ? `📁 ${cat.name}` : `📋 ${labels.uncategorized}`}
       </span>
     )
   }
   const parent = categories.find(c => c.id === item.originalParentId)
   return (
     <span className="text-gray-400">
-      {parent ? `📁 ${parent.name} 하위` : '최상위 폴더'}
+      {parent
+        ? `📁 ${labels.subfolder.replace('{name}', parent.name)}`
+        : labels.topLevel}
     </span>
   )
 }
@@ -62,6 +66,9 @@ interface TrashPanelProps {
 }
 
 export default function TrashPanel({ onClose }: TrashPanelProps) {
+  // 로케일 훅
+  const t = useLocale()
+
   const {
     trashedItems, loadTrash, restoreFromTrash, permanentDelete, emptyTrash,
     categories,
@@ -98,20 +105,20 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
   async function handleRestore(item: TrashItem) {
     try {
       await restoreFromTrash(item.id)
-      const label = item.itemType === 'page' ? item.title || '페이지' : item.name || '폴더'
-      toast.success(`"${label}" 복원됐습니다.`)
+      const label = item.itemType === 'page' ? item.title || t.overlay.trash.page : item.name || t.overlay.trash.folder
+      toast.success(t.overlay.trash.restoreSuccess.replace('{label}', label))
     } catch {
-      toast.error('복원에 실패했습니다.')
+      toast.error(t.overlay.trash.restoreError)
     }
   }
 
   async function handlePermanentDelete(item: TrashItem) {
     try {
       await permanentDelete(item.id)
-      const label = item.itemType === 'page' ? item.title || '페이지' : item.name || '폴더'
-      toast.success(`"${label}" 영구 삭제됐습니다.`)
+      const label = item.itemType === 'page' ? item.title || t.overlay.trash.page : item.name || t.overlay.trash.folder
+      toast.success(t.overlay.trash.deleteSuccess.replace('{label}', label))
     } catch {
-      toast.error('삭제에 실패했습니다.')
+      toast.error(t.overlay.trash.deleteError)
     }
   }
 
@@ -119,9 +126,9 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
     try {
       await emptyTrash()
       setConfirmEmpty(false)
-      toast.success('휴지통을 비웠습니다.')
+      toast.success(t.overlay.trash.emptySuccess)
     } catch {
-      toast.error('전체 비우기에 실패했습니다.')
+      toast.error(t.overlay.trash.emptyError)
     }
   }
 
@@ -149,13 +156,13 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
       <div
         ref={panelRef}
-        className="bg-white rounded-xl shadow-2xl border border-gray-200 w-[480px] max-h-[70vh] flex flex-col"
+        className="bg-white rounded-xl shadow-2xl border border-gray-200 w-120 max-h-[70vh] flex flex-col"
       >
         {/* ── 헤더 ──────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <span className="text-lg">🗑️</span>
-            <h2 className="text-sm font-semibold text-gray-800">휴지통</h2>
+            <h2 className="text-sm font-semibold text-gray-800">{t.overlay.trash.title}</h2>
             {trashedItems.length > 0 && (
               <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
                 {trashedItems.length}
@@ -167,22 +174,22 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
             {trashedItems.length > 0 && (
               confirmEmpty ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-gray-500">정말 삭제할까요?</span>
+                  <span className="text-xs text-gray-500">{t.overlay.trash.confirmEmpty}</span>
                   <button
                     onClick={handleEmptyTrash}
                     className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                  >확인</button>
+                  >{t.common.confirm}</button>
                   <button
                     onClick={() => setConfirmEmpty(false)}
                     className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition-colors"
-                  >취소</button>
+                  >{t.common.cancel}</button>
                 </div>
               ) : (
                 <button
                   onClick={() => setConfirmEmpty(true)}
                   className="text-xs text-red-500 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors"
                 >
-                  전체 비우기
+                  {t.overlay.trash.emptyAll}
                 </button>
               )
             )}
@@ -198,21 +205,21 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
-              불러오는 중...
+              {t.overlay.trash.loading}
             </div>
           ) : groupedItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <span className="text-4xl mb-3">🗑️</span>
-              <p className="text-sm font-medium">휴지통이 비어있습니다</p>
-              <p className="text-xs mt-1">삭제한 메모와 폴더가 여기 표시됩니다</p>
+              <p className="text-sm font-medium">{t.overlay.trash.empty}</p>
+              <p className="text-xs mt-1">{t.overlay.trash.emptyHint}</p>
             </div>
           ) : (
             <ul className="divide-y divide-gray-50 py-1">
               {groupedItems.map(({ representative: item, members }) => {
                 const isGroup = members.length > 1
                 const label = item.itemType === 'category'
-                  ? (item.name ?? '폴더')
-                  : (item.title || '제목 없음')
+                  ? (item.name ?? t.overlay.trash.folder)
+                  : (item.title || t.common.untitled)
                 const icon = item.itemType === 'category'
                   ? '📁'
                   : (item.icon || '📄')
@@ -227,13 +234,13 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-800 truncate">{label}</p>
                         <div className="flex items-center gap-2 mt-0.5 text-xs">
-                          <OriginLabel item={item} categories={categories} />
+                          <OriginLabel item={item} categories={categories} labels={t.overlay.trash} />
                           <span className="text-gray-300">·</span>
                           <span className="text-gray-400">{formatDate(item.trashedAt)}</span>
                           {/* 그룹 배지 — 폴더째 삭제된 경우 */}
                           {isGroup && (
                             <span className="text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full text-[10px]">
-                              +{members.length - 1}개 포함
+                              {t.overlay.trash.groupBadge.replace('{count}', String(members.length - 1))}
                             </span>
                           )}
                         </div>
@@ -244,13 +251,13 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
                         <button
                           onClick={() => handleRestore(item)}
                           className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          title="원래 위치로 복원"
-                        >복원</button>
+                          title={t.overlay.trash.restoreTooltip}
+                        >{t.overlay.trash.restore}</button>
                         <button
                           onClick={() => handlePermanentDelete(item)}
                           className="px-2 py-1 text-xs text-red-500 hover:bg-red-50 rounded transition-colors"
-                          title="영구 삭제"
-                        >삭제</button>
+                          title={t.overlay.trash.permanentDelete}
+                        >{t.common.delete}</button>
                       </div>
                     </div>
                   </li>
@@ -263,7 +270,7 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
         {/* ── 푸터 안내 ─────────────────────────── */}
         {trashedItems.length > 0 && (
           <div className="px-5 py-2.5 border-t border-gray-100 text-xs text-gray-400 text-center">
-            항목에 마우스를 올리면 복원/삭제 버튼이 나타납니다
+            {t.overlay.trash.footerHint}
           </div>
         )}
       </div>

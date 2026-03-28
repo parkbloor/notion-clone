@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-03-18 (AI 마인드맵 블록, AIChatPanel 공통 컴포넌트, 플로팅 AI 글쓰기 패널 구현 완료)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-03-26 (WeeklyPlannerBlock, RoutineMatrixBlock, MonthlyCalendarBlock 추가; PeriodicNotesPanel 연도/월 네비게이션; 날씨 위치 settingsStore 통합)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -77,13 +77,24 @@ notion-clone/
 │   │   │   ├── ToggleBlock.tsx   # 접고/펼치는 토글 블록
 │   │   │   ├── KanbanBlock.tsx   # 칸반 보드 블록 (중첩 dnd-kit)
 │   │   │   ├── AdmonitionBlock.tsx # 콜아웃 블록 (팁/정보/경고/위험)
-│   │   │   ├── CanvasBlock.tsx   # 무한 캔버스 (노드·엣지·팬·줌)
+│   │   │   ├── CanvasBlock.tsx   # 행/열 그리드 캔버스 (열 너비 드래그 조절·블록 쌓기·readMode)
+│   │   │   ├── CanvasPageEditor.tsx # ✅ 캔버스 모드 페이지 렌더러 (블록 절대 배치)
+│   │   │   ├── ArrowLayer.tsx    # ✅ 캔버스 화살표 SVG 렌더링 레이어
+│   │   │   ├── ArrowContextMenu.tsx # ✅ 캔버스 화살표 우클릭 메뉴
 │   │   │   ├── ExcalidrawBlock.tsx # ✅ Excalidraw 손그림 다이어그램 블록
 │   │   │   ├── VideoBlock.tsx    # ✅ 로컬 비디오 파일 업로드 + 재생
 │   │   │   ├── LayoutBlock.tsx   # ✅ A4 다단 레이아웃 블록 (8종 템플릿)
 │   │   │   ├── LayoutSlot.tsx    # ✅ 레이아웃 블록 안의 슬롯 (미니 에디터)
+│   │   │   ├── MathBlock.tsx     # ✅ LaTeX 수식 블록 (KaTeX, displayMode)
+│   │   │   ├── InlineMathView.tsx # ✅ 인라인 수식 렌더링 ($...$)
+│   │   │   ├── MermaidBlock.tsx  # ✅ Mermaid 다이어그램 (flowchart/sequence/gantt)
+│   │   │   ├── TocBlock.tsx      # ✅ 인라인 목차 블록 (H1~H6 자동 목록)
+│   │   │   ├── EmbedBlock.tsx    # ✅ URL 임베드 블록 (YouTube/Vimeo/iframe)
+│   │   │   ├── FileBlock.tsx     # ✅ 파일 첨부 블록 (PDF/docx/zip 등)
+│   │   │   ├── FootnoteView.tsx  # ✅ 각주/주석 렌더링
 │   │   │   ├── BacklinkPanel.tsx # 백링크 패널 (이 페이지를 참조하는 페이지 목록)
 │   │   │   ├── WordCountBar.tsx  # 에디터 하단 단어/글자 수 표시
+│   │   │   ├── BottomBar.tsx     # ✅ 에디터 하단 바 (단어 수 + 너비 슬라이더 통합)
 │   │   │   ├── PomodoroWidget.tsx # 포모도로 타이머 플로팅 위젯
 │   │   │   ├── TocPanel.tsx      # 목차(TOC) 사이드 패널
 │   │   │   ├── CalendarWidget.tsx # 메모 목록 상단 달력 위젯
@@ -91,8 +102,19 @@ notion-clone/
 │   │   │   ├── EmojiPicker.tsx   # 페이지 아이콘 이모지 선택기
 │   │   │   ├── CoverPicker.tsx   # 페이지 커버 선택기
 │   │   │   ├── GlobalSearch.tsx  # 전체 텍스트 검색 팝업 (Ctrl+K)
+│   │   │   ├── CommandPalette.tsx # ✅ 명령어 팔레트 (Ctrl+P, 퍼지검색)
+│   │   │   ├── FindReplacePanel.tsx # ✅ 찾기/바꾸기 패널 (Ctrl+H/F)
 │   │   │   ├── QuickAddModal.tsx # 빠른 노트 캡처 팝업 (Ctrl+Alt+N)
 │   │   │   ├── ShortcutModal.tsx # 단축키 안내 모달
+│   │   │   ├── ContextMenu.tsx   # ✅ 블록 우클릭 컨텍스트 메뉴
+│   │   │   ├── NewPageDialog.tsx # ✅ 새 페이지 생성 + 템플릿 선택 다이얼로그
+│   │   │   ├── TemplateEditorModal.tsx # ✅ 비주얼 그리드 템플릿 에디터
+│   │   │   ├── PropertyPanel.tsx # ✅ 페이지 속성 패널 (날짜/상태/선택/텍스트)
+│   │   │   ├── DatabaseView.tsx  # ✅ 카테고리 페이지 테이블 뷰 (인라인 셀 편집)
+│   │   │   ├── GraphView.tsx     # ✅ 페이지 링크 그래프 뷰 (Ctrl+G, SVG 물리 시뮬레이션)
+│   │   │   ├── TabBar.tsx        # ✅ 뷰 전환 탭 (일반/캔버스 모드)
+│   │   │   ├── LockModal.tsx     # ✅ 페이지 잠금 PIN 설정/해제 모달 (SHA-256)
+│   │   │   ├── PeriodicNotesPanel.tsx # ✅ 주기적 노트 패널 (일간/주간/월간)
 │   │   │   ├── ChartBlock.tsx    # ✅ 차트 블록 (Bar/Line/Pie — recharts)
 │   │   │   ├── GanttBlock.tsx    # ✅ 갠트 차트 블록 (태스크 타임라인 — 순수 CSS)
 │   │   │   ├── MindmapBlock.tsx  # ✅ AI 마인드맵 블록 (방사형 SVG + AI 채팅 패널)
@@ -105,12 +127,14 @@ notion-clone/
 │   │   ├── settings/
 │   │   │   ├── SettingsModal.tsx  # 설정 모달 (6탭 레이아웃)
 │   │   │   └── tabs/
-│   │   │       ├── AppearanceTab.tsx # 테마 (라이트/다크/시스템)
-│   │   │       ├── EditorTab.tsx     # 글꼴/크기/줄간격
+│   │   │       ├── AppearanceTab.tsx # 테마 (라이트/다크/시스템 + 색상 프리셋 5종)
+│   │   │       ├── EditorTab.tsx     # 글꼴/크기/줄간격/에디터 너비
 │   │   │       ├── PluginsTab.tsx    # 플러그인 ON/OFF 마스터-디테일
 │   │   │       ├── DataTab.tsx       # JSON·MD 내보내기 / 가져오기
 │   │   │       ├── StorageTab.tsx    # vault 경로 + 통계
-│   │   │       └── DebugTab.tsx      # 서버 로그 뷰어
+│   │   │       ├── DebugTab.tsx      # 서버 로그 뷰어
+│   │   │       ├── AITab.tsx         # ✅ AI 설정 (제공자/모델/API 키)
+│   │   │       └── TemplatesTab.tsx  # ✅ 템플릿 생성·편집·삭제
 │   │   │
 │   │   └── ui/
 │   │       ├── command.tsx       # shadcn/ui Command (cmdk 래퍼)
@@ -118,10 +142,22 @@ notion-clone/
 │   │
 │   ├── store/
 │   │   ├── pageStore.ts          # 페이지/카테고리 전역 상태 + API 동기화
-│   │   └── settingsStore.ts      # 앱 설정 전역 상태 (localStorage 영속)
+│   │   ├── settingsStore.ts      # 앱 설정 전역 상태 (localStorage 영속)
+│   │   ├── findReplaceStore.ts   # ✅ 찾기/바꾸기 Zustand 전역 상태
+│   │   └── arrowStore.ts         # ✅ 캔버스 블록 화살표 상태 관리
+│   │
+│   ├── extensions/
+│   │   ├── FontSize.ts           # 커스텀 Tiptap FontSize 확장
+│   │   ├── SearchHighlight.ts    # ProseMirror 검색 하이라이트 확장
+│   │   ├── InlineMath.ts         # ✅ 인라인 수식 확장 ($...$ InputRule)
+│   │   ├── ArrowMark.ts          # ✅ 캔버스 화살표 마크 확장
+│   │   └── FootnoteInline.ts     # ✅ 각주 인라인 확장
 │   │
 │   ├── lib/
 │   │   ├── api.ts                # FastAPI 통신 함수 모음
+│   │   ├── fonts.ts              # FONT_PRESETS 상수 (폰트 목록 단일 진실 공급원)
+│   │   ├── graphData.ts          # 페이지 링크 파싱 → GraphNode/GraphEdge 유틸
+│   │   ├── templateGrid.ts       # 그리드 셀 → Block 변환 유틸 (gridCellsToBlocks)
 │   │   └── utils.ts              # tailwind-merge 유틸
 │   │
 │   └── types/
@@ -180,6 +216,12 @@ content.json = {
   "coverPosition": 50,
   "tags": ["태그1", "태그2"],
   "starred": false,
+  "isLocked": false,          // 페이지 잠금 여부 (PIN 설정 시 true)
+  "lockPin": "sha256hexstr",  // PIN SHA-256 해시 (잠금 설정 시에만 존재)
+  "canvasMode": false,        // 블록 절대 배치 모드
+  "properties": [             // 페이지 속성 목록
+    { "id": "uuid", "name": "마감일", "type": "date", "value": "2026-03-25", "reminder": true }
+  ],
   "blocks": [...],
   "createdAt": "ISO8601",
   "updatedAt": "ISO8601"
@@ -219,6 +261,14 @@ content.json = {
 - [x] **갠트 차트 블록** — 태스크 테이블 편집 + 순수 CSS 타임라인, 오늘 표시선, hover 툴팁, 진행률 막대
 - [x] **AI 마인드맵 블록** — 방사형 SVG 트리 + AI 채팅 패널 통합. Tab/Enter/Del 단축키, 접기/펼치기, 우클릭 AI 확장, 팬/줌
 - [x] **플로팅 AI 글쓰기 패널** — `Ctrl+I` / `/ai` 슬래시 커맨드로 열기. 현재 페이지 전체를 컨텍스트로 전달. 적용 클릭 시 마지막 포커스 커서 위치에 텍스트 삽입
+- [x] **LaTeX 수식 블록** — `/수식` 슬래시 → MathBlock.tsx (edit/preview 2모드, KaTeX displayMode)
+- [x] **인라인 수식** — `$...$` InputRule → InlineMath.ts + InlineMathView.tsx (인라인 KaTeX 렌더링)
+- [x] **Mermaid 다이어그램 블록** — flowchart/sequence/gantt 지원, 편집↔미리보기 2모드
+- [x] **인라인 목차 블록 (TocBlock)** — `/목차` 슬래시 → 페이지 내 H1~H6 헤딩 자동 목록화 (TocPanel 사이드 패널과 별도)
+- [x] **URL 임베드 블록** — `/임베드` 슬래시 → EmbedBlock.tsx (YouTube/Vimeo/일반 iframe URL 임베드)
+- [x] **파일 첨부 블록** — `/파일` 슬래시 → FileBlock.tsx (PDF/docx/zip 등 일반 파일 업로드 + 다운로드)
+- [x] **캔버스 화살표** — 노드 간 연결 SVG 베지어 곡선, 스타일 5종, 우클릭 메뉴 (ArrowLayer.tsx + arrowStore.ts)
+- [x] **캔버스 읽기/잠금 모드** — 읽기 전용(편집 비활성화) + 잠금(팬/줌만 허용) 모드 전환 (2026-03-24)
 
 ### ✅ 페이지 관리
 - [x] 페이지 생성/삭제/복제
@@ -253,7 +303,14 @@ content.json = {
 - [x] 집중 모드 — `Ctrl+Shift+F`, 사이드바 숨김, `isFocusMode` + `toggleFocusMode()`
 - [x] 포모도로 타이머 — 25분+5분 플로팅 위젯, 최소화 지원, 완료 횟수 🍅 표시
 - [x] 목차(TOC) 패널 — `xl:` 이상에서만 우측 sticky 표시, 헤딩 클릭 시 스크롤
-- [x] Periodic Notes — `Ctrl+Alt+D`, 오늘 일간 노트 생성·이동
+- [x] **Periodic Notes** — `Ctrl+Alt+D`, 일간/주간/월간 노트 탭 (PeriodicNotesPanel.tsx). 연도/월 네비게이션 추가 (2026-03-26)
+- [x] **WeeklyPlannerBlock** — 주간 캘린더 블록. 요일별 할일(스크롤 고정 높이), 날씨, 루틴 달성 연동
+- [x] **RoutineMatrixBlock** — 독립 루틴 달성 매트릭스 블록. 주간 DayPlanner 스캔 → Mon-Sun ✅/✗ 그리드
+- [x] **MonthlyCalendarBlock** — 월간 달력 블록. 6주 그리드, 일간 노트 연결, 날짜 메모
+- [x] **QuarterlyPlannerBlock** — 분기 플래너 블록. OKR(목표+KR+진행률), 3개월 미니링크, 13주 루틴 히트맵
+- [x] **YearlyPlannerBlock** — 연간 플래너 블록. 카테고리별 목표, 12개월 그리드, 4분기 그리드, 52주 잔디 히트맵
+- [x] **PeriodicNotesPanel 단기/장기 2단 구조** — 단기(일간/주간/월간) + 장기(분기Q1~Q4/연간). 분기·연간 노트 각 1개 제한
+- [x] **날씨 위치 통합** — settingsStore.weatherLocation 전역 저장, DayPlannerBlock/WeeklyPlannerBlock/PropertyPanel 공유
 
 ### ✅ 보안 + 백엔드
 - [x] `validate_uuid()` — UUID 형식 검증, 400 에러로 경로 트래버설 차단
@@ -282,6 +339,23 @@ content.json = {
 - [x] 캘린더 위젯 — 메모 목록 상단 미니 달력, 날짜 클릭으로 해당 날짜 메모 필터
 - [x] 개별 페이지 내보내기 — 에디터 상단 ⬇ 버튼 → Markdown(.md) / PDF(브라우저 인쇄)
 - [x] 전체 텍스트 검색 (`Ctrl+K`) — 페이지 제목 + 블록 내용 전문 검색, 키보드 탐색(↑↓ Enter), 검색어 하이라이트
+- [x] **명령어 팔레트** (`Ctrl+P`) — 페이지 이동 + 빠른 액션 퍼지 검색 (CommandPalette.tsx)
+- [x] **찾기/바꾸기** (`Ctrl+H`/`Ctrl+F`) — 플로팅 패널, 에디터 내 텍스트 검색·치환 (FindReplacePanel.tsx + findReplaceStore.ts + SearchHighlight.ts)
+- [x] **그래프 뷰** (`Ctrl+G`) — 페이지 링크 관계 SVG 그래프. 자체 물리 시뮬레이션, 팬/줌/드래그 (GraphView.tsx)
+- [x] **페이지 속성 패널** — 제목 아래 날짜/상태/선택/텍스트 4종 속성 인라인 편집 (PropertyPanel.tsx)
+- [x] **데이터베이스 뷰** — 카테고리 페이지를 테이블로 표시, 인라인 셀 편집, page.tsx에서 dbViewActive로 토글 (DatabaseView.tsx)
+- [x] **H4/H5/H6 헤딩 레벨** — SlashCommand 추가, StarterKit levels [1..6], globals.css 스타일
+- [x] **텍스트 정렬** — BubbleMenuBar에 Left/Center/Right/Justify 버튼 (@tiptap/extension-text-align)
+- [x] **커스텀 테마 프리셋** — default/notion/sepia/minimal/forest 5종 (AppearanceTab.tsx + settingsStore themePreset)
+- [x] **통합 파일 사이드바** — 폴더 트리 + 페이지 인라인 + 검색 + 캘린더 + 최근파일 통합 (CategorySidebar.tsx). 리사이즈 핸들, 접힘 모드 지원
+- [x] **카테고리 하위 폴더** — parentId 기반 중첩 폴더 트리, 재귀 UI, depth별 색상
+- [x] **우클릭 컨텍스트 메뉴** — 블록 우클릭 → 타입 변환/복제/삭제/위아래 추가 (ContextMenu.tsx)
+- [x] **에디터 너비 슬라이더** — BottomBar.tsx 통합, --editor-max-width CSS 변수 (settingsStore.editorMaxWidth)
+- [x] **PDF 다운로드 (서버사이드)** — xhtml2pdf 백엔드 변환. `/api/export/pdf/{page_id}`. 내보내기 드롭다운에 "PDF 다운로드" + "인쇄(폴백)" 분리
+- [x] **달력 뷰 (DatabaseView)** — 테이블|달력 탭 전환. 날짜 속성 기준 페이지 카드 배치. 날짜 없는 페이지는 하단 섹션에 표시
+- [x] **페이지 잠금 (PIN)** — 4자리 이상 PIN 설정/해제. SHA-256 해시 저장. LockModal.tsx 신규. lockPage/unlockPage 스토어 액션
+- [x] **알림/리마인더** — 날짜 속성에 🔔 토글 추가. 앱 시작 시 오늘 이하 날짜 reminder=true 속성 스캔 → Web Notification 발송. localStorage 중복 방지
+- [x] **i18n 다국어 지원** — 한국어/영어 전환. `src/locales/ko.ts` (소스), `src/locales/en.ts` (Locale = typeof ko). `useLocale()` 훅. 설정 > 모양 탭에서 언어 선택. 전체 컴포넌트 적용 완료 (2026-03-28)
 
 ---
 
@@ -308,6 +382,14 @@ content.json = {
 | POST | `/api/settings/vault-path` | vault 경로 변경 (vault_config.json 저장, 재시작 필요) |
 | GET | `/api/debug/logs` | 서버 로그 (최근 100개) |
 | GET | `/api/search?q=` | 페이지 제목 + 블록 내용 전문 검색 |
+| POST | `/api/ai/stream` | AI SSE 스트리밍 (OpenAI/Claude/Ollama) |
+| GET | `/api/templates` | 템플릿 목록 조회 |
+| POST | `/api/templates` | 템플릿 생성 |
+| PUT | `/api/templates/{id}` | 템플릿 수정 |
+| DELETE | `/api/templates/{id}` | 템플릿 삭제 |
+| POST | `/api/pages/{id}/files` | 파일 첨부 업로드 |
+| GET | `/api/export/html/{page_id}` | 단일 페이지 HTML 내보내기 (이미지 base64 인라인) |
+| GET | `/api/export/pdf/{page_id}` | 단일 페이지 PDF 내보내기 (xhtml2pdf 서버사이드 변환) |
 | GET | `/static/{path}` | 이미지 파일 정적 서빙 |
 | GET | `/api/pages/{id}/history` | 페이지 버전 목록 (filename, snapshotAt, title, blockCount) |
 | GET | `/api/pages/{id}/history/{filename}` | 특정 버전 전체 데이터 (미리보기) |
@@ -324,7 +406,7 @@ content.json = {
 ```typescript
 // 현재 등록된 확장 목록
 StarterKit.configure({
-  heading: { levels: [1, 2, 3] },
+  heading: { levels: [1, 2, 3, 4, 5, 6] },  // H1~H6 모두 지원
   link: { openOnClick: false },  // StarterKit 내장 Link
 })
 Placeholder          // 빈 블록 힌트 텍스트
@@ -332,11 +414,17 @@ Typography           // 자동 타이포그래피 교정
 Highlight.configure({ multicolor: true })  // 배경색 피커
 TextStyle            // 인라인 스타일 마크
 Color                // 글자색 피커
+FontFamily           // 인라인 글꼴 변경 (BubbleMenuBar)
+FontSize             // 커스텀 확장 (src/extensions/FontSize.ts)
+TextAlign.configure({ types: ['heading', 'paragraph'] })  // 텍스트 정렬
 TaskList             // 체크박스 목록
 TaskItem.configure({ nested: true })
 Table.configure({ resizable: false })
 TableRow, TableHeader, TableCell
 CodeBlockLowlight.configure({ lowlight })  // 구문 강조
+SearchHighlight      // 커스텀 확장 (찾기/바꾸기 하이라이트)
+InlineMath           // 커스텀 확장 ($...$ 인라인 수식)
+FootnoteInline       // 커스텀 확장 (각주)
 ```
 
 **주의:** `@tiptap/extension-link`를 별도로 import하면 충돌 → StarterKit 내장만 사용
@@ -349,9 +437,13 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
 // localStorage 키: 'notion-clone-settings'
 {
   theme: 'light' | 'dark' | 'auto',
-  fontFamily: 'sans' | 'serif' | 'mono',
-  fontSize: 14 | 16 | 18 | 20,
+  themePreset: 'default' | 'notion' | 'sepia' | 'minimal' | 'forest',  // 색상 프리셋
+  fontFamily: string,  // FONT_PRESETS의 id (예: 'noto-sans')
+  fontSize: number,    // 에디터 전체 기본 크기 (px)
   lineHeight: number,  // 1.4 ~ 2.0
+  editorMaxWidth: number,  // 에디터 최대 너비 (px, 기본 768) → --editor-max-width
+  sidebarWidth: number,    // 사이드바 너비 (160~480, 기본 260)
+  sidebarCollapsed: boolean, // 사이드바 접힘 모드 (아이콘만 표시)
   isFocusMode: boolean,  // volatile — 앱 재시작 시 항상 false
   plugins: {
     kanban: boolean,          // ✅ 구현됨
@@ -459,21 +551,26 @@ CodeBlockLowlight.configure({ lowlight })  // 구문 강조
   - 기존 `/api/ai/stream` SSE 재사용, 응답 누적 후 JSON 파싱
   - 500ms 디바운스 저장 (block.content JSON)
 
-#### 9-B. PDF 내보내기 개선 (하)
-- 현재 `window.print()` 방식에서 puppeteer 기반 서버사이드 PDF 생성으로 업그레이드
-- `GET /api/export/pdf/{page_id}` 엔드포인트 추가
+#### ~~9-B. PDF 내보내기 개선~~ ✅ 완료 (2026-03-25)
+- `xhtml2pdf` (pure Python) 백엔드 변환 → `GET /api/export/pdf/{page_id}`
+- PageEditor 내보내기 드롭다운: "PDF 다운로드"(서버) + "인쇄"(window.print 폴백) 분리
 
-#### 9-C. 달력 뷰 (중)
-- 날짜 속성 기반 캘린더에서 페이지 카드 표시
-- `DatabaseView.tsx` 새 뷰 탭으로 추가
+#### ~~9-C. 달력 뷰~~ ✅ 완료 (2026-03-25)
+- `DatabaseView.tsx` 상단 "테이블 | 달력" 탭 추가
+- 날짜 속성(type==='date') 값 기준으로 해당 날짜 셀에 페이지 카드 표시
+- 날짜 없는 페이지 → 하단 "날짜 없음" 섹션에 칩으로 표시
 
-#### 9-D. 페이지 잠금 (하)
-- 비밀번호/핀으로 특정 페이지 보호
-- `page.locked`, `page.lockHash` 필드 추가
+#### ~~9-D. 페이지 잠금~~ ✅ 완료 (2026-03-25)
+- `Page.lockPin?: string` 필드 추가 (SHA-256 해시 저장)
+- `lockPage(pageId, pinHash)` / `unlockPage(pageId)` 스토어 액션 추가
+- `LockModal.tsx` 신규 — lock/unlock 2가지 모드, Web Crypto API SHA-256
+- PageEditor 잠금 버튼 → PIN 설정 모달 / 해제 시 PIN 검증 모달
 
-#### 9-E. 알림/리마인더 (중)
-- 날짜 속성 → Electron `Notification` API 연동
-- 알림 시각 설정 + 미리알림 간격
+#### ~~9-E. 알림/리마인더~~ ✅ 완료 (2026-03-25)
+- `PageProperty.reminder?: boolean` 필드 추가
+- PropertyPanel의 date 속성 행에 🔔 토글 버튼 추가
+- page.tsx 앱 시작 시 reminder=true + 오늘이거나 지난 날짜 → Web Notification 발송
+- `localStorage['notion-clone-notified']`로 중복 방지 (최대 500개)
 
 ### 🟢 낮은 우선순위
 
@@ -736,5 +833,5 @@ import '@excalidraw/excalidraw/index.css'  // 컴포넌트 상단에 포함
 
 ---
 
-*이 청사진은 2026-02-26 기준 구현 상태를 반영합니다.*
-*새 기능 구현 후 해당 섹션(5번, 9번)을 업데이트해 주세요.*
+*이 청사진은 2026-03-25 기준 구현 상태를 반영합니다. (9-B~9-E 모두 완료)*
+*새 기능 구현 후 해당 섹션(3번 폴더구조, 5번 기능목록, 6번 API, 9번 계획)을 업데이트해 주세요.*

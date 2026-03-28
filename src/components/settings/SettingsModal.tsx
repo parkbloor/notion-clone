@@ -7,6 +7,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { useLocale } from '@/locales'
 import AppearanceTab from './tabs/AppearanceTab'
 import EditorTab     from './tabs/EditorTab'
 import PluginsTab    from './tabs/PluginsTab'
@@ -22,20 +23,22 @@ interface SettingsModalProps {
 
 // -----------------------------------------------
 // 탭 목록 정의
-// Python으로 치면: TABS = [{'id': 'appearance', 'icon': '🎨', 'label': '모양'}, ...]
+// Python으로 치면: TABS = [{'id': 'appearance', 'icon': '🎨'}, ...]
 // -----------------------------------------------
 type TabId = 'appearance' | 'editor' | 'plugins' | 'data' | 'storage' | 'debug' | 'templates' | 'ai'
 
-const TABS: Array<{ id: TabId; icon: string; label: string }> = [
-  { id: 'appearance', icon: '🎨', label: '모양'     },
-  { id: 'editor',     icon: '✏️',  label: '편집기'  },
-  { id: 'plugins',    icon: '🧩', label: '플러그인' },
-  { id: 'templates',  icon: '📋', label: '템플릿'   },
-  { id: 'ai',         icon: '✨', label: 'AI'        },
-  { id: 'data',       icon: '📦', label: '데이터'   },
-  { id: 'storage',    icon: '📁', label: '저장 위치' },
-  { id: 'debug',      icon: '🔍', label: '디버그'   },
-]
+const TAB_ICONS: Record<TabId, string> = {
+  appearance: '🎨',
+  editor:     '✏️',
+  plugins:    '🧩',
+  templates:  '📋',
+  ai:         '✨',
+  data:       '📦',
+  storage:    '📁',
+  debug:      '🔍',
+}
+
+const TAB_IDS: TabId[] = ['appearance', 'editor', 'plugins', 'templates', 'ai', 'data', 'storage', 'debug']
 
 // 탭 ID → 컴포넌트 매핑
 // Python으로 치면: TAB_COMPONENTS = {'appearance': AppearanceTab, ...}
@@ -51,6 +54,10 @@ const TAB_COMPONENTS: Record<TabId, React.ComponentType> = {
 }
 
 export default function SettingsModal({ onClose }: SettingsModalProps) {
+  // 번역 훅
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
+
   // 현재 선택된 탭
   // Python으로 치면: self.active_tab = 'appearance'
   const [activeTab, setActiveTab] = useState<TabId>('appearance')
@@ -89,12 +96,12 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       >
         {/* 모달 헤더 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
-          <h2 className="text-base font-semibold text-gray-800">⚙️ 설정</h2>
+          <h2 className="text-base font-semibold text-gray-800">⚙️ {t.settings.title}</h2>
           <button
             type="button"
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors text-lg"
-            aria-label="닫기"
+            aria-label={t.common.close}
           >
             ×
           </button>
@@ -106,18 +113,18 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           {/* 좌측 탭 네비게이션 */}
           {/* Python으로 치면: self.tab_menu = TabMenu(items=TABS) */}
           <nav className="w-44 bg-gray-50 border-r border-gray-200 py-2 shrink-0 overflow-y-auto">
-            {TABS.map((tab) => (
+            {TAB_IDS.map((tabId) => (
               <button
-                key={tab.id}
+                key={tabId}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={tab.id === activeTab
+                onClick={() => setActiveTab(tabId)}
+                className={tabId === activeTab
                   ? "w-full flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 border-r-2 border-blue-500 transition-colors text-left"
                   : "w-full flex items-center gap-2.5 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors text-left"
                 }
               >
-                <span className="text-base shrink-0">{tab.icon}</span>
-                <span>{tab.label}</span>
+                <span className="text-base shrink-0">{TAB_ICONS[tabId]}</span>
+                <span>{t.settings.tabs[tabId]}</span>
               </button>
             ))}
           </nav>

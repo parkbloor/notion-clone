@@ -19,6 +19,7 @@ import {
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import AIChatPanel from '@/components/ai/AIChatPanel'
+import { useLocale } from '@/locales'
 
 // ── 차트 데이터 타입 ────────────────────────────
 // Python으로 치면: @dataclass class ChartSeries: name: str; data: list[float]; color: str
@@ -89,11 +90,8 @@ function toPieData(chart: ChartData): { name: string; value: number }[] {
 }
 
 // ── 차트 타입 탭 목록 ────────────────────────────
-const CHART_TYPES = [
-  { type: 'bar' as const,  label: '막대', icon: '▬' },
-  { type: 'line' as const, label: '선',   icon: '〜' },
-  { type: 'pie' as const,  label: '파이', icon: '◔' },
-]
+// 모듈 레벨 상수 대신 컴포넌트 내부에서 로케일 적용 후 생성
+// Python으로 치면: CHART_TYPES는 컴포넌트 내부에서 t를 활용해 생성
 
 interface ChartBlockProps {
   block: Block
@@ -115,8 +113,22 @@ const CHART_SYSTEM_PROMPT = `당신은 데이터 시각화 전문가입니다.
 - series color는 hex 코드 (예: "#3b82f6")
 - 숫자 데이터는 정수 또는 소수점 1자리`
 
+// ── 모듈 레벨: 마지막 활성 ChartBlock ID ────────
+// GlobalAIChatButton의 'ai-apply-chart' 이벤트를 처리할 블록 결정
+// Python으로 치면: _active_chart_id: str | None = None
+let _activeChartBlockId: string | null = null
+
 export default function ChartBlock({ block, pageId }: ChartBlockProps) {
+  const t = useLocale()
   const { updateBlock } = usePageStore()
+
+  // ── 차트 타입 탭 목록 (로케일 적용) ──────────────
+  const CHART_TYPES = [
+    { type: 'bar' as const,  label: t.blocks.chart.types.bar,  icon: '▬' },
+    { type: 'line' as const, label: t.blocks.chart.types.line, icon: '〜' },
+    { type: 'pie' as const,  label: t.blocks.chart.types.pie,  icon: '◔' },
+  ]
+
   // ── 상태 ────────────────────────────────────────
   const [chart, setChart] = useState<ChartData>(() => parseChart(block.content))
   // 편집 모드 여부 (false = 차트 미리보기, true = 데이터 편집)
@@ -130,6 +142,14 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   // AI 패널 열림 여부
   // Python으로 치면: self.ai_open: bool = False
   const [aiOpen, setAiOpen] = useState(false)
+
+  // isAiTarget: 전역 AI가 이 블록을 선택했을 때 링 + 배지 표시
+  // Python으로 치면: self.is_ai_target = False
+  const [isAiTarget, setIsAiTarget] = useState(false)
+
+  // applyChartRef: 전역 AI 이벤트에서 최신 applyAiChart 참조 (stale closure 방지)
+  // Python으로 치면: self._apply_ref = WeakRef(self.apply_ai_chart)
+  const applyChartRef = useRef<(text: string) => string | void>(() => {})
 
   // ── chart ref — setChart updater 안에서 최신 값 참조용 ──
   // setChart updater 내부에서 Zustand 스토어를 업데이트하면
@@ -181,7 +201,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   function addLabel() {
     update(c => ({
       ...c,
-      labels: [...c.labels, `항목 ${c.labels.length + 1}`],
+      labels: [...c.labels, `${t.blocks.chart.newLabelPrefix}${c.labels.length + 1}`],
       series: c.series.map(s => ({ ...s, data: [...s.data, 0] })),
     }))
   }
@@ -224,7 +244,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
       series: [
         ...c.series,
         {
-          name: `시리즈 ${c.series.length + 1}`,
+          name: `${t.blocks.chart.newSeriesPrefix}${c.series.length + 1}`,
           data: new Array(c.labels.length).fill(0),
           color: PALETTE[c.series.length % PALETTE.length],
         },
@@ -243,10 +263,10 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   function applyAiChart(text: string): string | void {
     try {
       const match = text.match(/\{[\s\S]*\}/)
-      if (!match) return '⚠️ JSON 형식이 없습니다.'
+      if (!match) return t.blocks.chart.aiFormatError
       const parsed = JSON.parse(match[0])
       if (!Array.isArray(parsed.labels) || !Array.isArray(parsed.series)) {
-        return '⚠️ labels/series 형식 오류'
+        return t.blocks.chart.aiDataError
       }
       // 색상 없는 시리즈에 기본 팔레트 적용
       const fixed: ChartData = {
@@ -254,17 +274,49 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
         title: parsed.title || '',
         labels: parsed.labels,
         series: parsed.series.map((s: Partial<ChartSeries>, i: number) => ({
-          name: s.name || '시리즈' + (i + 1),
+          name: s.name || `${t.blocks.chart.newSeriesPrefix}${i + 1}`,
           data: Array.isArray(s.data) ? s.data : [],
           color: s.color || PALETTE[i % PALETTE.length],
         })),
       }
       update(() => fixed, true)  // AI 응답 확정 — 즉시 저장
-      return '차트 데이터 적용됨 (' + fixed.labels.length + '개 항목)'
+      return t.blocks.chart.aiApplied.replace('{count}', String(fixed.labels.length))
     } catch {
-      return '⚠️ 파싱 실패 — JSON 형식을 확인하세요'
+      return t.blocks.chart.aiParseError
     }
   }
+
+  // ── 전역 AI → 차트 적용 연동 ─────────────────────
+  // 매 렌더마다 최신 applyAiChart로 ref 동기화 (stale closure 방지)
+  // Python으로 치면: def on_render(self): self._apply_ref.current = self.apply_ai_chart
+  applyChartRef.current = applyAiChart
+
+  // 마운트 시 전역 활성 차트로 등록 + 이벤트 리스너 등록
+  // GlobalAIChatButton의 📊 모드 '적용' 버튼이 'ai-apply-chart' 이벤트 발행
+  // + AI 블록 선택/해제 인디케이터
+  // Python으로 치면: def on_mount(self): global _active; _active = self; window.on(...)
+  useEffect(() => {
+    _activeChartBlockId = block.id
+    function handleGlobalChart(e: Event) {
+      if (_activeChartBlockId !== block.id) return
+      applyChartRef.current((e as CustomEvent<string>).detail)
+    }
+    function handleSelect(e: Event) {
+      const { blockId } = (e as CustomEvent<{ blockId: string; blockType: string }>).detail
+      setIsAiTarget(blockId === block.id)
+    }
+    function handleDeselect() { setIsAiTarget(false) }
+    window.addEventListener('ai-apply-chart', handleGlobalChart)
+    window.addEventListener('ai-block-select', handleSelect)
+    window.addEventListener('ai-block-deselect', handleDeselect)
+    return () => {
+      window.removeEventListener('ai-apply-chart', handleGlobalChart)
+      window.removeEventListener('ai-block-select', handleSelect)
+      window.removeEventListener('ai-block-deselect', handleDeselect)
+      if (_activeChartBlockId === block.id) _activeChartBlockId = null
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.id])
 
   // ── recharts 공통 Props ──────────────────────────
   const rechartsData = toRechartsData(chart)
@@ -334,13 +386,13 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
             type="button"
             onClick={() => { setAiOpen(v => !v); setIsEditing(true) }}
             className="p-1.5 text-xs text-purple-400 hover:text-purple-600 hover:bg-purple-50 rounded-md"
-            title="AI로 데이터 생성"
+            title={t.blocks.chart.aiGenerate}
           >✨</button>
           <button
             type="button"
             onClick={() => setIsEditing(true)}
             className="p-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md"
-            title="차트 편집"
+            title={t.blocks.chart.editChart}
           >✏️</button>
         </div>
       </div>
@@ -349,7 +401,19 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
 
   // ── 편집 모드 ────────────────────────────────────
   return (
-    <div className="chart-block my-2 rounded-xl border border-blue-200 bg-white shadow-sm overflow-hidden">
+    <div
+      data-ai-block="chart"
+      onClick={() => window.dispatchEvent(new CustomEvent('ai-block-select', { detail: { blockId: block.id, blockType: 'chart' } }))}
+      className={`chart-block my-2 relative rounded-xl bg-white shadow-sm overflow-hidden transition-shadow ${isAiTarget ? 'border-2 border-emerald-400 ring-2 ring-emerald-400 ring-offset-1 shadow-emerald-100 shadow-md' : 'border border-blue-200'}`}
+    >
+      {/* ── AI 대상 배지 ──────────────────────────
+          isAiTarget일 때만 표시 — 초록 링과 함께 우상단에 위치
+          Python으로 치면: if self.is_ai_target: render Badge('🤖 AI 대상') */}
+      {isAiTarget && (
+        <span className="absolute top-1.5 right-1.5 z-10 text-[10px] bg-emerald-500 text-white px-1.5 py-0.5 rounded-full pointer-events-none select-none">
+          {t.blocks.chart.aiTarget}
+        </span>
+      )}
 
       {/* ── 헤더: 차트 타입 탭 + 제목 입력 + AI 버튼 ──────── */}
       <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-b border-gray-100">
@@ -373,14 +437,14 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
           type="text"
           value={chart.title}
           onChange={e => update(c => ({ ...c, title: e.target.value }))}
-          placeholder="차트 제목 (선택)"
+          placeholder={t.blocks.chart.titlePlaceholder}
           className="flex-1 text-sm px-2 py-1 border border-gray-200 rounded-md outline-none focus:border-blue-300 bg-white"
         />
         {/* AI 패널 토글 버튼 */}
         <button
           type="button"
           onClick={() => setAiOpen(v => !v)}
-          title="AI로 데이터 생성"
+          title={t.blocks.chart.aiGenerate}
           className={aiOpen
             ? "px-2.5 py-1 text-xs rounded-md font-medium bg-purple-500 text-white transition-colors shrink-0"
             : "px-2.5 py-1 text-xs rounded-md text-purple-500 hover:bg-purple-50 border border-purple-200 transition-colors shrink-0"}
@@ -396,7 +460,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
           <thead>
             <tr>
               {/* 시리즈 이름 열 헤더 */}
-              <th className="text-left px-2 py-1 text-gray-400 font-normal w-24">시리즈</th>
+              <th className="text-left px-2 py-1 text-gray-400 font-normal w-24">{t.blocks.chart.seriesHeader}</th>
               {/* 라벨 열 헤더 (각 항목별) */}
               {chart.labels.map((label, li) => (
                 <th key={li} className="px-1 py-1 min-w-16">
@@ -413,7 +477,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
                         type="button"
                         onClick={() => removeLabel(li)}
                         className="text-gray-300 hover:text-red-400 shrink-0 leading-none"
-                        title="이 열 삭제"
+                        title={t.blocks.chart.deleteColumn}
                       >×</button>
                     )}
                   </div>
@@ -425,7 +489,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
                   type="button"
                   onClick={addLabel}
                   className="w-full text-gray-300 hover:text-blue-400 font-bold text-sm leading-none"
-                  title="열 추가"
+                  title={t.blocks.chart.addColumn}
                 >+</button>
               </th>
             </tr>
@@ -445,7 +509,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
                         series: c.series.map((sr, idx) => idx === si ? { ...sr, color: e.target.value } : sr),
                       }))}
                       className="w-5 h-5 rounded cursor-pointer border-0 p-0 shrink-0"
-                      title="색상 변경"
+                      title={t.blocks.chart.changeColor}
                     />
                     <input
                       type="text"
@@ -459,7 +523,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
                         type="button"
                         onClick={() => removeSeries(si)}
                         className="text-gray-300 hover:text-red-400 shrink-0 leading-none"
-                        title="이 행 삭제"
+                        title={t.blocks.chart.deleteRow}
                       >×</button>
                     )}
                   </div>
@@ -489,7 +553,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
             className="mt-2 flex items-center gap-1 text-xs text-gray-400 hover:text-blue-500 transition-colors"
           >
             <span className="font-bold">+</span>
-            <span>시리즈 추가</span>
+            <span>{t.blocks.chart.addSeries}</span>
           </button>
         )}
       </div>
@@ -497,15 +561,15 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
       {/* ── AI 패널 (사이드바) ──────────────────── */}
       {aiOpen && (
         <AIChatPanel
-          title="AI 차트 생성"
+          title={t.blocks.chart.aiChartTitle}
           icon="📊"
-          emptyHint={'데이터를 말하면 AI가\n차트 형식으로 만들어드립니다.\n\n예: "2024년 분기별 매출 샘플 만들어줘"'}
+          emptyHint={t.blocks.chart.aiEmptyHint}
           systemPrompt={CHART_SYSTEM_PROMPT}
           context={() => JSON.stringify(chart)}
-          placeholder="차트 데이터를 요청하세요…"
-          quickCommands={['샘플 데이터 만들어줘', '항목 하나 더 추가해줘', '파이 차트로 변경해줘']}
+          placeholder={t.blocks.chart.chatPlaceholder}
+          quickCommands={t.blocks.chart.quickCommands}
           mode="sidebar"
-          applyLabel="📊 차트에 적용"
+          applyLabel={t.blocks.chart.applyLabel}
           onApply={applyAiChart}
           onClose={() => setAiOpen(false)}
         />
@@ -525,7 +589,7 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
             onClick={() => setIsEditing(false)}
             className="px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
           >
-            완료
+            {t.blocks.chart.done}
           </button>
         </div>
       </div>

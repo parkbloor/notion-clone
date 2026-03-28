@@ -10,6 +10,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import type { Block } from '@/types/block'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // 임베드 콘텐츠 JSON 인터페이스
@@ -104,6 +105,7 @@ export function isEmbedUrl(url: string): boolean {
 }
 
 export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlockProps) {
+  const t = useLocale()
 
   // 블록 content → { url } 파싱
   // Python으로 치면: content = json.loads(block.content) or {}
@@ -138,14 +140,14 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
   function handleSave() {
     const trimmed = inputUrl.trim()
     if (!trimmed) {
-      setError('URL을 입력해주세요')
+      setError(t.blocks.embed.urlRequired)
       return
     }
     // URL 유효성 검사
     try {
       new URL(trimmed)
     } catch {
-      setError('올바른 URL 형식이 아닙니다')
+      setError(t.blocks.embed.urlInvalid)
       return
     }
     setError('')
@@ -179,11 +181,11 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
           {/* 임베드 아이콘 */}
           <span className="text-xl">🔗</span>
           <p className="text-sm font-medium text-gray-600">
-            URL 임베드
+            {t.blocks.embed.label}
           </p>
         </div>
         <p className="text-xs text-gray-400 mb-3">
-          YouTube · Vimeo · 일반 웹페이지 URL을 붙여넣으세요
+          {t.blocks.embed.instruction}
         </p>
         <div className="flex gap-2">
           <input
@@ -200,7 +202,7 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
             onClick={handleSave}
             className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
           >
-            임베드
+            {t.blocks.embed.embedBtn}
           </button>
           {isEditing && (
             <button
@@ -208,7 +210,7 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
               onClick={() => { setIsEditing(false); setInputUrl(''); setError('') }}
               className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
             >
-              취소
+              {t.blocks.embed.cancel}
             </button>
           )}
         </div>
@@ -236,7 +238,7 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
       >
         <iframe
           src={embedSrc}
-          title="임베드 콘텐츠"
+          title={t.blocks.embed.contentTitle}
           // YouTube: allow autoplay(정책), fullscreen 허용
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
@@ -263,7 +265,7 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
               onClick={() => { setIsEditing(true); setInputUrl(savedUrl) }}
               className="px-2 py-0.5 text-xs text-gray-500 bg-gray-100 rounded hover:bg-gray-200 transition-colors"
             >
-              변경
+              {t.blocks.embed.changeBtn}
             </button>
             {/* 임베드 제거 */}
             <button
@@ -271,7 +273,7 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
               onClick={() => updateBlock(pageId, block.id, '')}
               className="px-2 py-0.5 text-xs text-red-400 bg-red-50 rounded hover:bg-red-100 transition-colors"
             >
-              제거
+              {t.blocks.embed.removeBtn}
             </button>
           </div>
         </div>

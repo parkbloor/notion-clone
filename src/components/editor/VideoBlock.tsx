@@ -12,6 +12,7 @@ import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { api } from '@/lib/api'
 import type { Block } from '@/types/block'
+import { useLocale } from '@/locales'
 
 // 비디오 콘텐츠 JSON 포맷
 // Python으로 치면: @dataclass class VideoContent: src: str; width: int | None
@@ -45,6 +46,7 @@ function parseContent(content: string): VideoContent {
 }
 
 export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlockProps) {
+  const t = useLocale()
 
   const updateBlock = usePageStore(s => s.updateBlock)
   const updateBlockCanvas = usePageStore(s => s.updateBlockCanvas)
@@ -111,10 +113,10 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
   function validateFile(file: File): string | null {
     const ext = '.' + (file.name.split('.').pop() ?? '').toLowerCase()
     if (!ALLOWED_EXTS.has(ext)) {
-      return `지원하지 않는 형식입니다. 허용: ${[...ALLOWED_EXTS].join(', ')}`
+      return t.blocks.video.formatError
     }
     if (file.size > 500 * 1024 * 1024) {
-      return `파일 크기가 500MB를 초과합니다 (${(file.size / 1024 / 1024).toFixed(0)}MB)`
+      return t.blocks.video.sizeError
     }
     return null
   }
@@ -143,7 +145,7 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
       saveContent(url, savedWidth)
     } catch (e: unknown) {
       clearInterval(timer)
-      setUploadError(e instanceof Error ? e.message : '업로드 실패')
+      setUploadError(e instanceof Error ? e.message : t.blocks.video.uploadError)
     } finally {
       setIsUploading(false)
       setProgress(0)
@@ -243,15 +245,15 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
         <span className="text-3xl">{isUploading ? '⏳' : '🎬'}</span>
 
         {isUploading ? (
-          <p className="text-sm text-gray-500">업로드 중... {progress}%</p>
+          <p className="text-sm text-gray-500">{t.blocks.video.uploading} {progress}%</p>
         ) : (
           <>
             <div className="text-center">
               <p className="text-sm font-medium text-gray-600">
-                비디오 파일을 드래그하거나 클릭하여 업로드
+                {t.blocks.video.instruction}
               </p>
               <p className="text-xs text-gray-400 mt-0.5">
-                MP4 · WebM · OGG · MOV · AVI · MKV  /  최대 500MB
+                {t.blocks.video.formatInfo}
               </p>
             </div>
             {!readOnly && (
@@ -260,7 +262,7 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
                 onClick={() => inputRef.current?.click()}
                 className="px-4 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
-                파일 선택
+                {t.blocks.video.chooseFile}
               </button>
             )}
           </>
@@ -314,7 +316,7 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
           muted={plugins.videoAutoplay}
           playsInline
           className="block w-full rounded-xl bg-black"
-          onError={() => setUploadError('비디오를 재생할 수 없습니다.')}
+          onError={() => setUploadError(t.blocks.video.playError)}
         />
 
         {/* 재생 설정 뱃지 (autoplay / loop 상태 표시) */}
@@ -322,12 +324,12 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
           <div className="absolute top-2 left-2 flex gap-1 pointer-events-none">
             {plugins.videoAutoplay && (
               <span className="px-1.5 py-0.5 text-xs bg-black/60 text-white rounded">
-                ▶ 자동재생
+                {t.blocks.video.autoplay}
               </span>
             )}
             {plugins.videoLoop && (
               <span className="px-1.5 py-0.5 text-xs bg-black/60 text-white rounded">
-                🔁 반복
+                {t.blocks.video.loop}
               </span>
             )}
           </div>
@@ -340,9 +342,9 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
               type="button"
               onClick={handleRemove}
               className="px-2 py-1 text-xs bg-black/60 text-white rounded hover:bg-black/80"
-              title="비디오 제거"
+              title={t.blocks.video.removeTitle}
             >
-              ✕ 제거
+              {t.blocks.video.removeBtn}
             </button>
           </div>
         )}
@@ -358,7 +360,7 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
             className={isResizing
               ? "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10"
               : "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10 opacity-0 group-hover/vid:opacity-100 transition-opacity"}
-            title="드래그하여 크기 조절"
+            title={t.blocks.video.resizeTitle}
           >
             {/* 파란 수직 막대 — 리사이즈 핸들 시각 표시 */}
             <div className="w-1 h-10 bg-blue-400 rounded-full shadow" />

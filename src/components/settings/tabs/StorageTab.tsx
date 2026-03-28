@@ -7,6 +7,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useLocale } from '@/locales'
 
 const BASE_URL = 'http://localhost:8000'
 
@@ -29,6 +30,8 @@ interface ChangeResult {
 }
 
 export default function StorageTab() {
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
 
   // vault 정보 상태
   // Python으로 치면: self.vault_info = None
@@ -79,7 +82,7 @@ export default function StorageTab() {
         setChangeError('')
       }
     } catch {
-      setChangeError('폴더 다이얼로그를 열 수 없습니다.')
+      setChangeError(t.settings.storage.errorBrowse)
     }
   }
 
@@ -87,7 +90,7 @@ export default function StorageTab() {
   // Python으로 치면: async def handle_change_path(self): await api.post('/settings/vault-path', ...)
   async function handleChangePath() {
     if (!newPath.trim()) {
-      setChangeError('새 경로를 입력해 주세요.')
+      setChangeError(t.settings.storage.errorEmpty)
       return
     }
     setChanging(true)
@@ -101,14 +104,14 @@ export default function StorageTab() {
       })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        setChangeError(body.detail ?? '요청 실패')
+        setChangeError(body.detail ?? t.common.error)
         return
       }
       const result: ChangeResult = await res.json()
       setChangeResult(result)
       setNewPath('')
     } catch {
-      setChangeError('서버 연결에 실패했습니다.')
+      setChangeError(t.settings.storage.errorServer)
     } finally {
       setChanging(false)
     }
@@ -117,23 +120,23 @@ export default function StorageTab() {
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">저장 위치</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.storage.title}</h3>
         <p className="text-xs text-gray-400 mb-6">
-          데이터가 저장되는 vault 폴더의 위치와 사용 현황을 확인합니다
+          {t.settings.storage.titleDesc}
         </p>
       </div>
 
       {/* 로딩 중 */}
       {loading && (
         <div className="flex items-center gap-2 text-sm text-gray-400 py-8 justify-center">
-          <span className="animate-spin">⟳</span> 정보를 불러오는 중...
+          <span className="animate-spin">⟳</span> {t.settings.storage.loading}
         </div>
       )}
 
       {/* 서버 연결 오류 */}
       {error && (
         <div className="text-sm text-red-500 bg-red-50 px-4 py-3 rounded-xl">
-          백엔드 서버에 연결할 수 없습니다 (localhost:8000)
+          {t.settings.storage.serverError}
         </div>
       )}
 
@@ -141,7 +144,7 @@ export default function StorageTab() {
         <>
           {/* ── vault 현재 경로 ──────────────────────── */}
           <section className="space-y-2">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">현재 Vault 경로</h4>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.storage.currentPath}</h4>
             <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
               <span className="text-lg">📁</span>
               <p className="flex-1 text-sm text-gray-700 font-mono break-all">{info.vault_path}</p>
@@ -149,24 +152,24 @@ export default function StorageTab() {
                 type="button"
                 onClick={copyPath}
                 className="shrink-0 text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded hover:bg-gray-100"
-                title="경로 복사"
+                title={t.settings.storage.copyPathTitle}
               >
-                복사
+                {t.settings.storage.copy}
               </button>
             </div>
           </section>
 
           {/* ── 사용 현황 통계 ──────────────────────── */}
           <section className="space-y-2">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">사용 현황</h4>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.storage.usage}</h4>
             <div className="grid grid-cols-3 gap-3">
               <div className="px-4 py-4 rounded-xl border border-gray-200 bg-white text-center">
                 <p className="text-2xl font-bold text-blue-600">{info.total_pages}</p>
-                <p className="text-xs text-gray-500 mt-1">총 페이지</p>
+                <p className="text-xs text-gray-500 mt-1">{t.settings.storage.totalPages}</p>
               </div>
               <div className="px-4 py-4 rounded-xl border border-gray-200 bg-white text-center">
                 <p className="text-2xl font-bold text-green-600">{info.categories}</p>
-                <p className="text-xs text-gray-500 mt-1">카테고리</p>
+                <p className="text-xs text-gray-500 mt-1">{t.settings.storage.categories}</p>
               </div>
               <div className="px-4 py-4 rounded-xl border border-gray-200 bg-white text-center">
                 <p className="text-2xl font-bold text-purple-600">
@@ -174,7 +177,7 @@ export default function StorageTab() {
                     ? `${info.total_size_kb}KB`
                     : `${(info.total_size_kb / 1024).toFixed(1)}MB`}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">저장 용량</p>
+                <p className="text-xs text-gray-500 mt-1">{t.settings.storage.totalSize}</p>
               </div>
             </div>
           </section>
@@ -186,31 +189,31 @@ export default function StorageTab() {
           Python으로 치면: class ChangePathSection(Widget): def render(): ... */}
       {!error && !loading && (
         <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">경로 변경</h4>
+          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.storage.changePath}</h4>
 
           {/* 경로 변경 성공 결과 박스 */}
           {changeResult && (
             <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-1">
-              <p className="text-sm font-semibold text-green-700">경로가 변경됐습니다</p>
+              <p className="text-sm font-semibold text-green-700">{t.settings.storage.pathChangedMsg}</p>
               <p className="text-xs text-green-600 font-mono break-all">{changeResult.new_path}</p>
               {changeResult.moved && (
-                <p className="text-xs text-green-600">기존 데이터가 새 위치로 복사됐습니다.</p>
+                <p className="text-xs text-green-600">{t.settings.storage.dataMoved}</p>
               )}
               <p className="text-xs text-orange-600 font-semibold mt-1">
-                ⚠️ 변경 사항을 적용하려면 서버를 재시작해야 합니다.
+                {t.settings.storage.restartWarning}
               </p>
             </div>
           )}
 
           {/* 새 경로 입력 + 탐색기 버튼 */}
           <div className="space-y-2">
-            <label className="text-xs text-gray-500">새 vault 경로 (절대 경로)</label>
+            <label className="text-xs text-gray-500">{t.settings.storage.newPathLabel}</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={newPath}
                 onChange={e => { setNewPath(e.target.value); setChangeError('') }}
-                placeholder="예: C:\Users\사용자이름\Documents\MyVault"
+                placeholder={t.settings.storage.newPathPlaceholder}
                 className="flex-1 text-sm font-mono border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-400 bg-white"
               />
               {/* 탐색기 버튼 — 클릭 시 tkinter 폴더 선택 다이얼로그 오픈 */}
@@ -218,9 +221,9 @@ export default function StorageTab() {
                 type="button"
                 onClick={handleBrowse}
                 className="shrink-0 px-3 py-2 text-xs text-gray-600 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors"
-                title="폴더 탐색기로 선택"
+                title={t.settings.storage.browseTitle}
               >
-                📂 찾아보기
+                {t.settings.storage.browse}
               </button>
             </div>
           </div>
@@ -233,12 +236,12 @@ export default function StorageTab() {
               onChange={e => setMoveData(e.target.checked)}
               className="w-4 h-4 accent-blue-500"
             />
-            <span className="text-xs text-gray-600">기존 데이터를 새 위치로 복사 (원본 유지)</span>
+            <span className="text-xs text-gray-600">{t.settings.storage.moveDataLabel}</span>
           </label>
 
           {/* 재시작 경고 */}
           <p className="text-xs text-orange-500 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
-            ⚠️ 경로 변경은 서버 재시작 후 적용됩니다. 변경 적용 버튼 클릭 후 서버를 다시 시작하세요.
+            {t.settings.storage.pathChangeWarning}
           </p>
 
           {/* 에러 메시지 */}
@@ -253,7 +256,7 @@ export default function StorageTab() {
             disabled={changing || !newPath.trim()}
             className="px-4 py-2 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {changing ? '처리 중...' : '변경 적용'}
+            {changing ? t.settings.storage.processing : t.settings.storage.changeApply}
           </button>
         </section>
       )}

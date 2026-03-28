@@ -12,6 +12,7 @@ import { Placeholder } from '@tiptap/extension-placeholder'
 import { useState, useRef } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { useLocale } from '@/locales'
 
 interface ToggleBlockProps {
   block: Block
@@ -37,6 +38,7 @@ function parseToggle(content: string): { header: string; body: string } {
 
 export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps) {
   const { updateBlock, deleteBlock } = usePageStore()
+  const t = useLocale()
 
   // content 파싱 (초기값)
   const { header: initHeader, body: initBody } = parseToggle(block.content)
@@ -82,7 +84,7 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
         bulletList: false,
         orderedList: false,
       }),
-      Placeholder.configure({ placeholder: '토글' }),
+      Placeholder.configure({ placeholder: t.blocks.toggle.titlePlaceholder }),
     ],
     content: initHeader || '',
     // 신규 블록이면 헤더 에디터 자동 포커스
@@ -121,7 +123,7 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
   const bodyEditor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, codeBlock: false }),
-      Placeholder.configure({ placeholder: '내용을 입력하세요...' }),
+      Placeholder.configure({ placeholder: t.blocks.toggle.contentPlaceholder }),
     ],
     content: initBody || '',
     onUpdate: ({ editor }) => { saveContent(undefined, editor.getHTML()) },
@@ -147,7 +149,7 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
           type="button"
           onClick={() => setIsOpen(prev => !prev)}
           className={arrowClass}
-          title={isOpen ? '접기' : '펼치기'}
+          title={isOpen ? t.blocks.toggle.collapseTitle : t.blocks.toggle.expandTitle}
         >
           {/* 오른쪽 방향 삼각형 SVG (rotate-90으로 아래 방향 변환) */}
           <svg viewBox="0 0 6 10" className="w-2.5 h-2.5 fill-current">

@@ -12,6 +12,7 @@ import { toast } from 'sonner'
 import { templateApi, Template } from '@/lib/api'
 import { isGridTemplate } from '@/lib/templateGrid'
 import TemplateEditorModal from '@/components/editor/TemplateEditorModal'
+import { useLocale } from '@/locales'
 
 // ── 새 템플릿 초기값 ──────────────────────────
 // Python으로 치면: EMPTY_FORM = {'name': '', 'icon': '📄', ...}
@@ -23,6 +24,8 @@ const EMPTY_FORM: Omit<Template, 'id'> = {
 }
 
 export default function TemplatesTab() {
+  // 로케일 훅 — Python으로 치면: t = get_translation()
+  const t = useLocale()
 
   // 서버에서 불러온 템플릿 목록
   // Python으로 치면: self.templates: list[Template] = []
@@ -50,7 +53,7 @@ export default function TemplatesTab() {
   // -----------------------------------------------
   useEffect(() => {
     templateApi.getAll().then(setTemplates).catch(() => {
-      toast.error('템플릿 목록을 불러오지 못했습니다.')
+      toast.error(t.settings.templates.loadError)
     })
   }, [])
 
@@ -60,7 +63,7 @@ export default function TemplatesTab() {
   // -----------------------------------------------
   async function handleSave() {
     if (!form.name.trim()) {
-      toast.error('템플릿 이름을 입력해 주세요.')
+      toast.error(t.settings.templates.nameRequired)
       return
     }
     setSaving(true)
@@ -69,17 +72,17 @@ export default function TemplatesTab() {
         // 새 템플릿 생성
         const created = await templateApi.create(form)
         setTemplates(prev => [...prev, created])
-        toast.success('템플릿이 저장됐습니다.')
+        toast.success(t.settings.templates.saveSuccess)
       } else if (editingId) {
         // 기존 템플릿 수정
         const updated = await templateApi.update(editingId, form)
-        setTemplates(prev => prev.map(t => t.id === editingId ? updated : t))
-        toast.success('템플릿이 수정됐습니다.')
+        setTemplates(prev => prev.map(tmpl => tmpl.id === editingId ? updated : tmpl))
+        toast.success(t.settings.templates.updateSuccess)
       }
       setEditingId(null)
       setForm(EMPTY_FORM)
     } catch {
-      toast.error('저장 중 오류가 발생했습니다.')
+      toast.error(t.settings.templates.saveError)
     } finally {
       setSaving(false)
     }
@@ -90,18 +93,18 @@ export default function TemplatesTab() {
   // Python으로 치면: async def delete(self, template_id): ...
   // -----------------------------------------------
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`"${name}" 템플릿을 삭제할까요?`)) return
+    if (!confirm(`"${name}" - ${t.settings.templates.deleteConfirm}`)) return
     try {
       await templateApi.delete(id)
-      setTemplates(prev => prev.filter(t => t.id !== id))
+      setTemplates(prev => prev.filter(tmpl => tmpl.id !== id))
       // 삭제된 항목을 편집 중이었으면 폼 닫기
       if (editingId === id) {
         setEditingId(null)
         setForm(EMPTY_FORM)
       }
-      toast.success('템플릿이 삭제됐습니다.')
+      toast.success(t.settings.templates.deleteSuccess)
     } catch {
-      toast.error('삭제 중 오류가 발생했습니다.')
+      toast.error(t.settings.templates.deleteError)
     }
   }
 
@@ -109,9 +112,9 @@ export default function TemplatesTab() {
   // 편집 모드 시작 — 기존 값을 폼에 채움
   // Python으로 치면: def start_edit(self, template): self.form = template
   // -----------------------------------------------
-  function startEdit(t: Template) {
-    setEditingId(t.id)
-    setForm({ name: t.name, icon: t.icon, description: t.description, content: t.content })
+  function startEdit(tmpl: Template) {
+    setEditingId(tmpl.id)
+    setForm({ name: tmpl.name, icon: tmpl.icon, description: tmpl.description, content: tmpl.content })
   }
 
   // -----------------------------------------------
@@ -127,7 +130,7 @@ export default function TemplatesTab() {
   // Python으로 치면: def on_visual_save(saved): update_list(saved)
   function handleVisualSave(saved: Template) {
     setTemplates(prev => {
-      const idx = prev.findIndex(t => t.id === saved.id)
+      const idx = prev.findIndex(tmpl => tmpl.id === saved.id)
       if (idx !== -1) {
         // 기존 수정
         const next = [...prev]
@@ -158,9 +161,9 @@ export default function TemplatesTab() {
       {/* 헤더 */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-gray-700">템플릿 관리</h3>
+          <h3 className="text-sm font-semibold text-gray-700">{t.settings.templates.title}</h3>
           <p className="text-xs text-gray-400 mt-0.5">
-            마크다운으로 템플릿을 작성하면 새 페이지에 자동으로 블록이 채워집니다
+            {t.settings.templates.titleDesc}
           </p>
         </div>
         {/* 새 템플릿 버튼들 — 편집 중이 아닐 때만 표시 */}
@@ -172,7 +175,7 @@ export default function TemplatesTab() {
               onClick={() => { setEditingId('new'); setForm(EMPTY_FORM) }}
               className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
-              + 마크다운 템플릿
+              {t.settings.templates.newMarkdown}
             </button>
             {/* 비주얼 그리드 템플릿 */}
             <button
@@ -180,7 +183,7 @@ export default function TemplatesTab() {
               onClick={() => { setEditingVisualTemplate(undefined); setVisualEditorOpen(true) }}
               className="px-3 py-1.5 text-xs bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
             >
-              🎨 비주얼 템플릿
+              {t.settings.templates.newVisual}
             </button>
           </div>
         )}
@@ -190,7 +193,7 @@ export default function TemplatesTab() {
       {editingId !== null && (
         <div className="border border-blue-200 rounded-xl bg-blue-50 p-4 space-y-3">
           <p className="text-xs font-semibold text-blue-700">
-            {editingId === 'new' ? '새 템플릿 작성' : '템플릿 수정'}
+            {editingId === 'new' ? t.settings.templates.createTitle : t.settings.templates.editTitle}
           </p>
 
           {/* 이름 + 아이콘 */}
@@ -201,7 +204,7 @@ export default function TemplatesTab() {
               value={form.icon}
               onChange={e => setForm(f => ({ ...f, icon: e.target.value.slice(-2) || '📄' }))}
               className="w-12 text-center text-xl border border-gray-300 rounded-lg px-1 py-1.5 bg-white outline-none focus:border-blue-400"
-              title="아이콘 이모지"
+              title={t.settings.templates.iconLabel}
               maxLength={2}
             />
             {/* 템플릿 이름 */}
@@ -209,7 +212,7 @@ export default function TemplatesTab() {
               type="text"
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="템플릿 이름 (예: 회의록)"
+              placeholder={t.settings.templates.namePlaceholder}
               className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white outline-none focus:border-blue-400"
             />
           </div>
@@ -219,7 +222,7 @@ export default function TemplatesTab() {
             type="text"
             value={form.description}
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            placeholder="설명 (선택)"
+            placeholder={t.settings.templates.descPlaceholder}
             className="w-full text-xs border border-gray-300 rounded-lg px-3 py-1.5 bg-white outline-none focus:border-blue-400"
           />
 
@@ -227,7 +230,7 @@ export default function TemplatesTab() {
           {/* Python으로 치면: self.content_textarea = QTextEdit() */}
           <div>
             <p className="text-xs text-gray-500 mb-1">
-              내용 (마크다운 형식) — <span className="font-mono text-gray-400"># 제목1 / ## 제목2 / - 항목 / - [ ] 할일 / --- 구분선</span>
+              {t.settings.templates.contentDesc} — <span className="font-mono text-gray-400"># 제목1 / ## 제목2 / - 항목 / - [ ] 할일 / --- 구분선</span>
             </p>
             <textarea
               value={form.content}
@@ -246,7 +249,7 @@ export default function TemplatesTab() {
               onClick={handleCancel}
               className="px-3 py-1.5 text-xs text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              취소
+              {t.settings.templates.cancelBtn}
             </button>
             <button
               type="button"
@@ -254,7 +257,7 @@ export default function TemplatesTab() {
               disabled={saving}
               className="px-4 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
             >
-              {saving ? '저장 중...' : '저장'}
+              {saving ? t.settings.templates.saving : t.settings.templates.saveBtn}
             </button>
           </div>
         </div>
@@ -264,67 +267,67 @@ export default function TemplatesTab() {
       {templates.length === 0 && editingId === null && (
         <div className="text-center py-10 text-gray-400 text-sm">
           <p className="text-2xl mb-2">📄</p>
-          <p>아직 템플릿이 없습니다.</p>
-          <p className="text-xs mt-1">위의 "새 템플릿" 버튼으로 추가하세요.</p>
+          <p>{t.settings.templates.noTemplates}</p>
+          <p className="text-xs mt-1">{t.settings.templates.noTemplatesHint}</p>
         </div>
       )}
 
       <div className="space-y-2">
-        {templates.map(t => (
+        {templates.map(tmpl => (
           <div
-            key={t.id}
+            key={tmpl.id}
             className="border border-gray-200 rounded-xl bg-white overflow-hidden"
           >
             {/* 템플릿 행 */}
             <div className="flex items-center justify-between px-4 py-3">
               <div className="flex items-center gap-2.5 min-w-0">
-                <span className="text-xl shrink-0">{t.icon}</span>
+                <span className="text-xl shrink-0">{tmpl.icon}</span>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{t.name}</p>
-                  {t.description && (
-                    <p className="text-xs text-gray-400 truncate">{t.description}</p>
+                  <p className="text-sm font-medium text-gray-800 truncate">{tmpl.name}</p>
+                  {tmpl.description && (
+                    <p className="text-xs text-gray-400 truncate">{tmpl.description}</p>
                   )}
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0 ml-3">
                 {/* 그리드 템플릿 배지 */}
-                {isGridTemplate(t.content) && (
+                {isGridTemplate(tmpl.content) && (
                   <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-600 rounded-md">
-                    그리드
+                    {t.settings.templates.gridBadge}
                   </span>
                 )}
                 {/* 비주얼 편집 버튼 (그리드 템플릿만) */}
-                {isGridTemplate(t.content) ? (
+                {isGridTemplate(tmpl.content) ? (
                   <button
                     type="button"
-                    onClick={() => { setEditingVisualTemplate(t); setVisualEditorOpen(true) }}
+                    onClick={() => { setEditingVisualTemplate(tmpl); setVisualEditorOpen(true) }}
                     disabled={editingId !== null}
                     className="px-2.5 py-1 text-xs text-purple-600 bg-purple-50 rounded-md hover:bg-purple-100 transition-colors disabled:opacity-30"
                   >
-                    비주얼 편집
+                    {t.settings.templates.gridEdit}
                   </button>
                 ) : (
                   <button
                     type="button"
-                    onClick={() => startEdit(t)}
-                    disabled={editingId !== null && editingId !== t.id}
+                    onClick={() => startEdit(tmpl)}
+                    disabled={editingId !== null && editingId !== tmpl.id}
                     className="px-2.5 py-1 text-xs text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors disabled:opacity-30"
                   >
-                    편집
+                    {t.settings.templates.edit}
                   </button>
                 )}
                 <button
                   type="button"
-                  onClick={() => handleDelete(t.id, t.name)}
+                  onClick={() => handleDelete(tmpl.id, tmpl.name)}
                   className="px-2.5 py-1 text-xs text-red-500 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
                 >
-                  삭제
+                  {t.common.delete}
                 </button>
               </div>
             </div>
 
             {/* 편집 폼 (인라인 확장) — 해당 템플릿 편집 시에만 표시 */}
-            {editingId === t.id && (
+            {editingId === tmpl.id && (
               <div className="border-t border-blue-200 bg-blue-50 p-4 space-y-3">
                 <div className="flex gap-2">
                   <input
@@ -338,7 +341,7 @@ export default function TemplatesTab() {
                     type="text"
                     value={form.name}
                     onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder="템플릿 이름"
+                    placeholder={t.settings.templates.namePlaceholder}
                     className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white outline-none focus:border-blue-400"
                   />
                 </div>
@@ -346,7 +349,7 @@ export default function TemplatesTab() {
                   type="text"
                   value={form.description}
                   onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="설명 (선택)"
+                  placeholder={t.settings.templates.descPlaceholder}
                   className="w-full text-xs border border-gray-300 rounded-lg px-3 py-1.5 bg-white outline-none focus:border-blue-400"
                 />
                 <textarea
@@ -362,7 +365,7 @@ export default function TemplatesTab() {
                     onClick={handleCancel}
                     className="px-3 py-1.5 text-xs text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   >
-                    취소
+                    {t.settings.templates.cancelBtn}
                   </button>
                   <button
                     type="button"
@@ -370,7 +373,7 @@ export default function TemplatesTab() {
                     disabled={saving}
                     className="px-4 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
                   >
-                    {saving ? '저장 중...' : '저장'}
+                    {saving ? t.settings.templates.saving : t.settings.templates.saveBtn}
                   </button>
                 </div>
               </div>

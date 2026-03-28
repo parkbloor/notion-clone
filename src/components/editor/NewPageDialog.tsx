@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { templateApi, Template } from '@/lib/api'
 import { usePageStore } from '@/store/pageStore'
 import { gridCellsToBlocks, isGridTemplate, GridTemplateContent } from '@/lib/templateGrid'
+import { useLocale } from '@/locales'
 
 interface NewPageDialogProps {
   categoryId: string | null
@@ -41,6 +42,8 @@ function iconToColor(icon: string): string {
 }
 
 export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProps) {
+  // 로케일 훅
+  const t = useLocale()
 
   // 서버에서 불러온 템플릿 목록
   const [templates, setTemplates] = useState<Template[]>([])
@@ -56,7 +59,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
   useEffect(() => {
     templateApi.getAll()
       .then(setTemplates)
-      .catch(() => toast.error('템플릿 목록을 불러오지 못했습니다.'))
+      .catch(() => toast.error(t.settings.templates.loadError))
       .finally(() => setLoading(false))
   }, [])
 
@@ -77,7 +80,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
       await addPage(undefined, categoryId)
       onClose()
     } catch {
-      toast.error('페이지 생성에 실패했습니다.')
+      toast.error(t.overlay.newPage.createError)
     } finally {
       setApplying(false)
     }
@@ -108,7 +111,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
 
       onClose()
     } catch {
-      toast.error('템플릿 적용에 실패했습니다.')
+      toast.error(t.overlay.newPage.applyError)
     } finally {
       setApplying(false)
     }
@@ -126,8 +129,8 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
         {/* 헤더 */}
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
-            <h2 className="text-base font-semibold text-gray-800">새 페이지 만들기</h2>
-            <p className="text-xs text-gray-400 mt-0.5">빈 페이지로 시작하거나 템플릿을 선택하세요</p>
+            <h2 className="text-base font-semibold text-gray-800">{t.overlay.newPage.makeTitle}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{t.overlay.newPage.desc}</p>
           </div>
           <button
             type="button"
@@ -158,8 +161,8 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
               </div>
               {/* 카드 본문 */}
               <div className="p-3 bg-white flex-1">
-                <p className="text-sm font-semibold text-gray-800">빈 페이지</p>
-                <p className="text-xs text-gray-400 mt-0.5 leading-tight">아무 내용 없이 시작합니다</p>
+                <p className="text-sm font-semibold text-gray-800">{t.overlay.newPage.blank}</p>
+                <p className="text-xs text-gray-400 mt-0.5 leading-tight">{t.overlay.newPage.blankDesc}</p>
               </div>
             </button>
 
@@ -203,7 +206,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
                         'text-[10px] px-1.5 py-0.5 rounded-md',
                         isGrid ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-500',
                       ].join(' ')}>
-                        {isGrid ? '그리드' : '마크다운'}
+                        {isGrid ? t.overlay.newPage.typeGrid : t.overlay.newPage.typeMarkdown}
                       </span>
                     </div>
                   </div>
@@ -216,7 +219,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
           {/* 템플릿 없을 때 (로딩 완료 후) */}
           {!loading && templates.length === 0 && (
             <div className="text-center py-4 text-xs text-gray-400 mt-2">
-              아직 저장된 템플릿이 없습니다.
+              {t.overlay.newPage.noTemplates}
             </div>
           )}
 
@@ -230,7 +233,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-              <span>페이지 생성 중...</span>
+              <span>{t.overlay.newPage.creating}</span>
             </div>
           </div>
         )}

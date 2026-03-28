@@ -47,6 +47,7 @@ export interface PluginSettings {
   chart: boolean           // 차트 블록 (Bar / Line / Pie)
   gantt: boolean           // 타임라인/갠트 차트 블록
   mindmap: boolean         // AI 마인드맵 블록 (방사형 트리 + AI 채팅)
+  globalAiChat: boolean    // 우하단 글로벌 AI 채팅 플로팅 버튼
 }
 
 // -----------------------------------------------
@@ -82,6 +83,13 @@ export interface SettingsStore {
   // ── 집중 모드 활성 여부 (앱 재시작 시 초기화 — localStorage 저장 안 함) ──
   // Python으로 치면: self._focus_mode_active: bool = False  # volatile
   isFocusMode: boolean
+
+  // ── 날씨 위치 설정 ─────────────────────────────
+  // Day Planner / Weekly Planner 날씨 자동 fetch에 사용하는 도시명
+  // 한 번 설정하면 모든 플래너 블록에서 공유 (localStorage 영속)
+  // Python으로 치면: self.weather_location: str = ''
+  weatherLocation: string
+  setWeatherLocation: (loc: string) => void
 
   // ── AI 설정 ─────────────────────────────────
   // 제공자: 'openai' | 'claude' | 'ollama'
@@ -122,6 +130,12 @@ export interface SettingsStore {
   layoutDefaultOrientation: 'portrait' | 'landscape'  // 새 레이아웃 블록 기본 방향
   layoutDefaultTemplate: string                        // 기본 템플릿 ID (빈 문자열 = 피커 표시)
   customLayoutTemplates: CustomLayoutTemplate[]        // 사용자 정의 템플릿 목록
+
+  // ── 언어 설정 ───────────────────────────────
+  // 지원 로케일: 'ko' | 'en' — 새 언어 추가 시 src/locales/ 에 파일 추가 후 여기도 확장
+  // Python으로 치면: self.locale: str = 'ko'
+  locale: 'ko' | 'en'
+  setLocale: (locale: 'ko' | 'en') => void
 
   // ── 액션 ────────────────────────────────────
   // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
@@ -260,6 +274,7 @@ export const useSettingsStore = create<SettingsStore>()(
         chart:            true,   // 기본값: 차트 블록 ON
         gantt:            true,   // 기본값: 갠트 블록 ON
         mindmap:          true,   // 기본값: AI 마인드맵 블록 ON
+        globalAiChat:     true,   // 기본값: 글로벌 AI 채팅 버튼 ON
       },
       // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
       isFocusMode: false,
@@ -273,6 +288,10 @@ export const useSettingsStore = create<SettingsStore>()(
       layoutDefaultOrientation: 'portrait',
       layoutDefaultTemplate: '',
       customLayoutTemplates: [],
+      // 언어 기본값 — 한국어
+      // Python으로 치면: self.locale = 'ko'
+      locale: 'ko',
+      weatherLocation: '',
       aiProvider: 'openai',
       aiModel: 'gpt-4o-mini',
       aiApiKey: '',
@@ -380,6 +399,14 @@ export const useSettingsStore = create<SettingsStore>()(
           state.customLayoutTemplates = state.customLayoutTemplates.filter(t => t.id !== id)
         })
       },
+
+      // ── 날씨 위치 변경 ───────────────────────
+      // Python으로 치면: def set_weather_location(self, loc): self.weather_location = loc
+      setWeatherLocation: (loc) => { set((state) => { state.weatherLocation = loc }) },
+
+      // ── 언어 변경 ────────────────────────────
+      // Python으로 치면: def set_locale(self, l): self.locale = l
+      setLocale: (locale) => { set((state) => { state.locale = locale }) },
 
       // ── AI 설정 변경 ─────────────────────────
       // Python으로 치면: def set_ai_provider(self, p): self.ai_provider = p

@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useId } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { useLocale } from '@/locales'
 
 interface MermaidBlockProps {
   block: Block
@@ -17,17 +18,18 @@ interface MermaidBlockProps {
 }
 
 export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
+  const t = useLocale()
   const { updateBlock } = usePageStore()
 
   // -----------------------------------------------
   // 편집 모드 초기값: 내용 비어있으면 바로 편집 모드로 시작
   // Python으로 치면: self.is_editing = not bool(block.content.strip())
   // -----------------------------------------------
-  const [isEditing, setIsEditing] = useState(!block.content.trim())
+  const [isEditing, setIsEditing] = useState(!block.content?.trim())
 
   // 로컬 Mermaid 코드 (저장 전 실시간 편집용)
   // Python으로 치면: self.code = block.content
-  const [code, setCode] = useState(block.content)
+  const [code, setCode] = useState(block.content ?? '')
 
   // 렌더링된 SVG HTML 문자열
   // Python으로 치면: self.svg_html = ''
@@ -50,7 +52,7 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
   // Python으로 치면: async def render_mermaid(code): return await mermaid.render(id, code)
   // -----------------------------------------------
   useEffect(() => {
-    if (!code.trim()) {
+    if (!code || !code.trim()) {
       setSvgHtml('')
       setError('')
       return
@@ -89,7 +91,7 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
         cleanupMermaidDom()
         if (!cancelled) {
           setSvgHtml('')
-          setError(e instanceof Error ? e.message.replace(/^Error:\s*/i, '') : '다이어그램 파싱 오류')
+          setError(e instanceof Error ? e.message.replace(/^Error:\s*/i, '') : t.blocks.mermaid.renderError)
         }
       }
     }
@@ -145,7 +147,7 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
         {/* 헤더 라벨 */}
         <div className="flex items-center gap-1.5 text-xs text-purple-500 font-medium">
           <span>📊</span>
-          <span>Mermaid 다이어그램</span>
+          <span>{t.blocks.mermaid.label}</span>
         </div>
 
         {/* Mermaid 코드 입력 textarea */}
@@ -169,14 +171,14 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
           />
         )}
 
-        {/* 파싱 오류 메시지 */}
-        {error && (
+        {/* 파싱 오류 메시지 — 코드가 있을 때만 표시 */}
+        {error && code.trim() && (
           <p className="text-xs text-red-500 font-mono whitespace-pre-wrap">{error}</p>
         )}
 
         {/* 힌트 텍스트 */}
         <p className="text-xs text-purple-400">
-          Enter 또는 포커스 이탈로 저장 · Escape로 취소 · Shift+Enter로 줄바꿈
+          {t.blocks.mermaid.hint}
         </p>
       </div>
     )
@@ -191,7 +193,7 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
       onClick={() => setIsEditing(true)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setIsEditing(true) }}
       className="group rounded-xl border border-transparent hover:border-gray-200 hover:bg-gray-50 py-3 px-4 cursor-pointer transition-colors"
-      title="클릭하여 다이어그램 편집"
+      title={t.blocks.mermaid.clickToEdit}
     >
       {svgHtml ? (
         // Mermaid SVG 렌더링 결과 출력
@@ -199,13 +201,13 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
           className="overflow-x-auto flex justify-center"
           dangerouslySetInnerHTML={{ __html: svgHtml }}
         />
-      ) : error ? (
-        // 오류 상태
+      ) : (error && code.trim()) ? (
+        // 오류 상태 — 코드가 있을 때만 표시
         <p className="text-red-400 text-sm text-center font-mono">{error}</p>
       ) : (
         // 비어있는 다이어그램 블록 플레이스홀더
         <p className="text-gray-400 text-sm text-center select-none">
-          📊 다이어그램을 입력하려면 클릭하세요 (Mermaid)
+          {t.blocks.mermaid.clickHint}
         </p>
       )}
     </div>

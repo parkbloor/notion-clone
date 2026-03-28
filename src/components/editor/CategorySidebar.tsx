@@ -13,6 +13,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useLocale } from '@/locales'
 import { Category, Page } from '@/types/block'
 import CalendarWidget from './CalendarWidget'
 import PeriodicNotesPanel from './PeriodicNotesPanel'
@@ -39,14 +40,14 @@ import { Table2, Folder, ChevronsDown, ChevronsUp, GitFork } from 'lucide-react'
 // Python으로 치면: DEPTH_STYLES: list[dict] = [...]
 // -----------------------------------------------
 const DEPTH_STYLES = [
-  // depth 0: 최상위 — 반투명 배경 + 폰트 굵게로 계층 최상위 강조
-  { dot: '', folder: 'text-gray-500', normal: 'font-semibold text-gray-700 hover:bg-gray-200/70', selected: 'bg-gray-200 text-gray-900 font-semibold', over: 'bg-blue-100 text-blue-800' },
-  // depth 1 — 파란 계열
-  { dot: 'bg-blue-400', folder: 'text-blue-400', normal: 'text-blue-600 hover:bg-blue-50', selected: 'bg-blue-100 text-blue-900', over: 'bg-blue-200 text-blue-900' },
-  // depth 2 — 보라 계열
-  { dot: 'bg-violet-400', folder: 'text-violet-500', normal: 'text-violet-600 hover:bg-violet-50', selected: 'bg-violet-100 text-violet-900', over: 'bg-violet-200 text-violet-900' },
-  // depth 3+ — 초록 계열
-  { dot: 'bg-teal-400', folder: 'text-teal-500', normal: 'text-teal-600 hover:bg-teal-50', selected: 'bg-teal-100 text-teal-900', over: 'bg-teal-200 text-teal-900' },
+  // depth 0: 최상위 — 모노크롬, 살짝 굵은 폰트
+  { dot: '', folder: 'text-gray-400', normal: 'font-medium text-gray-700 hover:bg-gray-100', selected: 'bg-gray-200 text-gray-900 font-medium', over: 'bg-blue-50 text-blue-700' },
+  // depth 1 — 모노크롬
+  { dot: 'bg-gray-300', folder: 'text-gray-400', normal: 'text-gray-600 hover:bg-gray-100', selected: 'bg-gray-200 text-gray-900', over: 'bg-blue-50 text-blue-700' },
+  // depth 2 — 모노크롬
+  { dot: 'bg-gray-300', folder: 'text-gray-400', normal: 'text-gray-600 hover:bg-gray-100', selected: 'bg-gray-200 text-gray-900', over: 'bg-blue-50 text-blue-700' },
+  // depth 3+ — 모노크롬
+  { dot: 'bg-gray-300', folder: 'text-gray-400', normal: 'text-gray-600 hover:bg-gray-100', selected: 'bg-gray-200 text-gray-900', over: 'bg-blue-50 text-blue-700' },
 ] as const
 
 // -----------------------------------------------
@@ -55,7 +56,7 @@ const DEPTH_STYLES = [
 // Python으로 치면: GUIDE_COLORS = {0: gray, 1: blue, 2: violet, 3+: teal}
 // -----------------------------------------------
 // depth별 기본 가이드 라인 색 — 폴더 커스텀 색상 없을 때 사용, 기존보다 더 진하게
-const GUIDE_COLORS = ['#d1d5db', '#93c5fd', '#c4b5fd', '#5eead4'] as const
+const GUIDE_COLORS = ['#d1d5db', '#d1d5db', '#d1d5db', '#d1d5db'] as const
 
 
 // -----------------------------------------------
@@ -125,6 +126,8 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
   const menuRef = useRef<HTMLDivElement>(null)
   // 즐겨찾기 토글 — 메뉴 내부에서 직접 스토어 접근
   const { togglePageStar } = usePageStore()
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
 
   // 템플릿 저장 폼 표시 여부
   const [showSaveForm, setShowSaveForm] = useState(false)
@@ -153,10 +156,10 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
         description: templateDesc.trim(),
         content: blocksToMarkdown(page),
       })
-      toast.success(`"${templateName.trim()}" 템플릿으로 저장됐어요!`)
+      toast.success(`"${templateName.trim()}" ${t.common.saveAsTemplate}!`)
       onClose()
     } catch {
-      toast.error('템플릿 저장에 실패했습니다.')
+      toast.error(t.settings.templates.deleteConfirm)
       setIsSaving(false)
     }
   }
@@ -179,19 +182,19 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
       {showSaveForm ? (
         /* ── 템플릿 저장 폼 ── */
         <div className="px-3 py-2 space-y-2">
-          <p className="text-xs font-medium text-gray-600">템플릿으로 저장</p>
+          <p className="text-xs font-medium text-gray-600">{t.common.saveAsTemplate}</p>
           <input
             type="text" autoFocus
             value={templateName} onChange={e => setTemplateName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSaveAsTemplate(); if (e.key === 'Escape') setShowSaveForm(false) }}
-            placeholder="템플릿 이름"
+            placeholder={t.common.templateName}
             className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-400"
           />
           <input
             type="text"
             value={templateDesc} onChange={e => setTemplateDesc(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSaveAsTemplate(); if (e.key === 'Escape') setShowSaveForm(false) }}
-            placeholder="설명 (선택)"
+            placeholder={t.common.templateDesc}
             className="w-full px-2 py-1 text-xs border border-gray-300 rounded outline-none focus:border-blue-400"
           />
           <div className="flex gap-1.5">
@@ -200,13 +203,13 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
               disabled={!templateName.trim() || isSaving}
               className="flex-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
             >
-              {isSaving ? '저장 중...' : '저장'}
+              {isSaving ? t.common.saving : t.common.save}
             </button>
             <button
               type="button" onClick={() => setShowSaveForm(false)}
               className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
             >
-              취소
+              {t.common.cancel}
             </button>
           </div>
         </div>
@@ -219,27 +222,27 @@ function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
             >
               <span>{page.starred ? '★' : '☆'}</span>
-              <span>{page.starred ? '즐겨찾기 해제' : '즐겨찾기 추가'}</span>
+              <span>{page.starred ? t.common.removeFavorite : t.common.addFavorite}</span>
             </button>
             <div className="my-1 border-t border-gray-100" />
             <button
               onClick={() => { onDuplicate(); onClose() }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
             >
-              <span>📋</span><span>복제</span>
+              <span>📋</span><span>{t.common.duplicate}</span>
             </button>
             <button
               onClick={() => setShowSaveForm(true)}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-600 hover:bg-gray-50"
             >
-              <span>📑</span><span>템플릿으로 저장</span>
+              <span>📑</span><span>{t.common.saveAsTemplate}</span>
             </button>
             <div className="my-1 border-t border-gray-100" />
             <button
               onClick={() => { onDelete(); onClose() }}
               className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-red-500 hover:bg-red-50"
             >
-              <span>🗑️</span><span>삭제</span>
+              <span>🗑️</span><span>{t.common.delete}</span>
             </button>
           </div>
         </>
@@ -272,6 +275,8 @@ interface DraggablePageRowProps {
 function DraggablePageRow({
   page, depth, isSelected, collapsed, onSelect, onDelete, onDuplicate, onSplitPage, searchCategoryName,
 }: DraggablePageRowProps) {
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: page.id,
     data: { type: 'page', pageId: page.id },
@@ -295,7 +300,7 @@ function DraggablePageRow({
             if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(); return }
             onSelect()
           }}
-          title={page.title || '제목 없음 (Ctrl+클릭: 분할 뷰)'}
+          title={(page.title || t.common.untitled) + ' ' + t.sidebar.ctrlClickSplitView}
           className={isSelected
             ? "w-full flex items-center justify-center py-1.5 rounded-md text-base bg-gray-200"
             : "w-full flex items-center justify-center py-1.5 rounded-md text-base text-gray-500 hover:bg-gray-100"}
@@ -321,7 +326,7 @@ function DraggablePageRow({
         className="shrink-0 text-gray-300 cursor-grab opacity-0 group-hover:opacity-100 text-xs"
         {...attributes}
         {...listeners}
-        title="드래그하여 폴더로 이동"
+        title={t.sidebar.dragToFolder}
       >
         ⠿
       </span>
@@ -345,13 +350,13 @@ function DraggablePageRow({
           setMenuAnchor({ x: safeX, y: safeY })
           setMenuOpen(true)
         }}
-        title={`${page.title || '제목 없음'} (Ctrl+클릭: 분할 뷰)`}
+        title={`${page.title || t.common.untitled} ${t.sidebar.ctrlClickSplitView}`}
         className={isSelected
-          ? "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left bg-blue-100 text-blue-900"
+          ? "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left bg-gray-200 text-gray-900"
           : "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left text-gray-600 hover:bg-gray-100 transition-colors"}
       >
         <span className="text-sm shrink-0">{page.icon}</span>
-        <span className="truncate flex-1">{page.title || '제목 없음'}</span>
+        <span className="truncate flex-1">{page.title || t.common.untitled}</span>
         {/* 검색 중일 때: 소속 폴더 배지 */}
         {searchCategoryName && (
           <span className="shrink-0 text-[10px] text-blue-500 bg-blue-50 px-1 py-0.5 rounded leading-tight">
@@ -380,7 +385,7 @@ function DraggablePageRow({
             setMenuOpen(v => !v)
           }}
           className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-all text-xs"
-          title="옵션"
+          title={t.sidebar.options}
         >
           •••
         </button>
@@ -430,10 +435,10 @@ interface CategoryRowUIProps {
 
 // 폴더 색상 팔레트 — 그룹별 구조 (기본 / 파스텔 / 형광)
 // null = 기본(depth 색상 자동 적용)
-// Python으로 치면: FOLDER_COLOR_GROUPS = [{'label': '기본', 'colors': [...]}, ...]
-const FOLDER_COLOR_GROUPS: { label: string; colors: (string | null)[] }[] = [
+// Python으로 치면: FOLDER_COLOR_GROUPS = [{'id': 'colorGroupBasic', 'colors': [...]}, ...]
+const FOLDER_COLOR_GROUPS: { id: string; colors: (string | null)[] }[] = [
   {
-    label: '기본',
+    id: 'colorGroupBasic',
     colors: [
       null,       // 기본 (depth 색상)
       '#6b7280',  // 회색
@@ -447,7 +452,7 @@ const FOLDER_COLOR_GROUPS: { label: string; colors: (string | null)[] }[] = [
     ],
   },
   {
-    label: '파스텔',
+    id: 'colorGroupPastel',
     colors: [
       '#fca5a5',  // 파스텔 빨강
       '#fdba74',  // 파스텔 주황
@@ -460,7 +465,7 @@ const FOLDER_COLOR_GROUPS: { label: string; colors: (string | null)[] }[] = [
     ],
   },
   {
-    label: '형광',
+    id: 'colorGroupNeon',
     colors: [
       '#ff4d4d',  // 형광 빨강
       '#ff8c00',  // 형광 주황
@@ -481,6 +486,8 @@ function CategoryRowUI({
 }: CategoryRowUIProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editValue, setEditValue] = useState(category.name)
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
 
   // ── 우클릭 컨텍스트 메뉴 상태 ──────────────────
   // Python으로 치면: self.ctx_menu_pos: tuple[int,int] | None = None
@@ -554,7 +561,7 @@ function CategoryRowUI({
             setCtxMenu({ x: e.clientX, y: e.clientY })
           }}
           className={isOver ? overBtn : isSelected ? selectedBtn : normalBtn}
-          title="더블클릭으로 이름 변경"
+          title={t.sidebar.renameFolderHint}
           style={{ opacity: isDragging ? 0.4 : 1 }}
         >
           {/* 드래그 핸들 (최상위 depth=0만) */}
@@ -622,7 +629,7 @@ function CategoryRowUI({
             type="button"
             onClick={(e) => { e.stopPropagation(); onAddPage() }}
             className="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all text-xs"
-            title="이 폴더에 메모 추가"
+            title={t.sidebar.addPageToFolder}
           >
             📄
           </button>
@@ -631,7 +638,7 @@ function CategoryRowUI({
             type="button"
             onClick={(e) => { e.stopPropagation(); onAddChild() }}
             className="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition-all text-xs font-bold"
-            title="하위 폴더 추가"
+            title={t.sidebar.addSubfolder}
           >
             +
           </button>
@@ -640,7 +647,7 @@ function CategoryRowUI({
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete() }}
             className="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all text-xs"
-            title="폴더 삭제"
+            title={t.sidebar.deleteFolder}
           >
             ✕
           </button>
@@ -665,19 +672,19 @@ function CategoryRowUI({
               actions: [
                 {
                   id: 'rename',
-                  label: '이름 바꾸기',
+                  label: t.sidebar.renameFolder,
                   icon: '✏️',
                   onClick: () => { setIsEditing(true); setEditValue(category.name) },
                 },
                 {
                   id: 'add-page',
-                  label: '메모 추가',
+                  label: t.sidebar.addPageToFolder,
                   icon: '📄',
                   onClick: onAddPage,
                 },
                 {
                   id: 'add-child',
-                  label: '하위 폴더 추가',
+                  label: t.sidebar.addSubfolder,
                   icon: '📁',
                   onClick: onAddChild,
                 },
@@ -685,7 +692,7 @@ function CategoryRowUI({
             },
             {
               id: 'folder-color',
-              title: '폴더 색상',
+              title: t.sidebar.folderColor,
               // ContextMenu의 actions 대신 custom 렌더링을 위해 빈 배열 + 별도 UI
               actions: [],
               // custom 슬롯: 그룹별 색상 팔레트를 직접 렌더링 (기본 / 파스텔 / 형광)
@@ -693,14 +700,14 @@ function CategoryRowUI({
               customRender: (
                 <div className="px-3 py-1.5 space-y-1.5" onMouseDown={e => e.stopPropagation()}>
                   {FOLDER_COLOR_GROUPS.map(group => (
-                    <div key={group.label}>
-                      <div className="text-[10px] text-gray-400 mb-1">{group.label}</div>
+                    <div key={group.id}>
+                      <div className="text-[10px] text-gray-400 mb-1">{(t.sidebar as Record<string, string>)[group.id]}</div>
                       <div className="flex flex-wrap gap-1">
                         {group.colors.map((c, i) => (
                           <button
                             key={i}
                             type="button"
-                            title={c ?? '기본 색상'}
+                            title={c ?? t.sidebar.folderColorDefault}
                             onClick={() => { onColorChange(c) }}
                             className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
                             style={{
@@ -722,7 +729,7 @@ function CategoryRowUI({
               actions: [
                 {
                   id: 'delete',
-                  label: '폴더 삭제',
+                  label: t.sidebar.deleteFolder,
                   icon: '🗑️',
                   danger: true,
                   onClick: onDelete,
@@ -901,6 +908,10 @@ export default function CategorySidebar({
     setSidebarWidth,
   } = useSettingsStore()
 
+  // 번역 훅
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
+
   // ── 컴포넌트 상태 ────────────────────────────
   // 펼쳐진 폴더 ID 집합 — localStorage에서 복원, 변경 시 자동 저장
   // Python으로 치면: expanded_folder_ids: set[str] = load_from_storage()
@@ -952,6 +963,10 @@ export default function CategorySidebar({
 
   // 새 페이지 다이얼로그 (템플릿 선택 포함)
   const [newPageDialogOpen, setNewPageDialogOpen] = useState(false)
+
+  // 사이드바 상단 탭: 노트 / 계획
+  // Python으로 치면: self.sidebar_tab = 'notes'
+  const [sidebarTab, setSidebarTab] = useState<'notes' | 'plan'>('notes')
 
   // SSR hydration 안전 마운트 플래그 (최근 파일 섹션용)
   // Python으로 치면: self.mounted = False; def on_mount(self): self.mounted = True
@@ -1023,14 +1038,21 @@ export default function CategorySidebar({
         })
       : null
 
+  // ── 주기적 노트 접두사 (검색 필터에서도 제외) ──
+  // 노트 탭에서는 계획 노트를 숨김, 검색 시에도 동일하게 처리
+  // Python으로 치면: PERIODIC_PREFIXES = ['일간 노트 ', ...]
+  const PERIODIC_SEARCH_PREFIXES = ['일간 노트 ', '주간 노트 ', '월간 노트 ', '분기 노트 ', '연간 노트 ']
+  const isPeriodicNote = (title: string) => PERIODIC_SEARCH_PREFIXES.some(p => title.startsWith(p))
+
   // ── 태그 필터 적용 ────────────────────────────
   // selectedTags가 있으면 검색/날짜 결과(또는 전체)에 추가 필터 적용 (OR 조건: 어느 한 태그라도 포함)
+  // 주기적 노트는 결과에서 제외 (계획 탭 전용)
   // Python으로 치면: if selected_tags: base = [p for p in base if any(t in p.tags for t in selected_tags)]
   const displayPages: Page[] | null = selectedTags.size > 0
-    ? (filteredSearchPages ?? pages).filter(p =>
-        [...selectedTags].some(tag => (p.tags ?? []).includes(tag))
-      )
-    : filteredSearchPages
+    ? (filteredSearchPages ?? pages)
+        .filter(p => !isPeriodicNote(p.title))
+        .filter(p => [...selectedTags].some(tag => (p.tags ?? []).includes(tag)))
+    : filteredSearchPages?.filter(p => !isPeriodicNote(p.title)) ?? null
 
   // 검색/날짜/태그 필터 활성 여부
   const isFiltering = displayPages !== null
@@ -1178,14 +1200,14 @@ export default function CategorySidebar({
                 if (e.key === 'Escape') { setAddingChildOf(null); setChildFolderName('') }
               }}
               onBlur={() => { if (!childFolderName.trim()) setAddingChildOf(null) }}
-              placeholder="하위 폴더 이름..."
+              placeholder={t.sidebar.subfolderPlaceholder}
               className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-gray-300 rounded outline-none"
             />
             <button
               onClick={() => handleAddChildFolder(catId)}
               className="px-1.5 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 shrink-0"
             >
-              확인
+              {t.common.confirm}
             </button>
           </div>
         )}
@@ -1242,14 +1264,14 @@ export default function CategorySidebar({
                     if (e.key === 'Escape') { setAddingPageInCat(null); setNewPageName('') }
                   }}
                   onBlur={() => { if (!newPageName.trim()) setAddingPageInCat(null) }}
-                  placeholder="메모 이름..."
+                  placeholder={t.sidebar.newNote + '...'}
                   className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-gray-300 rounded outline-none"
                 />
                 <button
                   onClick={() => handleAddPageInCat(catId)}
                   className="px-1.5 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 shrink-0"
                 >
-                  확인
+                  {t.common.confirm}
                 </button>
               </div>
             )}
@@ -1266,23 +1288,38 @@ export default function CategorySidebar({
     )
   }
 
-  // 최상위 폴더 순서대로 정렬
+  // ── 주기적 노트 카테고리 이름 목록 ────────────────
+  // 노트 탭 폴더 트리에서 숨김 — 계획 탭 전용
+  // Python으로 치면: PERIODIC_CAT_NAMES = {'📅 일간 노트', ...}
+  const PERIODIC_CAT_NAMES = new Set([
+    '📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트', '📊 분기 노트', '🌟 연간 노트',
+  ])
+
+  // 주기적 노트 페이지 제목 접두사 (미분류에서도 숨김)
+  // Python으로 치면: PERIODIC_PAGE_PREFIXES = ['일간 노트 ', ...]
+  const PERIODIC_PAGE_PREFIXES = ['일간 노트 ', '주간 노트 ', '월간 노트 ', '분기 노트 ', '연간 노트 ']
+  const isPeriodicPage = (title: string) => PERIODIC_PAGE_PREFIXES.some(p => title.startsWith(p))
+
+  // 최상위 폴더 순서대로 정렬 — 주기적 노트 카테고리 제외 (계획 탭에서 관리)
+  // Python으로 치면: [cat for cat in ordered if cat.name not in PERIODIC_CAT_NAMES]
   const orderedTopFolders = categoryOrder
     .map(id => categories.find(c => c.id === id))
-    .filter(Boolean) as Category[]
+    .filter(Boolean)
+    .filter(cat => !PERIODIC_CAT_NAMES.has((cat as Category).name)) as Category[]
 
-  // 미분류 페이지 (categoryId가 null)
-  const uncategorizedPages = getPagesInCat(null)
+  // 미분류 페이지 (categoryId가 null) — 주기적 노트 페이지 제외
+  // Python으로 치면: [p for p in uncategorized if not is_periodic(p.title)]
+  const uncategorizedPages = getPagesInCat(null).filter(p => !isPeriodicPage(p.title))
 
   // ── 접힘 모드 렌더링 ────────────────────────────
   if (sidebarCollapsed) {
     return (
-      <aside className="w-12 h-screen bg-gray-100 border-r border-gray-200 flex flex-col shrink-0 transition-[width] duration-200">
+      <aside className="w-12 h-screen bg-[#ede9e4] dark:bg-[#1e1e1e] flex flex-col shrink-0 transition-[width] duration-200">
         {/* 헤더: 펼치기 버튼 */}
         <div className="px-2 py-3 border-b border-gray-200 flex items-center justify-center">
           <button
             onClick={toggleSidebarCollapsed}
-            title="사이드바 펼치기"
+            title={t.sidebar.expandSidebar}
             className="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm font-bold"
           >
             ›
@@ -1294,7 +1331,7 @@ export default function CategorySidebar({
           <div ref={setAllRef}>
             <button
               onClick={() => setCurrentCategory(null)}
-              title="전체보기"
+              title={t.sidebar.allPages}
               className={isOverAll ? "w-full flex items-center justify-center py-2 rounded-md text-base bg-blue-100 text-blue-800" : currentCategoryId === null ? "w-full flex items-center justify-center py-2 rounded-md text-base bg-gray-200 text-gray-900" : "w-full flex items-center justify-center py-2 rounded-md text-base text-gray-600 hover:bg-gray-100"}
             >
               📋
@@ -1318,7 +1355,7 @@ export default function CategorySidebar({
         <div className="mt-auto px-1.5 py-3 border-t border-gray-200 flex flex-col gap-1">
           <button
             onClick={() => setNewPageDialogOpen(true)}
-            title="새 메모"
+            title={t.sidebar.newNote}
             className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
           >
             📄
@@ -1326,7 +1363,7 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            title="설정"
+            title={t.sidebar.settings}
             className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
           >
             ⚙️
@@ -1334,7 +1371,7 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={onOpenTrash}
-            title="휴지통"
+            title={t.sidebar.trash}
             className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
           >
             🗑️
@@ -1353,15 +1390,15 @@ export default function CategorySidebar({
     <>
       <aside
         style={{ width: `${sidebarWidth}px` }}
-        className="h-screen bg-gray-50 border-r border-gray-200 flex flex-col shrink-0 relative"
+        className="h-screen bg-[#ede9e4] dark:bg-[#1e1e1e] flex flex-col shrink-0 relative"
       >
 
         {/* ── 헤더 ────────────────────────────────── */}
-        <div className="px-2 py-2.5 border-b border-gray-200 flex items-center gap-1">
+        <div className="px-2 py-2.5 border-b border-black/5 dark:border-white/5 flex items-center gap-1">
           {/* 접기 버튼 */}
           <button
             onClick={toggleSidebarCollapsed}
-            title="사이드바 접기"
+            title={t.sidebar.collapseSidebar}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm font-bold shrink-0"
           >
             ‹
@@ -1369,14 +1406,14 @@ export default function CategorySidebar({
 
           {/* 제목 */}
           <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest truncate flex-1 px-1">
-            메모
+            {t.sidebar.notes}
           </span>
 
           {/* 전체 펼치기 버튼 */}
           <button
             type="button"
             onClick={expandAllFolders}
-            title="폴더 전체 펼치기"
+            title={t.sidebar.expandAllFolders}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
           >
             <ChevronsDown size={13} />
@@ -1386,7 +1423,7 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={collapseAllFolders}
-            title="폴더 전체 접기"
+            title={t.sidebar.collapseAllFolders}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
           >
             <ChevronsUp size={13} />
@@ -1396,7 +1433,7 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={onOpenGraphView}
-            title="그래프 뷰 (Ctrl+G)"
+            title={`${t.sidebar.graphView} (Ctrl+G)`}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
           >
             <GitFork size={13} />
@@ -1406,7 +1443,7 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={onToggleDbView}
-            title="테이블 뷰"
+            title={t.sidebar.tableView}
             className={dbViewActive
               ? "flex items-center justify-center w-6 h-6 rounded-md text-blue-500 bg-blue-50 transition-colors shrink-0"
               : "flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"}
@@ -1417,7 +1454,7 @@ export default function CategorySidebar({
           {/* 새 메모 버튼 */}
           <button
             onClick={() => setNewPageDialogOpen(true)}
-            title="새 메모"
+            title={t.sidebar.newNote}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base shrink-0"
           >
             📄
@@ -1427,7 +1464,7 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            title="설정 열기"
+            title={t.sidebar.settings}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm shrink-0"
           >
             ⚙️
@@ -1436,15 +1473,60 @@ export default function CategorySidebar({
           <button
             type="button"
             onClick={onOpenTrash}
-            title="휴지통"
+            title={t.sidebar.trash}
             className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm shrink-0"
           >
             🗑️
           </button>
         </div>
 
+        {/* ── 노트 / 계획 탭 토글 ──────────────────────
+            Python으로 치면: tab_bar = TabBar(['노트', '계획']) */}
+        <div className="flex items-center px-2 py-1.5 border-b border-gray-200 gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setSidebarTab('notes')}
+            className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${sidebarTab === 'notes' ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100'}`}
+          >
+            📓 {t.sidebar.tabNotes}
+          </button>
+          <button
+            type="button"
+            onClick={() => setSidebarTab('plan')}
+            className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${sidebarTab === 'plan' ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100'}`}
+          >
+            📅 {t.sidebar.tabPlan}
+          </button>
+        </div>
+
+        {/* ===================================================== */}
+        {/* 계획 탭 — 캘린더 + PeriodicNotesPanel                   */}
+        {/* Python으로 치면: if sidebar_tab == 'plan': render_plan() */}
+        {/* ===================================================== */}
+        {sidebarTab === 'plan' && (
+          <div className="flex-1 overflow-y-auto">
+            {/* 캘린더 위젯 (플러그인 ON일 때만) */}
+            {plugins.calendar && (
+              <CalendarWidget
+                pages={pages}
+                selectedDate={selectedDate}
+                onSelectDate={(d) => { setSelectedDate(d); setSearchQuery('') }}
+              />
+            )}
+            {/* 주기적 노트 패널 — 계획 탭에서는 항상 표시 */}
+            {/* Python으로 치면: render(PeriodicNotesPanel()) */}
+            <PeriodicNotesPanel />
+          </div>
+        )}
+
+        {/* ===================================================== */}
+        {/* 노트 탭 — 검색 + 태그 + 파일 트리 + 최근파일 + 하단바    */}
+        {/* Python으로 치면: if sidebar_tab == 'notes': render_notes() */}
+        {/* ===================================================== */}
+        {sidebarTab === 'notes' && (
+          <>
         {/* ── 검색바 ───────────────────────────────── */}
-        <div className="px-2 py-2 border-b border-gray-100">
+        <div className="px-2 py-2 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white border border-gray-200 rounded-md focus-within:border-blue-400 transition-colors">
             <span className="text-gray-400 text-xs shrink-0">🔍</span>
             <input
@@ -1455,7 +1537,7 @@ export default function CategorySidebar({
               onKeyDown={(e) => {
                 if (e.key === 'Escape') { setSearchQuery(''); searchInputRef.current?.blur() }
               }}
-              placeholder="전체 메모 검색..."
+              placeholder={t.sidebar.searchPlaceholder}
               className="flex-1 text-xs bg-transparent outline-none text-gray-700 placeholder:text-gray-400"
             />
             {searchQuery && (
@@ -1476,7 +1558,6 @@ export default function CategorySidebar({
             Python으로 치면: tag_browser = TagBrowser(all_tags_with_count) */}
         {allTagsWithCount.length > 0 && (
           <div className="border-b border-gray-100 shrink-0">
-            {/* 섹션 헤더 — 클릭 시 접기/펼치기 */}
             <button
               type="button"
               onClick={() => setTagSectionOpen(v => !v)}
@@ -1484,7 +1565,7 @@ export default function CategorySidebar({
             >
               <span className="flex items-center gap-1">
                 <span>🏷</span>
-                <span>태그</span>
+                <span>{t.sidebar.tags}</span>
                 {selectedTags.size > 0 && (
                   <span className="ml-0.5 px-1 py-0 rounded-full bg-blue-500 text-white text-[9px] leading-4">
                     {selectedTags.size}
@@ -1493,8 +1574,6 @@ export default function CategorySidebar({
               </span>
               <span className="text-gray-300">{tagSectionOpen ? '▾' : '▸'}</span>
             </button>
-
-            {/* 태그 칩 목록 — 접힘 시 숨김 */}
             {tagSectionOpen && (
               <div className="px-2 pb-2">
                 <div className="flex flex-wrap gap-1">
@@ -1503,15 +1582,13 @@ export default function CategorySidebar({
                       key={tag}
                       type="button"
                       onClick={() => {
-                        // 같은 태그 재클릭 시 해제, 다중 선택 지원
-                        // Python으로 치면: selected_tags ^= {tag}
                         setSelectedTags(prev => {
                           const next = new Set(prev)
                           if (next.has(tag)) { next.delete(tag) } else { next.add(tag) }
                           return next
                         })
                       }}
-                      title={`#${tag} — ${count}개 페이지`}
+                      title={`#${tag} — ${count}${t.sidebar.pagesCountSuffix}`}
                       className={selectedTags.has(tag)
                         ? "inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-full bg-blue-500 text-white transition-colors"
                         : "inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"}
@@ -1522,14 +1599,13 @@ export default function CategorySidebar({
                     </button>
                   ))}
                 </div>
-                {/* 태그 필터 전체 해제 버튼 */}
                 {selectedTags.size > 0 && (
                   <button
                     type="button"
                     onClick={() => setSelectedTags(new Set())}
                     className="mt-1.5 text-[10px] text-blue-400 hover:text-blue-600 transition-colors"
                   >
-                    ✕ 태그 필터 해제
+                    ✕ {t.sidebar.clearTagFilter}
                   </button>
                 )}
               </div>
@@ -1537,9 +1613,7 @@ export default function CategorySidebar({
           </div>
         )}
 
-        {/* ── 태그 필터 활성 안내 배너 ─────────────────
-            태그가 선택됐을 때 현재 보고 있는 필터 상태를 명확히 표시
-            Python으로 치면: if selected_tags: show_banner(selected_tags) */}
+        {/* ── 태그 필터 활성 안내 배너 ─────────────── */}
         {selectedTags.size > 0 && !searchQuery && (
           <div className="px-2 py-1 flex items-center gap-1 bg-blue-50 border-b border-blue-100 shrink-0">
             <span className="text-xs text-blue-600 flex-1 truncate">
@@ -1549,30 +1623,17 @@ export default function CategorySidebar({
               type="button"
               onClick={() => setSelectedTags(new Set())}
               className="text-xs text-blue-400 hover:text-blue-600 shrink-0"
-              title="태그 필터 해제"
+              title={t.sidebar.clearTagFilter}
             >
               ✕
             </button>
           </div>
         )}
 
-        {/* ── 캘린더 위젯 (플러그인 ON일 때만) ────── */}
-        {plugins.calendar && (
-          <CalendarWidget
-            pages={pages}
-            selectedDate={selectedDate}
-            onSelectDate={(d) => { setSelectedDate(d); setSearchQuery('') }}
-          />
-        )}
-
-        {/* ── 주기적 노트 패널 (periodicNotes 플러그인 ON일 때만) ── */}
-        {/* Python으로 치면: if plugins.periodic_notes: render(PeriodicNotesPanel()) */}
-        {plugins.periodicNotes && <PeriodicNotesPanel />}
-
         {/* ── 날짜 필터 활성 안내 ─────────────────── */}
         {selectedDate && !searchQuery && (
-          <div className="px-2 py-1 flex items-center gap-1 bg-blue-50 border-b border-blue-100">
-            <span className="text-xs text-blue-600 flex-1">{selectedDate} 날짜 필터</span>
+          <div className="px-2 py-1 flex items-center gap-1 bg-blue-50 border-b border-blue-100 shrink-0">
+            <span className="text-xs text-blue-600 flex-1">{selectedDate} {t.sidebar.dateFilter}</span>
             <button
               type="button"
               onClick={() => setSelectedDate(null)}
@@ -1583,8 +1644,7 @@ export default function CategorySidebar({
           </div>
         )}
 
-
-        {/* ── 트리 / 검색 결과 / 두 섹션 레이아웃 ─────────────────────────── */}
+        {/* ── 트리 / 검색 결과 ──────────────────────── */}
         {isFiltering ? (
           /* ── 검색/날짜 필터 결과 — 단일 스크롤 영역 ── */
           <nav className="flex-1 overflow-y-auto px-1.5 py-2">
@@ -1592,10 +1652,10 @@ export default function CategorySidebar({
               <div className="px-2 py-4 text-center">
                 <p className="text-xs text-gray-400">
                   {searchQuery.trim()
-                    ? `"${searchQuery}" 검색 결과 없음`
+                    ? `"${searchQuery}" ${t.sidebar.searchNoResults}`
                     : selectedTags.size > 0
-                      ? '선택한 태그에 해당하는 메모가 없습니다'
-                      : '해당 날짜에 메모가 없습니다'}
+                      ? t.sidebar.noTagResults
+                      : t.sidebar.noDateResults}
                 </p>
               </div>
             ) : (
@@ -1603,7 +1663,7 @@ export default function CategorySidebar({
                 const catId = categoryMap[page.id] ?? null
                 const catName = catId
                   ? (categories.find(c => c.id === catId)?.name ?? null)
-                  : (searchQuery ? '미분류' : null)
+                  : (searchQuery ? t.sidebar.uncategorized : null)
                 return (
                   <DraggablePageRow
                     key={page.id}
@@ -1632,7 +1692,7 @@ export default function CategorySidebar({
             {pages.filter(p => p.starred).length > 0 && (
               <>
                 <div className="px-2 py-0.5 text-[10px] text-yellow-500 font-medium uppercase tracking-wide flex items-center gap-1">
-                  <span>★</span><span>즐겨찾기</span>
+                  <span>★</span><span>{t.sidebar.favorites}</span>
                 </div>
                 {pages.filter(p => p.starred).map(page => (
                   <DraggablePageRow
@@ -1662,7 +1722,7 @@ export default function CategorySidebar({
                     : "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left text-gray-600 hover:bg-gray-100 transition-colors"}
               >
                 <span className="text-base">📋</span>
-                <span>전체보기</span>
+                <span>{t.sidebar.dbView}</span>
               </button>
             </div>
 
@@ -1680,7 +1740,7 @@ export default function CategorySidebar({
             {uncategorizedPages.length > 0 && (
               <>
                 <div className="border-t border-gray-200 my-1 mt-2" />
-                <div className="px-2 py-0.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide">미분류</div>
+                <div className="px-2 py-0.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide">{t.sidebar.uncategorized}</div>
                 {uncategorizedPages.map(page => (
                   <DraggablePageRow
                     key={page.id}
@@ -1708,14 +1768,14 @@ export default function CategorySidebar({
                     if (e.key === 'Escape') { setIsAddingTopFolder(false); setNewFolderName('') }
                   }}
                   onBlur={() => { if (!newFolderName.trim()) setIsAddingTopFolder(false) }}
-                  placeholder="폴더 이름..."
+                  placeholder={t.sidebar.folderNamePlaceholder + '...'}
                   className="flex-1 min-w-0 px-2 py-1 text-sm bg-white border border-gray-300 rounded outline-none"
                 />
                 <button
                   onClick={handleAddTopFolder}
                   className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 shrink-0"
                 >
-                  확인
+                  {t.common.confirm}
                 </button>
               </div>
             )}
@@ -1736,7 +1796,7 @@ export default function CategorySidebar({
           <div className="border-t border-gray-200 px-1.5 py-2 shrink-0">
             <div className="flex items-center gap-1 px-1 mb-1">
               <span className="text-[10px] text-gray-400">🕓</span>
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">최근 파일</span>
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide">{t.sidebar.recentFiles}</span>
             </div>
             {recentPageIds.slice(0, 5).map(pageId => {
               const page = pages.find(p => p.id === pageId)
@@ -1754,7 +1814,7 @@ export default function CategorySidebar({
                     : "w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-left text-gray-500 hover:bg-gray-100 transition-colors"}
                 >
                   <span className="shrink-0">{page.icon}</span>
-                  <span className="truncate">{page.title || '제목 없음'}</span>
+                  <span className="truncate">{page.title || t.common.untitled}</span>
                 </button>
               )
             })}
@@ -1769,7 +1829,7 @@ export default function CategorySidebar({
             className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-200 transition-colors"
           >
             <span className="text-base leading-none">📄</span>
-            <span>새 메모</span>
+            <span>{t.sidebar.newPage}</span>
           </button>
           {/* 새 폴더 버튼 */}
           {!isAddingTopFolder && (
@@ -1778,10 +1838,12 @@ export default function CategorySidebar({
               className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-500 hover:bg-gray-200 transition-colors"
             >
               <span className="text-base leading-none">+</span>
-              <span>새 폴더</span>
+              <span>{t.sidebar.newFolder}</span>
             </button>
           )}
         </div>
+          </>
+        )} {/* 노트 탭 끝 */}
 
         {/* ── 리사이즈 핸들 ──────────────────────────
             사이드바 오른쪽 가장자리 4px 영역
@@ -1790,7 +1852,7 @@ export default function CategorySidebar({
         <div
           onMouseDown={handleResizeStart}
           className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 active:bg-blue-500 transition-colors z-10"
-          title="드래그로 사이드바 너비 조절"
+          title={t.sidebar.resizeHandle}
         />
 
       </aside>

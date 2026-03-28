@@ -10,9 +10,11 @@
 
 'use client'
 
-import { useRef, useState, useMemo, useEffect } from 'react'
+import { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import { usePageStore } from '@/store/pageStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import { PageProperty, PropertyType, STATUS_OPTIONS } from '@/types/block'
+import { useLocale } from '@/locales'
 
 interface PropertyPanelProps {
   pageId: string
@@ -21,26 +23,46 @@ interface PropertyPanelProps {
   onNavigate?: (targetPageId: string) => void
 }
 
-// ── 속성 타입 목록 (추가 드롭다운용) ────────────
-// Python으로 치면: PROPERTY_TYPES = [('date', '날짜', '📅'), ...]
-const PROPERTY_TYPES: { type: PropertyType; label: string; icon: string }[] = [
-  { type: 'date',     label: '날짜',   icon: '📅' },
-  { type: 'status',   label: '상태',   icon: '🔵' },
-  { type: 'select',   label: '선택',   icon: '🏷️' },
-  { type: 'text',     label: '텍스트', icon: '📝' },
-  { type: 'relation', label: '관계',   icon: '🔗' },
-]
+
+// ── WMO 날씨 코드 → 이모지 (date 속성 날씨 표시용) ──
+// Python으로 치면: WMO_ICON: dict[int, str] = { 0: '☀️', ... }
+const WMO_ICON: Record<number, string> = {
+  0: '☀️', 1: '🌤️', 2: '⛅', 3: '☁️',
+  45: '🌫️', 48: '🌫️',
+  51: '🌦️', 53: '🌦️', 55: '🌦️',
+  61: '🌧️', 63: '🌧️', 65: '🌧️',
+  71: '❄️', 73: '❄️', 75: '❄️', 77: '❄️',
+  80: '🌧️', 81: '🌧️', 82: '🌧️',
+  85: '❄️', 86: '❄️',
+  95: '⛈️', 96: '⛈️', 99: '⛈️',
+}
+function wmoToIcon(code: number): string { return WMO_ICON[code] ?? '🌡️' }
 
 // ── 상태 배지 색상 매핑 ──────────────────────────
 // Python으로 치면: STATUS_COLOR = {'미시작': 'gray', '진행 중': 'blue', ...}
+// Stitch "Digital Atelier" 스타일: 아웃라인 필 형태
 const STATUS_COLOR: Record<string, string> = {
-  '미시작': 'bg-gray-100 text-gray-600',
-  '진행 중': 'bg-blue-100 text-blue-700',
-  '완료': 'bg-green-100 text-green-700',
-  '보류': 'bg-yellow-100 text-yellow-700',
+  '미시작': 'bg-gray-50 text-gray-500 border border-gray-200',
+  '진행 중': 'bg-stone-50 text-stone-600 border border-stone-300',
+  '완료': 'bg-stone-100 text-stone-700 border border-stone-400',
+  '보류': 'bg-amber-50 text-amber-600 border border-amber-200',
 }
 
 export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps) {
+  // 로케일 훅
+  const t = useLocale()
+
+  // ── 속성 타입 목록 (추가 드롭다운용) — 로케일 기반
+  // Python으로 치면: PROPERTY_TYPES = [('date', t.property.types.date, '📅'), ...]
+  const PROPERTY_TYPES: { type: PropertyType; label: string; icon: string }[] = [
+    { type: 'date',     label: t.property.types.date,     icon: '📅' },
+    { type: 'time',     label: t.property.types.time,     icon: '⏰' },
+    { type: 'status',   label: t.property.types.status,   icon: '🔵' },
+    { type: 'select',   label: t.property.types.select,   icon: '🏷️' },
+    { type: 'text',     label: t.property.types.text,     icon: '📝' },
+    { type: 'relation', label: t.property.types.relation, icon: '🔗' },
+  ]
+
   // ── 스토어 ────────────────────────────────────
   const pages = usePageStore(s => s.pages)
   const setCurrentPage = usePageStore(s => s.setCurrentPage)
@@ -48,6 +70,9 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
   const removePageProperty = usePageStore(s => s.removePageProperty)
   const addTagToPage = usePageStore(s => s.addTagToPage)
   const removeTagFromPage = usePageStore(s => s.removeTagFromPage)
+  // 전역 날씨 위치 — 설정 탭에서 저장된 도시명
+  // Python으로 치면: weather_location = settings_store.weather_location
+  const weatherLocation = useSettingsStore(s => s.weatherLocation)
 
   const page = pages.find(p => p.id === pageId)
   const properties = page?.properties ?? []
@@ -130,6 +155,49 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
 
   const addMenuRef = useRef<HTMLDivElement>(null)
 
+  // ── 날씨 fetch 로딩 상태 per-property ────────
+  // Python으로 치면: self.weather_loading: dict[str, bool] = {}
+  const [weatherLoading, setWeatherLoading] = useState<Record<string, boolean>>({})
+
+  // 날씨 fetch — Open-Meteo 지오코딩 → 일일 예보 → prop.weatherData 저장
+  // date 속성에 통합된 날씨 기능 (별도 속성 불필요)
+  // Python으로 치면: async def fetch_weather_for_prop(prop, city): ...
+  const fetchWeatherForProp = useCallback(async (prop: PageProperty, city: string) => {
+    const dateStr = prop.value  // date 타입의 value = 'YYYY-MM-DD'
+    if (!city.trim() || !dateStr) return
+    setWeatherLoading(prev => ({ ...prev, [prop.id]: true }))
+    try {
+      // 1단계: 도시명 → 위도/경도
+      const geoRes  = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko&format=json`
+      )
+      const geoData = await geoRes.json()
+      if (!geoData.results?.length) { setWeatherLoading(prev => ({ ...prev, [prop.id]: false })); return }
+      const { latitude, longitude } = geoData.results[0]
+
+      // 2단계: 날짜별 날씨코드 + 최저/최고기온 (최대 16일 예보)
+      const wRes  = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+        `&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`
+      )
+      const wData = await wRes.json()
+      const idx   = (wData.daily.time as string[]).indexOf(dateStr)
+      if (idx === -1) { setWeatherLoading(prev => ({ ...prev, [prop.id]: false })); return }
+
+      // prop.weatherData에 날씨 저장 (value는 그대로 날짜 문자열 유지)
+      setPageProperty(pageId, {
+        ...prop,
+        weatherData: {
+          icon:     wmoToIcon(wData.daily.weathercode[idx]),
+          tempMin:  Math.round(wData.daily.temperature_2m_min[idx]),
+          tempMax:  Math.round(wData.daily.temperature_2m_max[idx]),
+          location: city,
+        },
+      })
+    } catch { /* 조용히 무시 */ }
+    setWeatherLoading(prev => ({ ...prev, [prop.id]: false }))
+  }, [pageId, setPageProperty])
+
   // ── 관계 속성 검색 상태 ─────────────────────
   // Python으로 치면: self.relation_search = {}  # { prop_id: '검색어' }
   const [relationSearch, setRelationSearch] = useState<Record<string, string>>({})
@@ -152,7 +220,12 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
   // Python으로 치면: def add_property(self, type): self.properties.append(...)
   function handleAdd(type: PropertyType) {
     const labels: Record<PropertyType, string> = {
-      date: '날짜', status: '상태', select: '선택', text: '텍스트', relation: '관계',
+      date: t.property.types.date,
+      time: t.property.types.time,
+      status: t.property.types.status,
+      select: t.property.types.select,
+      text: t.property.types.text,
+      relation: t.property.types.relation,
     }
     const newProp: PageProperty = {
       id: crypto.randomUUID(),
@@ -199,16 +272,16 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
   if (!page) return null
 
   return (
-    <div className="mt-1 mb-4 text-sm print-hide">
+    <div className="mt-1 mb-4 text-sm print-hide select-none">
 
       {/* ── 태그 섹션 ─────────────────────────────────────────────
           태그 칩 목록 + 인라인 입력 + 자동완성 드롭다운
           Python으로 치면: render_tag_section(page.tags, all_tags) */}
-      <div className="flex items-start gap-1.5 py-1.5 border-b border-gray-100 tag-input-wrapper relative">
+      <div className="flex items-start gap-1.5 py-1.5 border-b border-black/5 dark:border-white/5 tag-input-wrapper relative">
         {/* 태그 아이콘 레이블 */}
         <div className="w-28 shrink-0 flex items-center gap-1 pt-0.5">
           <span className="text-xs text-gray-400">🏷️</span>
-          <span className="text-xs text-gray-500">태그</span>
+          <span className="text-xs text-gray-500">{t.property.tagLabel}</span>
         </div>
 
         <div className="flex-1 min-w-0">
@@ -220,15 +293,15 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
             {tags.map(tag => (
               <span
                 key={tag}
-                className="inline-flex items-center gap-0.5 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5"
+                className="inline-flex items-center gap-0.5 text-xs bg-stone-100 text-stone-600 border border-stone-200 rounded-full px-2 py-0.5 dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700"
               >
-                <span className="text-blue-400 text-[10px]">#</span>
+                <span className="text-stone-400 text-[10px]">#</span>
                 {tag}
                 <button
                   type="button"
                   onClick={() => removeTagFromPage(pageId, tag)}
-                  className="ml-0.5 text-blue-300 hover:text-blue-600 leading-none transition-colors"
-                  title={`${tag} 태그 삭제`}
+                  className="ml-0.5 text-stone-300 hover:text-stone-600 leading-none transition-colors dark:text-stone-500 dark:hover:text-stone-300"
+                  title={t.property.tagDelete.replace('{tag}', tag)}
                 >
                   ×
                 </button>
@@ -241,7 +314,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
               ref={tagInputRef}
               type="text"
               value={tagInput}
-              placeholder={tags.length === 0 ? '태그 추가...' : ''}
+              placeholder={tags.length === 0 ? t.property.tagPlaceholder : ''}
               onChange={e => {
                 setTagInput(e.target.value)
                 setShowSuggestions(true)
@@ -255,13 +328,13 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
           {/* 자동완성 드롭다운 */}
           {/* Python으로 치면: if show_suggestions and suggestions: render_dropdown(suggestions) */}
           {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute left-28 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-32 max-h-48 overflow-y-auto">
+            <div className="absolute left-28 top-full mt-1 z-30 bg-white/95 dark:bg-gray-900/95 border border-black/8 dark:border-white/8 rounded-xl shadow-md backdrop-blur-sm py-1 min-w-32 max-h-48 overflow-y-auto">
               {suggestions.map(tag => (
                 <button
                   key={tag}
                   type="button"
                   onMouseDown={e => { e.preventDefault(); handleAddTag(tag) }}
-                  className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 text-left transition-colors"
+                  className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-700 hover:bg-stone-50 hover:text-stone-800 dark:text-gray-300 dark:hover:bg-stone-800 text-left transition-colors"
                 >
                   <span className="text-gray-400">#</span>
                   {tag}
@@ -276,7 +349,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
       {properties.map(prop => (
         <div
           key={prop.id}
-          className="flex items-start gap-2 py-1.5 group border-b border-gray-100 last:border-0"
+          className="flex items-start gap-2 py-1.5 group border-b border-black/5 dark:border-white/5 last:border-0"
         >
           {/* 속성명 */}
           <div className="w-28 shrink-0 flex items-center gap-1">
@@ -314,15 +387,108 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
 
           {/* 속성값 편집 영역 */}
           <div className="flex-1 min-w-0">
-            {/* ── 날짜 타입 ── */}
-            {prop.type === 'date' && (
-              <input
-                type="date"
-                className="text-xs text-gray-700 bg-transparent border border-gray-200 rounded px-2 py-0.5 focus:outline-none focus:border-blue-400 cursor-pointer"
-                value={prop.value}
-                onChange={e => handleValueChange(prop, e.target.value)}
-              />
-            )}
+            {/* ── 날짜 타입 (날씨 fetch 통합) ── */}
+            {/* 날짜 picker + 알림 토글 + 날씨 가져오기 버튼 + 날씨 결과 표시 */}
+            {/* Python으로 치면: if prop.type == 'date': render_date_with_weather(prop) */}
+            {prop.type === 'date' && (() => {
+              const wx      = prop.weatherData
+              const loading = weatherLoading[prop.id] ?? false
+              const city    = wx?.location || weatherLocation
+              return (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {/* 날짜 입력 — 날짜 바꾸면 날씨 데이터 초기화 */}
+                    <input
+                      type="date"
+                      className="text-xs text-gray-600 bg-transparent border border-gray-200/80 rounded-full px-2.5 py-0.5 focus:outline-none focus:border-stone-400 cursor-pointer dark:border-gray-700 dark:text-gray-300"
+                      value={prop.value}
+                      onChange={e => setPageProperty(pageId, { ...prop, value: e.target.value, weatherData: undefined })}
+                    />
+                    {/* 🔔 알림 토글 */}
+                    <button
+                      type="button"
+                      onClick={() => setPageProperty(pageId, { ...prop, reminder: !prop.reminder })}
+                      title={prop.reminder ? t.property.reminderOn : t.property.reminderOff}
+                      className={['text-xs px-1.5 py-0.5 rounded transition-colors', prop.reminder ? 'bg-amber-100 text-amber-600' : 'text-gray-300 hover:text-amber-500'].join(' ')}
+                    >
+                      🔔
+                    </button>
+                    {/* 날씨 fetch 버튼 — prop.value(날짜)가 있을 때만 표시 */}
+                    {prop.value && (
+                      <button
+                        type="button"
+                        onClick={() => fetchWeatherForProp(prop, city)}
+                        disabled={loading || !city}
+                        title={city ? t.property.weatherFetch.replace('{city}', city) : t.property.weatherNoCity}
+                        className="text-[10px] flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-stone-50 text-stone-500 border border-stone-200 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors dark:bg-stone-800 dark:text-stone-400 dark:border-stone-700"
+                      >
+                        {loading ? <span className="animate-pulse">{t.property.weatherLoading}</span> : <>🌤️ {wx ? t.property.weatherRefresh : t.property.weatherView}</>}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 날씨 결과 표시 */}
+                  {wx?.icon && (
+                    <div className="flex items-center gap-2 px-2 py-1.5 bg-stone-50 border border-stone-200/80 rounded-lg w-fit dark:bg-stone-800 dark:border-stone-700">
+                      <span className="text-xl leading-none">{wx.icon}</span>
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700">{wx.tempMin}° / {wx.tempMax}°C</div>
+                        <div className="text-[10px] text-gray-400">{wx.location}</div>
+                      </div>
+                      {/* 날씨 지우기 */}
+                      <button
+                        type="button"
+                        onClick={() => setPageProperty(pageId, { ...prop, weatherData: undefined })}
+                        className="text-gray-200 hover:text-gray-400 text-xs ml-1 transition-colors"
+                        title={t.property.weatherClear}
+                      >✕</button>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* ── 시간 블록 타입 ──
+                value 형식: 'HH:MM-HH:MM' (예: '09:00-10:30')
+                두 개의 time input으로 시작/종료 시간 분리 편집
+                Python으로 치면: start, end = prop.value.split('-') if '-' in prop.value else ('', '')
+            */}
+            {prop.type === 'time' && (() => {
+              // 'HH:MM-HH:MM' → [startTime, endTime] 분리
+              const [startTime, endTime] = prop.value?.includes('-')
+                ? prop.value.split('-') : [prop.value ?? '', '']
+              return (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="time"
+                    className="text-xs text-gray-600 bg-transparent border border-gray-200/80 rounded-full px-2.5 py-0.5 focus:outline-none focus:border-stone-400 cursor-pointer w-28 dark:border-gray-700 dark:text-gray-300"
+                    value={startTime}
+                    onChange={e => handleValueChange(prop, `${e.target.value}-${endTime}`)}
+                  />
+                  <span className="text-xs text-gray-400">~</span>
+                  <input
+                    type="time"
+                    className="text-xs text-gray-600 bg-transparent border border-gray-200/80 rounded-full px-2.5 py-0.5 focus:outline-none focus:border-stone-400 cursor-pointer w-28 dark:border-gray-700 dark:text-gray-300"
+                    value={endTime}
+                    onChange={e => handleValueChange(prop, `${startTime}-${e.target.value}`)}
+                  />
+                  {/* 지속 시간 표시 */}
+                  {startTime && endTime && (() => {
+                    const [sh, sm] = startTime.split(':').map(Number)
+                    const [eh, em] = endTime.split(':').map(Number)
+                    const dur = (eh * 60 + em) - (sh * 60 + sm)
+                    if (dur <= 0) return null
+                    const h = Math.floor(dur / 60)
+                    const m = dur % 60
+                    return (
+                      <span className="text-[10px] text-gray-400">
+                        {h > 0 ? t.property.durationHour.replace('{h}', String(h)) : ''}{m > 0 ? t.property.durationMin.replace('{m}', String(m)) : ''}
+                      </span>
+                    )
+                  })()}
+                </div>
+              )
+            })()}
 
             {/* ── 상태 타입 ── */}
             {prop.type === 'status' && (
@@ -333,10 +499,10 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                     type="button"
                     onClick={() => handleValueChange(prop, opt)}
                     className={[
-                      'text-xs px-2 py-0.5 rounded-full transition-all',
+                      'text-xs px-2.5 py-0.5 rounded-full transition-all',
                       prop.value === opt
-                        ? (STATUS_COLOR[opt] ?? 'bg-gray-100 text-gray-600') + ' font-medium ring-1 ring-offset-1 ring-current'
-                        : 'bg-gray-100 text-gray-400 hover:bg-gray-200',
+                        ? (STATUS_COLOR[opt] ?? 'bg-stone-50 text-stone-500 border border-stone-200') + ' font-medium shadow-sm'
+                        : 'bg-transparent text-gray-400 border border-gray-200 hover:bg-stone-50 hover:text-gray-600 dark:border-gray-700 dark:hover:bg-gray-800',
                     ].join(' ')}
                   >
                     {opt}
@@ -358,15 +524,15 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                       className={[
                         'text-xs px-2 py-0.5 rounded-full transition-all group/opt flex items-center gap-1',
                         prop.value === opt
-                          ? 'bg-blue-100 text-blue-700 font-medium'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200',
+                          ? 'bg-stone-200 text-stone-700 font-medium dark:bg-stone-700 dark:text-stone-200'
+                          : 'bg-stone-50 text-stone-500 border border-stone-200 hover:bg-stone-100 dark:bg-stone-800 dark:border-stone-700 dark:text-stone-400',
                       ].join(' ')}
                     >
                       {opt}
                       {/* 옵션 삭제 × 버튼 (hover 시 표시) */}
                       <span
                         role="button"
-                        aria-label={`${opt} 옵션 삭제`}
+                        aria-label={t.property.optionDelete.replace('{opt}', opt)}
                         className="hidden group-hover/opt:inline-block text-gray-400 hover:text-red-500 ml-0.5 leading-none"
                         onClick={e => { e.stopPropagation(); handleRemoveOption(prop, opt) }}
                       >
@@ -378,7 +544,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                   {editingId === prop.id && (
                     <input
                       autoFocus
-                      placeholder="옵션 추가..."
+                      placeholder={t.property.optionPlaceholder}
                       className="text-xs border-b border-gray-300 outline-none bg-transparent px-1 w-20"
                       value={newOption}
                       onChange={e => setNewOption(e.target.value)}
@@ -392,10 +558,10 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                   {editingId !== prop.id && (
                     <button
                       type="button"
-                      className="text-xs text-gray-400 hover:text-blue-500 px-1"
+                      className="text-xs text-gray-400 hover:text-stone-600 px-1"
                       onClick={() => setEditingId(prop.id)}
                     >
-                      + 옵션
+                      {t.property.addOption}
                     </button>
                   )}
                 </div>
@@ -406,7 +572,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
             {prop.type === 'text' && (
               <input
                 type="text"
-                placeholder="값 입력..."
+                placeholder={t.property.textPlaceholder}
                 className="text-xs text-gray-700 bg-transparent border-b border-transparent hover:border-gray-300 focus:border-blue-400 outline-none w-full py-0.5"
                 value={prop.value}
                 onChange={e => handleValueChange(prop, e.target.value)}
@@ -436,12 +602,12 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                     {linkedPages.map(p => p && (
                       <span
                         key={p.id}
-                        className="inline-flex items-center gap-0.5 text-xs bg-purple-50 text-purple-700 border border-purple-200 rounded-full px-2 py-0.5 max-w-32 truncate"
+                        className="inline-flex items-center gap-0.5 text-xs bg-stone-100 text-stone-600 border border-stone-200 rounded-full px-2 py-0.5 max-w-32 truncate dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700"
                       >
                         {/* 페이지 아이콘 + 제목 */}
                         <button
                           type="button"
-                          title={`${p.title} 페이지로 이동`}
+                          title={t.property.navigateTo.replace('{title}', p.title)}
                           className="truncate hover:underline"
                           onClick={() => {
                             setCurrentPage(p.id)
@@ -449,7 +615,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                           }}
                         >
                           {p.icon && <span className="mr-0.5">{p.icon}</span>}
-                          {p.title || '(제목 없음)'}
+                          {p.title || `(${t.common.untitled})`}
                         </button>
                         {/* 연결 해제 버튼 */}
                         <button
@@ -458,8 +624,8 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                             const next = linkedIds.filter(id => id !== p.id).join(',')
                             handleValueChange(prop, next)
                           }}
-                          className="ml-0.5 text-purple-300 hover:text-purple-600 leading-none"
-                          title="연결 해제"
+                          className="ml-0.5 text-stone-300 hover:text-stone-600 leading-none dark:text-stone-600 dark:hover:text-stone-300"
+                          title={t.property.unlinkRelation}
                         >
                           ×
                         </button>
@@ -469,31 +635,31 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                     {/* 페이지 연결 버튼 */}
                     <button
                       type="button"
-                      className="text-xs text-gray-400 hover:text-purple-500 px-1"
+                      className="text-xs text-gray-400 hover:text-stone-600 px-1"
                       onClick={() => setRelationDropdown(prev => prev === prop.id ? null : prop.id)}
                     >
-                      + 페이지 연결
+                      {t.property.addRelation}
                     </button>
                   </div>
 
                   {/* 페이지 검색 드롭다운 */}
                   {relationDropdown === prop.id && (
-                    <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-30 w-56">
+                    <div className="mt-1 bg-white/95 dark:bg-gray-900/95 border border-black/8 dark:border-white/8 rounded-xl shadow-md backdrop-blur-sm py-1 z-30 w-56">
                       <input
                         autoFocus
-                        placeholder="페이지 검색..."
+                        placeholder={t.property.relationSearch}
                         className="w-full px-3 py-1.5 text-xs border-b border-gray-100 outline-none"
                         value={relationSearch[prop.id] ?? ''}
                         onChange={e => setRelationSearch(prev => ({ ...prev, [prop.id]: e.target.value }))}
                       />
                       <div className="max-h-40 overflow-y-auto">
                         {candidates.length === 0 ? (
-                          <p className="px-3 py-2 text-xs text-gray-400">검색 결과 없음</p>
+                          <p className="px-3 py-2 text-xs text-gray-400">{t.property.noSearchResults}</p>
                         ) : candidates.map(p => (
                           <button
                             key={p.id}
                             type="button"
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-purple-50 hover:text-purple-700 text-left transition-colors"
+                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-stone-50 hover:text-stone-800 dark:text-gray-300 dark:hover:bg-stone-800 text-left transition-colors"
                             onMouseDown={e => {
                               e.preventDefault()
                               const next = [...linkedIds, p.id].join(',')
@@ -503,7 +669,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
                             }}
                           >
                             <span>{p.icon || '📄'}</span>
-                            <span className="truncate">{p.title || '(제목 없음)'}</span>
+                            <span className="truncate">{p.title || `(${t.common.untitled})`}</span>
                           </button>
                         ))}
                       </div>
@@ -517,7 +683,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
           {/* 삭제 버튼 (hover 시 표시) */}
           <button
             type="button"
-            aria-label="속성 삭제"
+            aria-label={t.property.deleteProperty}
             className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-400 text-xs transition-opacity"
             onClick={() => removePageProperty(pageId, prop.id)}
           >
@@ -531,20 +697,20 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
         <button
           type="button"
           onClick={() => setShowAddMenu(v => !v)}
-          className="text-xs text-gray-400 hover:text-blue-500 flex items-center gap-1 py-0.5 px-1 rounded hover:bg-gray-50 transition-colors"
+          className="text-xs text-gray-400 hover:text-stone-600 flex items-center gap-1 py-0.5 px-1 rounded hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
         >
           <span className="text-base leading-none">+</span>
-          <span>속성 추가</span>
+          <span>{t.property.addProperty}</span>
         </button>
 
         {/* 드롭다운 메뉴 */}
         {showAddMenu && (
-          <div className="absolute left-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg py-1 min-w-30">
+          <div className="absolute left-0 top-full mt-1 z-20 bg-white/95 dark:bg-gray-900/95 border border-black/8 dark:border-white/8 rounded-xl shadow-md backdrop-blur-sm py-1 min-w-30">
             {PROPERTY_TYPES.map(({ type, label, icon }) => (
               <button
                 key={type}
                 type="button"
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 text-left"
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-700 hover:bg-stone-50 dark:text-gray-300 dark:hover:bg-stone-800 text-left transition-colors"
                 onClick={() => handleAdd(type)}
               >
                 <span>{icon}</span>

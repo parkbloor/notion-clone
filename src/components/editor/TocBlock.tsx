@@ -11,6 +11,7 @@
 import { useMemo, useState } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { useLocale } from '@/locales'
 
 interface TocBlockProps {
   block: Block      // 이 목차 블록 자체 (id 참조용)
@@ -46,6 +47,8 @@ function stripHtml(html: string): string {
 }
 
 export default function TocBlock({ block, pageId }: TocBlockProps) {
+  const t = useLocale()
+
   // -----------------------------------------------
   // 현재 페이지 블록 목록 구독
   // 헤딩 추가/삭제/수정 시 자동으로 목차 갱신
@@ -85,13 +88,13 @@ export default function TocBlock({ block, pageId }: TocBlockProps) {
       {/* 헤더 라인 */}
       <div className="flex items-center gap-1.5 mb-2 pb-2 border-b border-gray-200">
         <span className="text-sm">📑</span>
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">목차</span>
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.blocks.toc.title}</span>
       </div>
 
       {/* 헤딩이 없을 때 안내 메시지 */}
       {headings.length === 0 ? (
         <p className="text-xs text-gray-400 italic py-1">
-          이 페이지에 제목(H1~H6)이 없습니다.
+          {t.blocks.toc.emptyDetail}
         </p>
       ) : (
         // -----------------------------------------------
@@ -102,7 +105,7 @@ export default function TocBlock({ block, pageId }: TocBlockProps) {
           {headings.map(h => {
             const level = HEADING_LEVEL[h.type]
             const indentClass = INDENT_CLASSES[level - 1] ?? 'pl-20'
-            const title = stripHtml(h.content).trim() || '(제목 없음)'
+            const title = stripHtml(h.content).trim() || t.blocks.toc.untitledHeading
             const isActive = activeId === h.id
 
             return (

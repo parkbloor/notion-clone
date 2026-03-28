@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { GripHorizontal } from 'lucide-react'
 import { usePageStore } from '@/store/pageStore'
-import { Page } from '@/types/block'
+import { Page, CanvasBox } from '@/types/block'
 import Editor from './Editor'
 
 // -----------------------------------------------
@@ -142,6 +142,47 @@ interface ResizeState {
   blockX: number
 }
 
+// -----------------------------------------------
+// 가상 박스 그리기 상태 타입
+// 마우스 드래그로 빈 캔버스에 박스를 그리는 중의 임시 상태
+// Python으로 치면: @dataclass class BoxDrawState: sx, sy, curX, curY
+// -----------------------------------------------
+interface BoxDrawState {
+  startX: number    // 드래그 시작 X (캔버스 상대 좌표, snap 적용)
+  startY: number    // 드래그 시작 Y
+  curX: number      // 현재 마우스 X (실시간)
+  curY: number      // 현재 마우스 Y
+}
+
+// -----------------------------------------------
+// 가상 박스 드래그 이동 상태 타입
+// Python으로 치면: @dataclass class BoxDragState: ...
+// -----------------------------------------------
+interface BoxDragState {
+  boxId: string
+  startMouseX: number
+  startMouseY: number
+  startBoxX: number   // 드래그 시작 시 박스의 X 좌표
+  startBoxY: number   // 드래그 시작 시 박스의 Y 좌표
+  boxW: number
+  boxH: number
+}
+
+// -----------------------------------------------
+// 가상 박스 리사이즈 상태 타입
+// Python으로 치면: @dataclass class BoxResizeState: ...
+// -----------------------------------------------
+interface BoxResizeState {
+  boxId: string
+  handle: 'right' | 'bottom' | 'corner'
+  startMouseX: number
+  startMouseY: number
+  startX: number    // 박스 원래 X (corner 리사이즈에서 left/top 이동 없음 — 고정)
+  startY: number
+  startW: number
+  startH: number
+}
+
 interface CanvasPageEditorProps {
   page: Page
   readMode: boolean
@@ -151,7 +192,7 @@ interface CanvasPageEditorProps {
 }
 
 export default function CanvasPageEditor({ page, readMode, editMode = false }: CanvasPageEditorProps) {
-  const { addBlock, updateBlockCanvas } = usePageStore()
+  const { addBlock, updateBlockCanvas, addCanvasBox, updateCanvasBox, deleteCanvasBox } = usePageStore()
 
   // 컨테이너 너비 측정용 ref
   const containerRef = useRef<HTMLDivElement>(null)
@@ -171,6 +212,23 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
   const [resizeState, setResizeState] = useState<ResizeState | null>(null)
   const [resizeSize, setResizeSize] = useState<{ w: number; h: number } | null>(null)
   const resizeSizeRef = useRef<{ w: number; h: number } | null>(null)
+
+  // ── 가상 박스 상태 ────────────────────────────
+  // 그리기 중인 박스 미리보기
+  const [drawingBox, setDrawingBox] = useState<BoxDrawState | null>(null)
+  const drawingBoxRef = useRef<BoxDrawState | null>(null)
+  // 박스 드래그 이동 상태
+  const [boxDragState, setBoxDragState] = useState<BoxDragState | null>(null)
+  const [boxDragPos, setBoxDragPos] = useState<{ x: number; y: number } | null>(null)
+  const boxDragPosRef = useRef<{ x: number; y: number } | null>(null)
+  // 박스 리사이즈 상태
+  const [boxResizeState, setBoxResizeState] = useState<BoxResizeState | null>(null)
+  const [boxResizeGeom, setBoxResizeGeom] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const boxResizeGeomRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  // 호버 중인 박스 ID
+  const [hoveredBoxId, setHoveredBoxId] = useState<string | null>(null)
+  // 캔버스 div의 클라이언트 좌표 기준을 얻기 위한 ref
+  const canvasDivRef = useRef<HTMLDivElement>(null)
 
   // ── ResizeObserver 관련 ref ──────────────────
   // 블록 div 요소 컬렉션 (blockId → HTMLDivElement)
@@ -201,6 +259,9 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
   // ref 동기화
   useEffect(() => { dragPosRef.current = dragPos }, [dragPos])
   useEffect(() => { resizeSizeRef.current = resizeSize }, [resizeSize])
+  useEffect(() => { drawingBoxRef.current = drawingBox }, [drawingBox])
+  useEffect(() => { boxDragPosRef.current = boxDragPos }, [boxDragPos])
+  useEffect(() => { boxResizeGeomRef.current = boxResizeGeom }, [boxResizeGeom])
 
 
   // -----------------------------------------------
@@ -529,6 +590,133 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
   }, [resizeState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
+  // -----------------------------------------------
+  // 가상 박스 드래그 이동 마우스 이벤트 처리
+  // mousemove: snap 적용 후 미리보기 위치 업데이트
+  // mouseup: 최종 위치 저장
+  // Python으로 치면: def on_box_drag_move(e): update_pos(snap(start + delta))
+  // -----------------------------------------------
+  useEffect(() => {
+    if (!boxDragState) return
+
+    const onMouseMove = (e: MouseEvent) => {
+      // 박스가 캔버스 오른쪽/아래 경계를 넘지 않도록 clamp
+      // Python으로 치면: new_x = clamp(start_x + dx, 0, canvas_w - box_w)
+      const newX = snap(Math.max(0, Math.min(
+        canvasWidth - boxDragState.boxW - EDGE_PADDING,
+        boxDragState.startBoxX + e.clientX - boxDragState.startMouseX
+      )))
+      const newY = snap(Math.max(0, boxDragState.startBoxY + e.clientY - boxDragState.startMouseY))
+      const pos = { x: newX, y: newY }
+      setBoxDragPos(pos)
+      boxDragPosRef.current = pos
+    }
+
+    const onMouseUp = () => {
+      const pos = boxDragPosRef.current
+      if (pos) updateCanvasBox(page.id, boxDragState.boxId, { x: pos.x, y: pos.y })
+      setBoxDragState(null); setBoxDragPos(null)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [boxDragState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // 가상 박스 그리기 마우스 이벤트 처리
+  // mousemove: 현재 좌표 업데이트 → 미리보기 박스 크기 변경
+  // mouseup: 최소 크기(40px) 이상이면 박스 생성, 아니면 일반 블록 추가
+  // Python으로 치면: def on_box_draw_move(e): draw_state.cur = snap(e.pos - canvas.origin)
+  // -----------------------------------------------
+  useEffect(() => {
+    if (!drawingBox) return
+
+    const onMouseMove = (e: MouseEvent) => {
+      const canvas = canvasDivRef.current
+      if (!canvas) return
+      const rect = canvas.getBoundingClientRect()
+      // 캔버스 경계 내로 clamp (오른쪽/아래 여백 포함)
+      const curX = snap(Math.max(0, Math.min(canvasWidth - EDGE_PADDING, e.clientX - rect.left)))
+      const curY = snap(Math.max(0, e.clientY - rect.top))
+      const updated = { ...drawingBoxRef.current!, curX, curY }
+      setDrawingBox(updated)
+      drawingBoxRef.current = updated
+    }
+
+    const onMouseUp = (e: MouseEvent) => {
+      const db = drawingBoxRef.current
+      if (db) {
+        const x = Math.min(db.startX, db.curX)
+        const y = Math.min(db.startY, db.curY)
+        const w = Math.abs(db.curX - db.startX)
+        const h = Math.abs(db.curY - db.startY)
+        if (w >= 40 && h >= 40) {
+          // 충분히 드래그됨 → 박스 생성 (snap 이미 적용됨)
+          // Python으로 치면: add_canvas_box(page_id, CanvasBox(id=uuid, x,y,w,h))
+          addCanvasBox(page.id, {
+            id: crypto.randomUUID(),
+            x: snap(x), y: snap(y),
+            w: snap(w), h: snap(h),
+          })
+        } else if (w < 10 && h < 10) {
+          // 거의 움직이지 않음 → 일반 블록 추가
+          addBlock(page.id)
+        }
+      }
+      setDrawingBox(null)
+      drawingBoxRef.current = null
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [drawingBox]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // 가상 박스 리사이즈 마우스 이벤트 처리
+  // Python으로 치면: def on_box_resize_move(e): update_geom(snap(...))
+  // -----------------------------------------------
+  useEffect(() => {
+    if (!boxResizeState) return
+
+    const onMouseMove = (e: MouseEvent) => {
+      const dx = e.clientX - boxResizeState.startMouseX
+      const dy = e.clientY - boxResizeState.startMouseY
+      // 박스 우측이 캔버스 경계를 넘지 않도록 maxW 제한
+      // Python으로 치면: max_w = canvas_w - box_x - EDGE_PADDING
+      const maxW = canvasWidth - boxResizeState.startX - EDGE_PADDING
+      const newW = boxResizeState.handle !== 'bottom'
+        ? snap(Math.max(40, Math.min(maxW, boxResizeState.startW + dx)))
+        : boxResizeState.startW
+      const newH = boxResizeState.handle !== 'right'
+        ? snap(Math.max(40, boxResizeState.startH + dy))
+        : boxResizeState.startH
+      const updated = { x: boxResizeState.startX, y: boxResizeState.startY, w: newW, h: newH }
+      setBoxResizeGeom(updated)
+      boxResizeGeomRef.current = updated
+    }
+
+    const onMouseUp = () => {
+      const g = boxResizeGeomRef.current
+      if (g) updateCanvasBox(page.id, boxResizeState.boxId, { w: g.w, h: g.h })
+      setBoxResizeState(null); setBoxResizeGeom(null)
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [boxResizeState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // 드래그 핸들 mousedown
   function handleDragStart(
     e: React.MouseEvent, blockId: string,
@@ -561,22 +749,37 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
     // overflow-x:hidden(가로 고정), overflow-y:visible(세로 확장 허용)
     <div ref={containerRef} className="w-full" style={{ overflowX: 'hidden', overflowY: 'visible' }}>
       <div
+        ref={canvasDivRef}
         className="relative"
         style={{
           width: canvasWidth,
           height: canvasHeight,
-          // 점 그리드: 편집 모드일 때만 표시 (뷰 모드에서는 숨김)
-          // Python으로 치면: background = DOT_GRID if edit_mode else 'none'
-          backgroundImage: editMode
-            ? 'radial-gradient(circle, #d1d5db 1.2px, transparent 1.2px)'
-            : 'none',
-          backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
-          // -10px 오프셋: 그라디언트 중심이 타일 중앙(10,10)에 있어 점이 (10,30,50...)에 위치
-          // 오프셋으로 점을 스냅 좌표(0,20,40...)에 정확히 일치시킴
-          backgroundPosition: editMode ? '-10px -10px' : undefined,
-          cursor: dragState ? 'grabbing' : resizeState?.handle === 'right' ? 'ew-resize' : resizeState ? 'nwse-resize' : 'default',
+          // 부모(page.tsx main)의 dot-grid-bg ::before 점들을 solid 배경으로 가림
+          // 그 위에 이 컴포넌트 자체 점 그리드 레이어(아래 div)를 올림 → 점 겹침 방지
+          // Python으로 치면: background_color = CANVAS_BG  # 항상 불투명
+          backgroundColor: '#fcf9f8',
+          cursor: dragState ? 'grabbing'
+            : boxResizeState ? (boxResizeState.handle === 'right' ? 'ew-resize' : 'nwse-resize')
+            : drawingBox ? 'crosshair'
+            : resizeState?.handle === 'right' ? 'ew-resize'
+            : resizeState ? 'nwse-resize'
+            : 'default',
         }}
       >
+        {/* 점 그리드 레이어 — 부모 배경과 겹치지 않도록 별도 div + filter:blur */}
+        {/* Python으로 치면: if edit_mode: render dot grid layer */}
+        {editMode && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: 'radial-gradient(circle, #c8bfb8 1px, transparent 1px)',
+              backgroundSize: `${GRID_SIZE}px ${GRID_SIZE}px`,
+              backgroundPosition: '-10px -10px',
+              filter: 'blur(0.7px)',
+              zIndex: 0,
+            }}
+          />
+        )}
         {/* 캔버스 배너 — 편집 모드면 보라색, 뷰 모드면 회색 */}
         <div className={editMode
           ? "absolute top-3 right-3 z-20 px-2.5 py-1 bg-purple-100 text-purple-600 text-xs rounded-full border border-purple-200 select-none pointer-events-none"
@@ -584,6 +787,162 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
         }>
           {editMode ? '⊞ 캔버스 편집' : '⊞ 캔버스'}
         </div>
+
+        {/* ── 가상 박스 렌더링 ─────────────────────── */}
+        {/* 저장된 박스들: hover 시 점선 경계 표시 + 리사이즈 핸들 + 삭제 버튼 */}
+        {/* Python으로 치면: for box in page.canvas_boxes: render_box(box) */}
+        {!readMode && (page.canvasBoxes ?? []).map((box: CanvasBox) => {
+          const isDraggingThis = editMode && boxDragState?.boxId === box.id
+          const isResizingThis = editMode && boxResizeState?.boxId === box.id
+          const posX = isDraggingThis && boxDragPos ? boxDragPos.x : box.x
+          const posY = isDraggingThis && boxDragPos ? boxDragPos.y : box.y
+          const geom = isResizingThis && boxResizeGeom ? boxResizeGeom : { ...box, x: posX, y: posY }
+          const isHovered = editMode && hoveredBoxId === box.id
+          return (
+            <div
+              key={box.id}
+              className="absolute"
+              style={{
+                left: geom.x,
+                top: geom.y,
+                width: geom.w,
+                height: geom.h,
+                // 편집 모드: hover/드래그/리사이즈 시 진한 점선, 평소엔 반투명 점선
+                // 뷰 모드: 항상 연한 실선으로 박스 구분 표시
+                // Python으로 치면: border = DASHED_ACTIVE if hovered else DASHED_DIM if edit else SOLID_DIM
+                border: !editMode
+                  ? '1px solid rgba(167,139,250,0.25)'
+                  : (isHovered || isDraggingThis || isResizingThis)
+                    ? '1.5px dashed #a78bfa'
+                    : '1.5px dashed rgba(167,139,250,0.3)',
+                borderRadius: 6,
+                // 박스는 블록보다 낮은 z-index (블록이 박스 위에 표시됨)
+                zIndex: isDraggingThis ? 50 : 2,
+                transition: isDraggingThis ? 'none' : 'border-color 0.15s',
+                cursor: isDraggingThis ? 'grabbing' : 'default',
+                // 뷰 모드에서는 박스가 블록 이벤트를 가로채지 않도록 pointerEvents 비활성
+                pointerEvents: editMode ? 'all' : 'none',
+              }}
+              onMouseEnter={() => editMode && setHoveredBoxId(box.id)}
+              onMouseLeave={() => { if (editMode && !isDraggingThis) setHoveredBoxId(null) }}
+            >
+              {/* 박스 레이블 (있을 때만) */}
+              {box.label && (
+                <span
+                  className="absolute -top-5 left-0 text-xs text-purple-400 select-none pointer-events-none"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {box.label}
+                </span>
+              )}
+
+              {/* 드래그 핸들 — hover 시 상단 중앙에 표시 */}
+              {(isHovered || isDraggingThis) && (
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 -top-3 flex items-center px-2 py-0.5 bg-white border border-purple-200 rounded-full shadow-sm z-10"
+                  style={{ cursor: isDraggingThis ? 'grabbing' : 'grab', userSelect: 'none' }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); e.stopPropagation()
+                    setBoxDragState({
+                      boxId: box.id,
+                      startMouseX: e.clientX, startMouseY: e.clientY,
+                      startBoxX: box.x, startBoxY: box.y,
+                      boxW: box.w, boxH: box.h,
+                    })
+                  }}
+                  title="드래그하여 이동"
+                >
+                  <GripHorizontal size={12} className="text-purple-400" />
+                </div>
+              )}
+
+              {/* 삭제 버튼 — hover 시만 표시 */}
+              {isHovered && !isDraggingThis && (
+                <button
+                  className="absolute -top-3 -right-3 w-5 h-5 flex items-center justify-center bg-white border border-purple-200 rounded-full text-purple-400 hover:text-red-500 hover:border-red-300 shadow-sm z-10"
+                  style={{ fontSize: 11, lineHeight: 1 }}
+                  onMouseDown={(e) => { e.stopPropagation() }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    deleteCanvasBox(page.id, box.id)
+                    setHoveredBoxId(null)
+                  }}
+                  title="박스 삭제"
+                >
+                  ×
+                </button>
+              )}
+
+              {/* 오른쪽 리사이즈 핸들 */}
+              {(isHovered || isResizingThis) && (
+                <div
+                  className="absolute top-2 bottom-2 -right-1 w-2 rounded-full bg-purple-300 hover:bg-purple-500"
+                  style={{ cursor: 'ew-resize', zIndex: 10 }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); e.stopPropagation()
+                    setBoxResizeState({
+                      boxId: box.id, handle: 'right',
+                      startMouseX: e.clientX, startMouseY: e.clientY,
+                      startX: box.x, startY: box.y, startW: box.w, startH: box.h,
+                    })
+                  }}
+                />
+              )}
+
+              {/* 아래쪽 리사이즈 핸들 */}
+              {(isHovered || isResizingThis) && (
+                <div
+                  className="absolute left-2 right-2 -bottom-1 h-2 rounded-full bg-purple-300 hover:bg-purple-500"
+                  style={{ cursor: 'ns-resize', zIndex: 10 }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); e.stopPropagation()
+                    setBoxResizeState({
+                      boxId: box.id, handle: 'bottom',
+                      startMouseX: e.clientX, startMouseY: e.clientY,
+                      startX: box.x, startY: box.y, startW: box.w, startH: box.h,
+                    })
+                  }}
+                />
+              )}
+
+              {/* 코너 리사이즈 핸들 */}
+              {(isHovered || isResizingThis) && (
+                <div
+                  className="absolute -right-1.5 -bottom-1.5 w-3.5 h-3.5 rounded-sm bg-purple-400 hover:bg-purple-600"
+                  style={{ cursor: 'nwse-resize', zIndex: 10 }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); e.stopPropagation()
+                    setBoxResizeState({
+                      boxId: box.id, handle: 'corner',
+                      startMouseX: e.clientX, startMouseY: e.clientY,
+                      startX: box.x, startY: box.y, startW: box.w, startH: box.h,
+                    })
+                  }}
+                />
+              )}
+            </div>
+          )
+        })}
+
+        {/* 그리기 중인 박스 미리보기 */}
+        {drawingBox && (() => {
+          const x = Math.min(drawingBox.startX, drawingBox.curX)
+          const y = Math.min(drawingBox.startY, drawingBox.curY)
+          const w = Math.abs(drawingBox.curX - drawingBox.startX)
+          const h = Math.abs(drawingBox.curY - drawingBox.startY)
+          return (
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                left: x, top: y, width: w, height: h,
+                border: '1.5px dashed #a78bfa',
+                borderRadius: 6,
+                backgroundColor: 'rgba(167,139,250,0.06)',
+                zIndex: 20,
+              }}
+            />
+          )
+        })()}
 
         {/* ── 블록 렌더링 ─────────────────────────── */}
         {page.blocks.map((block) => {
@@ -604,7 +963,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
               // blockId별 안정적 ref 콜백 — 리렌더 시 동일 함수 재사용 (null 사이클 방지)
               // Python으로 치면: div.ref = self.get_block_ref_callback(block.id)
               ref={getBlockRefCallback(block.id)}
-              className="absolute bg-white rounded-lg border border-gray-200 group"
+              className="absolute bg-white rounded-lg border border-gray-200 group canvas-mode-block"
               style={{
                 left: posX,
                 top: posY,
@@ -618,7 +977,8 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
                   : isResizing
                     ? '0 4px 12px rgba(139,92,246,0.2)'
                     : '0 1px 4px rgba(0,0,0,0.08)',
-                zIndex: isDragging ? 100 : isResizing ? 50 : 1,
+                // 블록은 박스(z:2)보다 높은 z-index로 항상 박스 위에 표시
+                zIndex: isDragging ? 100 : isResizing ? 50 : 5,
                 userSelect: isInteracting ? 'none' : 'auto',
                 transition: isInteracting ? 'none' : 'box-shadow 0.15s',
                 borderColor: isResizing ? '#8b5cf6' : undefined,
@@ -676,12 +1036,22 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
           )
         })}
 
-        {/* 빈 캔버스 클릭 → 새 블록 추가 (편집 모드에서만) */}
+        {/* 빈 캔버스 mousedown → 박스 그리기 시작 (편집 모드에서만) */}
+        {/* 짧은 클릭(드래그 거리 <10px)은 mouseup에서 addBlock 호출 */}
+        {/* Python으로 치면: if edit_mode: canvas.on_mousedown = start_box_draw */}
         {!readMode && editMode && (
           <div
-            className="absolute inset-0 z-0"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) addBlock(page.id)
+            className="absolute inset-0"
+            style={{ zIndex: 1, cursor: drawingBox ? 'crosshair' : 'default' }}
+            onMouseDown={(e) => {
+              if (e.target !== e.currentTarget) return
+              e.preventDefault()
+              const canvas = canvasDivRef.current
+              if (!canvas) return
+              const rect = canvas.getBoundingClientRect()
+              const sx = snap(Math.max(0, e.clientX - rect.left))
+              const sy = snap(Math.max(0, e.clientY - rect.top))
+              setDrawingBox({ startX: sx, startY: sy, curX: sx, curY: sy })
             }}
           />
         )}

@@ -7,6 +7,7 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
+import { useLocale } from '@/locales'
 import {
   DndContext,
   DragOverlay,
@@ -91,6 +92,8 @@ function SortableCard({
   onDelete: () => void
   onEdit: (title: string) => void
 }) {
+  const t = useLocale()
+
   // useSortable: 이 카드를 드래그 가능한 아이템으로 등록
   // data에 type/columnId/card 포함 → DragOver 핸들러에서 참조
   // Python으로 치면: sortable_id, drag_ref, listeners = useSortable(card.id)
@@ -108,7 +111,7 @@ function SortableCard({
   // Python으로 치면: def commit_edit(self): self.on_edit(self.edit_value.strip())
   function commitEdit() {
     setIsEditing(false)
-    const final = editValue.trim() || '제목 없음'
+    const final = editValue.trim() || t.blocks.kanban.noTitle
     if (final !== card.title) onEdit(final)
     else setEditValue(card.title)
   }
@@ -153,7 +156,7 @@ function SortableCard({
             className="flex-1 text-sm text-gray-800 break-words cursor-text leading-snug"
             onDoubleClick={() => { setEditValue(card.title); setIsEditing(true) }}
           >
-            {card.title || '제목 없음'}
+            {card.title || t.blocks.kanban.noTitle}
           </p>
           {/* 삭제 버튼 (hover 시 표시) */}
           <button
@@ -188,6 +191,8 @@ function DroppableColumn({
   onDeleteCard: (cardId: string) => void
   onEditCard: (cardId: string, title: string) => void
 }) {
+  const t = useLocale()
+
   // useDroppable: 이 div에 카드 드롭 가능하도록 등록
   // Python으로 치면: self.droppable_ref, self.is_over = useDroppable(column.id)
   const { setNodeRef, isOver } = useDroppable({
@@ -203,7 +208,7 @@ function DroppableColumn({
   // Python으로 치면: def commit_title(self): self.on_rename(self.title_value.strip())
   function commitTitle() {
     setIsEditingTitle(false)
-    const final = titleValue.trim() || '새 열'
+    const final = titleValue.trim() || t.blocks.kanban.newColumn
     if (final !== column.title) onRenameColumn(final)
     else setTitleValue(column.title)
   }
@@ -280,7 +285,7 @@ function DroppableColumn({
         onClick={onAddCard}
         className="mx-2 mb-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-black/5 rounded-lg transition-colors text-left px-2"
       >
-        + 카드 추가
+        {t.blocks.kanban.addCardBtn}
       </button>
     </div>
   )
@@ -291,6 +296,7 @@ function DroppableColumn({
 // Python으로 치면: class KanbanBlock(Widget): def render(self): return KanbanBoard(self.data)
 // -----------------------------------------------
 export default function KanbanBlock({ blockId, pageId: _pageId, content, onChange }: KanbanBlockProps) {
+  const t = useLocale()
 
   // content prop → 로컬 state 초기화 (마운트 시 한 번만)
   // Python으로 치면: self.data = parse_content(content)
@@ -419,7 +425,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
   // 카드 추가 — 열 끝에 새 빈 카드 삽입
   // Python으로 치면: def add_card(self, col_id): col.cards.append(KanbanCard(uuid(), '새 카드'))
   const addCard = useCallback((colId: string) => {
-    const newCard: KanbanCard = { id: crypto.randomUUID(), title: '새 카드' }
+    const newCard: KanbanCard = { id: crypto.randomUUID(), title: t.blocks.kanban.newCard }
     const newCols = data.columns.map(col =>
       col.id === colId ? { ...col, cards: [...col.cards, newCard] } : col
     )
@@ -454,7 +460,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
     const palette = ['#f1f5f9', '#dbeafe', '#dcfce7', '#fef9c3', '#fce7f3', '#ede9fe']
     const newCol: KanbanColumn = {
       id: crypto.randomUUID(),
-      title: '새 열',
+      title: t.blocks.kanban.newColumn,
       color: palette[data.columns.length % palette.length],
       cards: [],
     }
@@ -507,7 +513,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
             onClick={addColumn}
             className="flex-shrink-0 w-64 h-12 rounded-xl border-2 border-dashed border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-400 text-sm transition-colors self-start"
           >
-            + 열 추가
+            {t.blocks.kanban.addColumnBtn}
           </button>
         </div>
 
@@ -516,7 +522,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
         <DragOverlay>
           {activeCard ? (
             <div className="bg-white rounded-md border border-gray-200 shadow-xl px-3 py-2 text-sm text-gray-800 w-60 rotate-2 cursor-grabbing">
-              {activeCard.title || '제목 없음'}
+              {activeCard.title || t.blocks.kanban.noTitle}
             </div>
           ) : null}
         </DragOverlay>

@@ -7,8 +7,10 @@
 
 'use client'
 
+import { useState } from 'react'
 import { useSettingsStore, applyEditorStyle } from '@/store/settingsStore'
 import { FONT_PRESETS, CATEGORY_LABELS, getFontPreset, type FontCategory } from '@/lib/fonts'
+import { useLocale } from '@/locales'
 
 // -----------------------------------------------
 // 에디터 전체 기본 크기 옵션 (px)
@@ -21,7 +23,14 @@ const SIZE_OPTIONS: number[] = [14, 16, 18, 20]
 const CATEGORY_ORDER: FontCategory[] = ['sans', 'korean', 'serif', 'mono']
 
 export default function EditorTab() {
-  const { fontFamily, fontSize, lineHeight, editorMaxWidth, setFontFamily, setFontSize, setLineHeight } = useSettingsStore()
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
+  const { fontFamily, fontSize, lineHeight, editorMaxWidth, setFontFamily, setFontSize, setLineHeight,
+          weatherLocation, setWeatherLocation } = useSettingsStore()
+
+  // 날씨 위치 입력 로컬 상태 (저장 버튼 누를 때까지 임시 보관)
+  // Python으로 치면: self._loc_input: str = weather_location
+  const [locInput, setLocInput] = useState(weatherLocation)
 
   // -----------------------------------------------
   // 편집기 스타일 즉시 반영 헬퍼
@@ -63,8 +72,8 @@ export default function EditorTab() {
 
       {/* ── 글꼴 패밀리 ───────────────────────────── */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">글꼴</h3>
-        <p className="text-xs text-gray-400 mb-4">에디터 본문 전체에 적용할 기본 글꼴 (특정 텍스트만 바꾸려면 드래그 후 버블메뉴 사용)</p>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.editor.font}</h3>
+        <p className="text-xs text-gray-400 mb-4">{t.settings.editor.fontDesc}</p>
 
         {/* 카테고리별 폰트 그리드 */}
         {CATEGORY_ORDER.map((category) => {
@@ -114,8 +123,8 @@ export default function EditorTab() {
 
       {/* ── 글꼴 크기 ─────────────────────────────── */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">글꼴 크기</h3>
-        <p className="text-xs text-gray-400 mb-4">에디터 본문 기본 텍스트 크기 (px)</p>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.editor.fontSize}</h3>
+        <p className="text-xs text-gray-400 mb-4">{t.settings.editor.fontSizeDesc}</p>
         <div className="flex gap-2">
           {SIZE_OPTIONS.map((size) => (
             <button
@@ -136,10 +145,10 @@ export default function EditorTab() {
       {/* ── 줄 간격 ───────────────────────────────── */}
       <section>
         <h3 className="text-sm font-semibold text-gray-700 mb-1">
-          줄 간격
+          {t.settings.editor.lineHeight}
           <span className="ml-2 text-blue-600 font-bold">{lineHeight.toFixed(1)}</span>
         </h3>
-        <p className="text-xs text-gray-400 mb-4">텍스트 줄 사이의 간격 (1.4 ~ 2.0)</p>
+        <p className="text-xs text-gray-400 mb-4">{t.settings.editor.lineHeightDesc}</p>
         <input
           type="range"
           min="1.4"
@@ -150,14 +159,56 @@ export default function EditorTab() {
           className="w-full accent-blue-500"
         />
         <div className="flex justify-between text-xs text-gray-400 mt-1">
-          <span>1.4 좁게</span>
-          <span>2.0 넓게</span>
+          <span>1.4 {t.settings.editor.lineHeightNarrow}</span>
+          <span>2.0 {t.settings.editor.lineHeightWide}</span>
         </div>
+      </section>
+
+      {/* ── 날씨 위치 설정 ────────────────────────── */}
+      {/* Day Planner / Weekly Planner 블록 날씨 자동 표시에 사용하는 기본 도시명 */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.editor.weatherLocation}</h3>
+        <p className="text-xs text-gray-400 mb-3">
+          {t.settings.editor.weatherLocationDesc}<br />
+          {t.settings.editor.weatherLocationDesc2}
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder={t.settings.editor.weatherPlaceholder}
+            value={locInput}
+            onChange={e => setLocInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') setWeatherLocation(locInput.trim()) }}
+            className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400 transition-colors"
+          />
+          <button
+            type="button"
+            onClick={() => setWeatherLocation(locInput.trim())}
+            className="text-sm bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors font-medium"
+          >
+            {t.settings.editor.weatherSave}
+          </button>
+          {weatherLocation && locInput.trim() === weatherLocation && (
+            <span className="text-xs text-emerald-500 font-medium whitespace-nowrap">{t.settings.editor.weatherSaved}</span>
+          )}
+        </div>
+        {weatherLocation && (
+          <p className="text-xs text-gray-400 mt-2">
+            {t.settings.editor.weatherCurrent} <span className="text-blue-500 font-medium">{weatherLocation}</span>
+            <button
+              type="button"
+              onClick={() => { setWeatherLocation(''); setLocInput('') }}
+              className="ml-2 text-gray-300 hover:text-red-400 transition-colors"
+            >
+              {t.settings.editor.weatherDelete}
+            </button>
+          </p>
+        )}
       </section>
 
       {/* ── 미리보기 ─────────────────────────────── */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">미리보기</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.settings.editor.preview}</h3>
         <div
           className="border border-gray-200 rounded-xl p-4 bg-gray-50 text-gray-800"
           style={{
@@ -166,8 +217,8 @@ export default function EditorTab() {
             lineHeight: lineHeight,
           }}
         >
-          <p className="text-lg font-bold mb-2">페이지 제목 예시</p>
-          <p>이것은 에디터 본문 텍스트 미리보기입니다. 선택한 글꼴과 크기, 줄 간격이 여기에 반영됩니다. The quick brown fox jumps over the lazy dog.</p>
+          <p className="text-lg font-bold mb-2">{t.settings.editor.previewTitle}</p>
+          <p>{t.settings.editor.previewBody}</p>
         </div>
       </section>
     </div>

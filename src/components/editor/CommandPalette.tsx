@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
+import { useLocale } from '@/locales'
 
 // ── 팔레트 아이템 타입 유니온 ──
 // Python으로 치면: PageItem | ActionItem (dataclass)
@@ -19,12 +20,13 @@ type PaletteItem =
   | { kind: 'action'; id: string; label: string; desc: string; icon: string; run: () => void }
 
 // CommandPalette 컴포넌트 props
-// Python으로 치면: def CommandPalette(on_close, on_open_settings, on_open_shortcuts, on_open_search): ...
+// Python으로 치면: def CommandPalette(on_close, on_open_settings, on_open_shortcuts, on_open_search, on_open_calendar): ...
 interface CommandPaletteProps {
   onClose: () => void
   onOpenSettings: () => void
   onOpenShortcuts: () => void
   onOpenSearch: () => void
+  onOpenCalendar: () => void
 }
 
 export default function CommandPalette({
@@ -32,7 +34,12 @@ export default function CommandPalette({
   onOpenSettings,
   onOpenShortcuts,
   onOpenSearch,
+  onOpenCalendar,
 }: CommandPaletteProps) {
+
+  // 번역 훅
+  // Python으로 치면: t = get_locale()
+  const t = useLocale()
 
   // 검색어 입력 상태
   // Python으로 치면: self.query = ''
@@ -64,39 +71,47 @@ export default function CommandPalette({
     {
       kind: 'action',
       id: 'action-new-page',
-      label: '새 페이지 만들기',
-      desc: '빈 페이지를 새로 추가합니다',
+      label: t.overlay.commandPalette.actionNewPage,
+      desc: t.overlay.commandPalette.actionNewPageDesc,
       icon: '✏️',
       run: () => {
-        addPage('새 페이지', null)
+        addPage(t.sidebar.newPage, null)
         onClose()
       },
     },
     {
       kind: 'action',
       id: 'action-settings',
-      label: '설정 열기',
-      desc: '앱 설정, 테마, 플러그인 관리',
+      label: t.overlay.commandPalette.actionSettings,
+      desc: t.overlay.commandPalette.actionSettingsDesc,
       icon: '⚙️',
       run: () => onOpenSettings(),
     },
     {
       kind: 'action',
       id: 'action-shortcuts',
-      label: '단축키 보기',
-      desc: '키보드 단축키 전체 목록',
+      label: t.overlay.commandPalette.actionShortcuts,
+      desc: t.overlay.commandPalette.actionShortcutsDesc,
       icon: '❓',
       run: () => onOpenShortcuts(),
     },
     {
       kind: 'action',
       id: 'action-search',
-      label: '내용 검색 (Ctrl+K)',
-      desc: '페이지 내용까지 전체 텍스트 검색',
+      label: t.overlay.commandPalette.actionSearch,
+      desc: t.overlay.commandPalette.actionSearchDesc,
       icon: '🔍',
       run: () => onOpenSearch(),
     },
-  ], [addPage, onClose, onOpenSettings, onOpenShortcuts, onOpenSearch])
+    {
+      kind: 'action',
+      id: 'action-calendar',
+      label: t.overlay.commandPalette.actionCalendar,
+      desc: t.overlay.commandPalette.actionCalendarDesc,
+      icon: '📅',
+      run: () => onOpenCalendar(),
+    },
+  ], [t, addPage, onClose, onOpenSettings, onOpenShortcuts, onOpenSearch, onOpenCalendar])
 
   // ── 표시할 아이템 목록 계산 ──
   // 쿼리 없음: 최근 페이지 + 전체 액션
@@ -114,9 +129,9 @@ export default function CommandPalette({
         .map(p => ({
           kind: 'page' as const,
           id: p.id,
-          title: p.title || '제목 없음',
+          title: p.title || t.common.untitled,
           icon: p.icon || '📝',
-          section: '최근 페이지',
+          section: t.overlay.commandPalette.recentPages,
         }))
 
       return [...recentItems, ...actions]
@@ -130,9 +145,9 @@ export default function CommandPalette({
       .map(p => ({
         kind: 'page' as const,
         id: p.id,
-        title: p.title || '제목 없음',
+        title: p.title || t.common.untitled,
         icon: p.icon || '📝',
-        section: '페이지',
+        section: t.overlay.commandPalette.recentPages,
       }))
 
     // 액션 라벨로 필터링
@@ -202,9 +217,9 @@ export default function CommandPalette({
   // Python으로 치면: def should_show_section(i, items): return i == 0 or items[i-1].section != items[i].section
   function shouldShowSection(i: number): string | null {
     const item = items[i]
-    const section = item.kind === 'page' ? item.section : '빠른 액션'
+    const section = item.kind === 'page' ? item.section : t.overlay.commandPalette.actions
     const prevItem = items[i - 1]
-    const prevSection = prevItem ? (prevItem.kind === 'page' ? prevItem.section : '빠른 액션') : null
+    const prevSection = prevItem ? (prevItem.kind === 'page' ? prevItem.section : t.overlay.commandPalette.actions) : null
     if (section !== prevSection) return section
     return null
   }
@@ -231,7 +246,7 @@ export default function CommandPalette({
           <input
             ref={inputRef}
             type="text"
-            placeholder="페이지 이동 또는 명령 실행..."
+            placeholder={t.overlay.commandPalette.placeholder}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -248,7 +263,7 @@ export default function CommandPalette({
           {/* 결과 없음 */}
           {items.length === 0 && (
             <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">
-              <span className="font-medium text-gray-600 dark:text-gray-300">&quot;{query}&quot;</span>에 대한 결과가 없습니다
+              <span className="font-medium text-gray-600 dark:text-gray-300">&quot;{query}&quot;</span>{' '}{t.overlay.commandPalette.noResults}
             </div>
           )}
 
@@ -298,7 +313,7 @@ export default function CommandPalette({
                   {/* 페이지 배지 */}
                   {item.kind === 'page' && (
                     <span className="text-xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded px-1.5 py-0.5 shrink-0">
-                      페이지
+                      {t.overlay.commandPalette.recentPages}
                     </span>
                   )}
                 </button>
@@ -310,15 +325,15 @@ export default function CommandPalette({
         {/* ── 하단 키 안내 ── */}
         <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-800 flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
           <span>
-            <kbd className="border border-gray-200 dark:border-gray-700 rounded px-1 font-mono">↑↓</kbd> 이동
+            <kbd className="border border-gray-200 dark:border-gray-700 rounded px-1 font-mono">↑↓</kbd> {t.overlay.commandPalette.move}
           </span>
           <span>
-            <kbd className="border border-gray-200 dark:border-gray-700 rounded px-1 font-mono">Enter</kbd> 실행
+            <kbd className="border border-gray-200 dark:border-gray-700 rounded px-1 font-mono">Enter</kbd> {t.overlay.commandPalette.run}
           </span>
           <span>
-            <kbd className="border border-gray-200 dark:border-gray-700 rounded px-1 font-mono">Esc</kbd> 닫기
+            <kbd className="border border-gray-200 dark:border-gray-700 rounded px-1 font-mono">Esc</kbd> {t.common.close}
           </span>
-          <span className="ml-auto">{items.length}개 항목</span>
+          <span className="ml-auto">{items.length}{t.overlay.commandPalette.itemCount}</span>
         </div>
 
       </div>
