@@ -80,7 +80,10 @@ export default function TableToolbar({ editor, pageId, blockId }: TableToolbarPr
     // glass: white/95 + backdrop-blur + border
     // Python으로 치면: render FloatingPill(position='top-left')
     // -----------------------------------------------
-    <div className="absolute -top-10 left-8 z-20 flex items-center gap-0.5 px-1.5 py-1 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200/70 dark:border-gray-700/80 rounded-xl shadow-md">
+    <div
+      className="absolute -top-10 left-8 z-20 flex items-center gap-0.5 px-1.5 py-1 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm border border-gray-200/70 dark:border-gray-700/80 rounded-xl shadow-md"
+      onMouseDown={(e) => e.preventDefault()}
+    >
 
       {/* ── 행 조작 그룹 ──────────────────────────── */}
       <IconBtn

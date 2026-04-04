@@ -48,6 +48,7 @@ export interface PluginSettings {
   gantt: boolean           // 타임라인/갠트 차트 블록
   mindmap: boolean         // AI 마인드맵 블록 (방사형 트리 + AI 채팅)
   globalAiChat: boolean    // 우하단 글로벌 AI 채팅 플로팅 버튼
+  math: boolean            // LaTeX 수식 (블록 수식 + 인라인 $...$)
 }
 
 // -----------------------------------------------
@@ -275,6 +276,7 @@ export const useSettingsStore = create<SettingsStore>()(
         gantt:            true,   // 기본값: 갠트 블록 ON
         mindmap:          true,   // 기본값: AI 마인드맵 블록 ON
         globalAiChat:     true,   // 기본값: 글로벌 AI 채팅 버튼 ON
+        math:             true,   // 기본값: LaTeX 수식 ON
       },
       // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
       isFocusMode: false,

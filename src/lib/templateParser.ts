@@ -15,11 +15,13 @@ import { Block, BlockType, createBlock } from '@/types/block'
 // -----------------------------------------------
 function inlineToHtml(text: string): string {
   return text
-    .replace(/\*\*(.*?)\*\*/g,   '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g,        '<em>$1</em>')
-    .replace(/_(.*?)_/g,          '<em>$1</em>')
-    .replace(/~~(.*?)~~/g,        '<del>$1</del>')
-    .replace(/`([^`]+)`/g,        '<code>$1</code>')
+    .replace(/\*\*(.*?)\*\*/g,          '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,               '<em>$1</em>')
+    // _ 이탤릭은 공백/문장부호로 둘러싸인 경우만 적용 — snake_case 오파싱 방지
+    // Python으로 치면: re.sub(r'(?<!\w)_(.*?)_(?!\w)', '<em>\\1</em>', text)
+    .replace(/(^|[\s([{])_(.*?)_(?=[^a-zA-Z0-9_]|$)/g, '$1<em>$2</em>')
+    .replace(/~~(.*?)~~/g,               '<del>$1</del>')
+    .replace(/`([^`]+)`/g,               '<code>$1</code>')
 }
 
 // -----------------------------------------------
@@ -169,11 +171,17 @@ export function parseTemplateContent(content: string): Block[] {
     }
 
     // ── 인용구 (> 텍스트) → 기울임 단락으로 표현 ──
+    // 연속된 > 줄을 하나의 블록으로 묶음 (개별 처리 시 블록 수 폭발 방지)
+    // Python으로 치면: if line.startswith('> '): collect while '> '
     if (line.match(/^> /)) {
+      const quoteLines: string[] = []
+      while (i < lines.length && lines[i].match(/^> /)) {
+        quoteLines.push(lines[i].replace(/^> /, '').trim())
+        i++
+      }
       const b = createBlock('paragraph')
-      b.content = `<em>${inlineToHtml(line.replace(/^> /, '').trim())}</em>`
+      b.content = `<em>${quoteLines.map(inlineToHtml).join('<br>')}</em>`
       blocks.push(b)
-      i++
       continue
     }
 
@@ -218,24 +226,28 @@ export function blocksToMarkdown(blocks: Block[]): string {
       case 'divider':     return '---'
       case 'code': {
         // <pre><code>...</code></pre> → ```...```
+        if (typeof document === 'undefined') return `\`\`\`\n${text}\n\`\`\``
         const div = document.createElement('div')
         div.innerHTML = block.content
         const code = div.textContent ?? ''
         return `\`\`\`\n${code}\n\`\`\``
       }
       case 'bulletList': {
+        if (typeof document === 'undefined') return `- ${text}`
         const div = document.createElement('div')
         div.innerHTML = block.content
         const items = div.querySelectorAll('li')
         return Array.from(items).map(li => `- ${li.textContent?.trim() ?? ''}`).join('\n')
       }
       case 'orderedList': {
+        if (typeof document === 'undefined') return `1. ${text}`
         const div = document.createElement('div')
         div.innerHTML = block.content
         const items = div.querySelectorAll('li')
         return Array.from(items).map((li, idx) => `${idx + 1}. ${li.textContent?.trim() ?? ''}`).join('\n')
       }
       case 'taskList': {
+        if (typeof document === 'undefined') return `- [ ] ${text}`
         const div = document.createElement('div')
         div.innerHTML = block.content
         const items = div.querySelectorAll('li')

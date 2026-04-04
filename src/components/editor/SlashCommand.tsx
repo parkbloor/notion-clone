@@ -121,6 +121,7 @@ export default function SlashCommand({
     chart:       plugins.chart,         // 차트 플러그인 OFF 시 슬래시 메뉴에서 숨김
     gantt:       plugins.gantt,         // 갠트 플러그인 OFF 시 슬래시 메뉴에서 숨김
     mindmap:     plugins.mindmap,       // 마인드맵 플러그인 OFF 시 슬래시 메뉴에서 숨김
+    math:        plugins.math,          // 수식 플러그인 OFF 시 슬래시 메뉴에서 숨김
     // video는 pluginBlockMap에 없으므로 항상 메뉴에 표시됨 (autoplay/loop은 설정에서만 조절)
   }
 
@@ -217,8 +218,6 @@ export default function SlashCommand({
     )
   }
 
-  let globalIndex = 0
-
   return (
     <div
       ref={popupRef}
@@ -240,7 +239,9 @@ export default function SlashCommand({
               {group.group}
             </p>
             {group.items.map((item) => {
-              const currentIndex = globalIndex++
+              // allFilteredItems 배열에서 인덱스 조회 — 렌더 중 변이 금지 (React 순수 함수 원칙)
+              // Python으로 치면: current_index = all_items.index(item)
+              const currentIndex = allFilteredItems.indexOf(item)
               const isSelected = selectedIndex === currentIndex
 
               return (

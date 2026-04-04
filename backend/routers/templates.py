@@ -11,12 +11,17 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from backend.core import VAULT_DIR, validate_uuid
+from backend.core import get_vault_dir, validate_uuid
 
-# ── 템플릿 저장 폴더 ───────────────────────────
-# Python으로 치면: TEMPLATES_DIR = VAULT_DIR / "_templates"
-TEMPLATES_DIR = VAULT_DIR / "_templates"
-TEMPLATES_DIR.mkdir(exist_ok=True)
+
+def get_templates_dir():
+    """
+    현재 활성 볼트의 _templates 폴더 반환 (볼트 전환 시 자동 반영)
+    Python으로 치면: def get_templates_dir(): return get_vault_dir() / '_templates'
+    """
+    d = get_vault_dir() / "_templates"
+    d.mkdir(exist_ok=True)
+    return d
 
 # Python으로 치면: router = Blueprint('templates', __name__, url_prefix='/api')
 router = APIRouter(prefix="/api", tags=["templates"])
@@ -126,11 +131,11 @@ DEFAULT_TEMPLATES = [
 # -----------------------------------------------
 # 기본 템플릿 시드 함수
 # _templates/ 폴더가 비어 있을 때만 실행
-# Python으로 치면: def seed_default_templates(): if not list(TEMPLATES_DIR.glob('*.json')): ...
+# Python으로 치면: def seed_default_templates(): if not list(get_templates_dir().glob('*.json')): ...
 # -----------------------------------------------
 def _seed_default_templates() -> None:
     """vault/_templates/ 가 비어 있으면 기본 템플릿 5종을 파일로 생성"""
-    if list(TEMPLATES_DIR.glob("*.json")):
+    if list(get_templates_dir().glob("*.json")):
         return  # 이미 템플릿이 있으면 시드 건너뜀
     for tpl in DEFAULT_TEMPLATES:
         template_id = str(uuid.uuid4())
@@ -141,7 +146,7 @@ def _seed_default_templates() -> None:
             "description": tpl["description"],
             "content":     tpl["content"],
         }
-        path = TEMPLATES_DIR / f"{template_id}.json"
+        path = get_templates_dir() / f"{template_id}.json"
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -163,13 +168,13 @@ class TemplateBody(BaseModel):
 
 # -----------------------------------------------
 # 전체 템플릿 목록 반환
-# Python으로 치면: def get_templates(): return [json.load(f) for f in TEMPLATES_DIR.glob('*.json')]
+# Python으로 치면: def get_templates(): return [json.load(f) for f in get_templates_dir().glob('*.json')]
 # -----------------------------------------------
 @router.get("/templates")
 def get_templates():
     """vault/_templates/ 폴더의 모든 .json 파일을 읽어 반환"""
     templates = []
-    for f in sorted(TEMPLATES_DIR.glob("*.json")):
+    for f in sorted(get_templates_dir().glob("*.json")):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             templates.append(data)
@@ -193,7 +198,7 @@ def create_template(body: TemplateBody):
         "description": body.description,
         "content":     body.content,
     }
-    path = TEMPLATES_DIR / f"{template_id}.json"
+    path = get_templates_dir() / f"{template_id}.json"
     path.write_text(
         json.dumps(template, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -210,7 +215,7 @@ def update_template(template_id: str, body: TemplateBody):
     """기존 템플릿 파일을 덮어씌워 수정"""
     # UUID 형식 검증 (경로 트래버설 방지)
     validate_uuid(template_id, "템플릿 ID")
-    path = TEMPLATES_DIR / f"{template_id}.json"
+    path = get_templates_dir() / f"{template_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
     template = {
@@ -235,7 +240,7 @@ def update_template(template_id: str, body: TemplateBody):
 def delete_template(template_id: str):
     """템플릿 JSON 파일 삭제"""
     validate_uuid(template_id, "템플릿 ID")
-    path = TEMPLATES_DIR / f"{template_id}.json"
+    path = get_templates_dir() / f"{template_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
     path.unlink()

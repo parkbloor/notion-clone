@@ -56,11 +56,13 @@ export function groupBlocksIntoRows(blocks: Block[]): Block[][] {
     const lastRow = rows[rows.length - 1]
 
     if (lastRow) {
-      // 현재 행의 최소 canvasY (행 기준점)
-      // Python으로 치면: row_base_y = min(b.canvas_y for b in last_row)
-      const rowBaseY = Math.min(...lastRow.map(b => b.canvasY ?? 0))
+      // 현재 행의 최대 canvasY (마지막으로 추가된 블록 기준)
+      // min 대신 max를 사용: 행 내 Y 범위가 커져도 바로 이전 블록과의
+      // 거리를 기준으로 판단해야 시각적으로 인접한 블록이 올바르게 묶임
+      // Python으로 치면: row_anchor_y = max(b.canvas_y for b in last_row)
+      const rowAnchorY = Math.max(...lastRow.map(b => b.canvasY ?? 0))
 
-      if ((block.canvasY ?? 0) - rowBaseY < ROW_THRESHOLD) {
+      if ((block.canvasY ?? 0) - rowAnchorY < ROW_THRESHOLD) {
         // 같은 행에 추가
         lastRow.push(block)
         continue

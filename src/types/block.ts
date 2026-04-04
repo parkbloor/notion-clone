@@ -38,7 +38,7 @@ export type BlockType =
   | 'chart'        // 차트 블록 (Bar / Line / Pie — recharts 기반)
   | 'gantt'        // 타임라인/갠트 차트 블록 (태스크 + 날짜 범위 시각화)
   | 'mindmap'      // AI 마인드맵 블록 (방사형 트리 + AI 채팅 통합)
-  | 'ai'           // AI 글쓰기 슬래시 커맨드 전용 (실제 블록 생성 없음 — 패널만 열림)
+  | 'ai'           // AI 글쓰기 슬래시 커맨드 전용 (실제 블록으로 저장되지 않음 — 슬래시 메뉴에서 패널만 열림)
   | 'toc'          // 인라인 목차 블록 (페이지 내 헤딩 목록 자동 생성)
   | 'file'         // 파일 첨부 블록 (PDF / docx / zip 등 일반 파일)
   | 'dayplanner'       // Day Planner 블록 — 인라인 타임라인 일정표
@@ -51,11 +51,10 @@ export type BlockType =
 
 // -----------------------------------------------
 // 페이지 속성 타입
-// 날짜 / 상태 / 선택 / 텍스트 / 관계 5종
-// Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text', 'relation']
-// -----------------------------------------------
+// 날짜 / 상태 / 선택 / 텍스트 / 관계 / 시간 6종
 // time 타입: 'HH:MM-HH:MM' 형식으로 시작~종료 시간 저장 (타임 블록 전용)
 // Python으로 치면: PropertyType = Literal['date', 'status', 'select', 'text', 'relation', 'time']
+// -----------------------------------------------
 export type PropertyType = 'date' | 'status' | 'select' | 'text' | 'relation' | 'time'
 
 // 상태 속성 선택지 (고정)
@@ -100,8 +99,11 @@ export interface PageProperty {
 export interface Block {
   id: string           // 블록 고유 ID (UUID)
   type: BlockType      // 블록 종류 (paragraph, heading1 등)
-  content: string      // 블록 내용 (HTML 문자열로 저장)
-  children: Block[]    // 자식 블록 목록 (토글 안에 들어가는 블록들)
+  content: string      // 블록 내용 — 텍스트 계열은 HTML, 구조형 블록(kanban/chart/gantt/mindmap/canvas/layout 등)은 JSON 문자열로 저장
+  // 자식 블록 목록 (토글 안에 들어가는 블록들)
+  // 주의: 구 저장 데이터에는 이 필드가 없을 수 있으므로 접근 시 `block.children ?? []` 사용 권장
+  // Python으로 치면: children: list['Block'] = field(default_factory=list)
+  children?: Block[]
   createdAt: string    // 생성 시각 (ISO 8601 문자열 — 서버 JSON과 타입 일치)
   updatedAt: string    // 마지막 수정 시각 (ISO 8601 문자열)
   // ── 캔버스 모드 전용 필드 ──────────────────────
@@ -178,13 +180,14 @@ export interface CanvasBox {
 // Python으로 치면: Block.create() 클래스 메서드
 // -----------------------------------------------
 export function createBlock(type: BlockType = 'paragraph'): Block {
+  const now = new Date().toISOString()  // 동일 타임스탬프 보장 (두 번 호출하면 미세 차이 발생)
   return {
     id: crypto.randomUUID(),   // 브라우저 내장 UUID 생성기
     type,
     content: '',               // 처음엔 내용 없음
     children: [],              // 처음엔 자식 블록 없음
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   }
 }
 
@@ -208,27 +211,23 @@ export interface Category {
   parentId?: string | null
   // 폴더 아이콘 커스텀 색상 (hex, 예: '#3b82f6'). 없으면 depth 기본 색상 사용
   color?: string | null
-  // 휴지통 관련 필드
-  isTrashed?: boolean
-  trashedAt?: string | null
-  originalParentId?: string | null
-  trashGroupId?: string | null
 }
 
 // -----------------------------------------------
 // 휴지통 항목 — 페이지 또는 카테고리 통합 타입
+// _vault_trash/index.json 기반 (실물 파일 이동 방식)
 // Python으로 치면: @dataclass class TrashItem: ...
 // -----------------------------------------------
 export interface TrashItem {
   id: string
-  itemType: 'page' | 'category'   // 페이지 or 폴더
-  title?: string                   // 페이지 제목
-  name?: string                    // 폴더 이름
-  icon?: string                    // 페이지 아이콘
-  trashedAt: string                // 삭제 일시 (ISO)
-  originalCategoryId?: string | null   // 원래 카테고리 (페이지)
-  originalParentId?: string | null     // 원래 부모 폴더 (카테고리)
-  trashGroupId?: string | null         // 폴더째 삭제 그룹 ID
+  itemType: 'page' | 'category'        // 페이지 or 폴더
+  title?: string                        // 페이지 제목
+  name?: string                         // 폴더 이름
+  icon?: string                         // 페이지 아이콘
+  trashedAt: string                     // 삭제 일시 (ISO)
+  originalCategoryId?: string | null    // 원래 카테고리 ID (페이지)
+  originalParentId?: string | null      // 원래 부모 폴더 ID (카테고리)
+  childCount?: number                   // 하위 항목 수 (카테고리) — 배지 표시용
 }
 
 

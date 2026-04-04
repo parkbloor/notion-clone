@@ -132,24 +132,10 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
     }
   }
 
-  // 그룹 ID 기준으로 묶어서 표시 — 폴더째 삭제된 항목들을 시각적으로 묶음
-  // Python으로 치면: group_by(items, key=lambda x: x.trashGroupId or x.id)
-  const groupedItems = (() => {
-    const seen = new Set<string>()
-    const result: { representative: TrashItem; members: TrashItem[] }[] = []
-    for (const item of trashedItems) {
-      const gid = item.trashGroupId ?? item.id
-      if (seen.has(gid)) continue
-      seen.add(gid)
-      const members = item.trashGroupId
-        ? trashedItems.filter(i => i.trashGroupId === item.trashGroupId)
-        : [item]
-      // 폴더를 대표로 올림
-      const rep = members.find(i => i.itemType === 'category') ?? members[0]
-      result.push({ representative: rep, members })
-    }
-    return result
-  })()
+  // 새 방식: 각 항목이 이미 독립 엔트리 (_vault_trash/index.json 1항목 = 1표시줄)
+  // 카테고리 삭제 시 하위 항목은 childCount로 배지 표시 (별도 엔트리 없음)
+  // Python으로 치면: items = trash_entries (no grouping needed)
+  const groupedItems = trashedItems.map(item => ({ representative: item, childCount: item.childCount ?? 0 }))
 
   return (
     // 배경 오버레이
@@ -215,8 +201,8 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
             </div>
           ) : (
             <ul className="divide-y divide-gray-50 py-1">
-              {groupedItems.map(({ representative: item, members }) => {
-                const isGroup = members.length > 1
+              {groupedItems.map(({ representative: item, childCount }) => {
+                const isGroup = childCount > 0
                 const label = item.itemType === 'category'
                   ? (item.name ?? t.overlay.trash.folder)
                   : (item.title || t.common.untitled)
@@ -237,10 +223,10 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
                           <OriginLabel item={item} categories={categories} labels={t.overlay.trash} />
                           <span className="text-gray-300">·</span>
                           <span className="text-gray-400">{formatDate(item.trashedAt)}</span>
-                          {/* 그룹 배지 — 폴더째 삭제된 경우 */}
+                          {/* 하위 항목 수 배지 — 폴더째 삭제된 경우 */}
                           {isGroup && (
                             <span className="text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full text-[10px]">
-                              {t.overlay.trash.groupBadge.replace('{count}', String(members.length - 1))}
+                              {t.overlay.trash.groupBadge.replace('{count}', String(childCount))}
                             </span>
                           )}
                         </div>

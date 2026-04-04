@@ -8,7 +8,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { X, Columns2 } from 'lucide-react'
+import { X, Columns2, Save, Check, Loader2 } from 'lucide-react'
 import { usePageStore } from '@/store/pageStore'
 
 // -----------------------------------------------
@@ -25,7 +25,7 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
   // 스토어에서 탭 관련 상태 + 액션 가져오기
   // Python으로 치면: open_tabs, current_id, pages, set_page, close_tab = store
   // -----------------------------------------------
-  const { openTabs, currentPageId, pages, setCurrentPage, closeTab } = usePageStore()
+  const { openTabs, currentPageId, pages, setCurrentPage, closeTab, savePageNow, saveStatus } = usePageStore()
 
   // 활성 탭을 가시 영역 안으로 자동 스크롤하기 위한 ref
   // Python으로 치면: self.active_tab_ref = None
@@ -50,6 +50,23 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [currentPageId, closeTab])
+
+  // -----------------------------------------------
+  // Ctrl+S 단축키 → 현재 페이지 즉시 저장
+  // Python으로 치면:
+  //   def on_key_down(e):
+  //       if e.ctrl and e.key == 's': save_page_now(current_page_id)
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleSaveKey(e: KeyboardEvent) {
+      if (e.ctrlKey && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (currentPageId) savePageNow(currentPageId)
+      }
+    }
+    window.addEventListener('keydown', handleSaveKey)
+    return () => window.removeEventListener('keydown', handleSaveKey)
+  }, [currentPageId, savePageNow])
 
   // -----------------------------------------------
   // 활성 탭이 바뀔 때 탭 바 안에서 자동 스크롤
@@ -146,6 +163,41 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
 
       {/* 탭 오른쪽 빈 공간 (탭 우측을 채워 배경 통일) */}
       <div className="flex-1 border-b-2 border-transparent" />
+
+      {/* ── 저장 상태 버튼 ────────────────────────
+          저장됨: 체크 아이콘 (회색, 클릭 불가)
+          저장 중: 스피너 아이콘 (파란색, 클릭 불가)
+          미저장: 저장 아이콘 (주황색 점 + 버튼, Ctrl+S)
+          Python으로 치면: if save_status == 'saved': render CheckIcon() ... */}
+      {currentPageId && (
+        <div className="shrink-0 flex items-center px-2 border-b-2 border-transparent">
+          {saveStatus === 'saving' ? (
+            // 저장 중 — 스피너
+            <span className="flex items-center gap-1 text-xs text-blue-500 select-none">
+              <Loader2 size={13} className="animate-spin" />
+              <span>저장 중</span>
+            </span>
+          ) : saveStatus === 'unsaved' ? (
+            // 미저장 — 클릭 가능한 저장 버튼
+            <button
+              type="button"
+              onClick={() => savePageNow(currentPageId)}
+              title="저장 (Ctrl+S)"
+              className="flex items-center gap-1 text-xs text-orange-500 hover:text-orange-600 transition-colors"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+              <Save size={13} />
+              <span>저장</span>
+            </button>
+          ) : (
+            // 저장됨 — 정적 표시
+            <span className="flex items-center gap-1 text-xs text-gray-400 select-none">
+              <Check size={13} />
+              <span>저장됨</span>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }

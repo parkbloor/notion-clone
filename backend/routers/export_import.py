@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from backend.core import (
     CONTENT_EXT,
-    VAULT_DIR,
+    get_vault_dir,
     ImportBody,
     assert_inside_vault,
     load_index,
@@ -64,9 +64,9 @@ def export_json():
         cat_folder = categories.get(cat_id) if cat_id else None
 
         if cat_folder:
-            content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
+            content_path = resolve_content_file(get_vault_dir() / cat_folder / folder_name)
         else:
-            content_path = resolve_content_file(VAULT_DIR / folder_name)
+            content_path = resolve_content_file(get_vault_dir() / folder_name)
 
         if content_path.exists():
             pages_data.append(json.loads(content_path.read_text(encoding="utf-8")))
@@ -79,7 +79,7 @@ def export_json():
     }
 
     json_bytes = json.dumps(export_obj, ensure_ascii=False, indent=2).encode("utf-8")
-    filename = f"notion-clone-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+    filename = f"notion-clone-backup-{datetime.now().strftime('%Y%m%d-%H%M%S')}.nct"
 
     return StreamingResponse(
         io.BytesIO(json_bytes),
@@ -162,10 +162,10 @@ def export_markdown():
             cat_folder = categories.get(cat_id) if cat_id else None
 
             if cat_folder:
-                content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
+                content_path = resolve_content_file(get_vault_dir() / cat_folder / folder_name)
                 zip_path = f"{cat_folder}/{folder_name}.md"
             else:
-                content_path = resolve_content_file(VAULT_DIR / folder_name)
+                content_path = resolve_content_file(get_vault_dir() / folder_name)
                 zip_path = f"{folder_name}.md"
 
             if not content_path.exists():
@@ -194,9 +194,9 @@ def export_markdown():
 # HTML 내보내기 (단일 파일 + base64 임베딩)
 # -----------------------------------------------
 
-# localhost:8000/static/... URL에서 파일 경로 추출 정규식
-# Python으로 치면: re.compile(r'http://localhost:8000/static/(.+)')
-_STATIC_URL_RE = re.compile(r'http://localhost:8000/static/([^\s"\'<>]+)')
+# 127.0.0.1:8000/static/... URL에서 파일 경로 추출 정규식 (localhost도 호환)
+# Python으로 치면: re.compile(r'http://(127\.0\.0\.1|localhost):8000/static/(.+)')
+_STATIC_URL_RE = re.compile(r'http://(?:127\.0\.0\.1|localhost):8000/static/([^\s"\'<>]+)')
 
 
 def _url_to_base64(static_path: str) -> Optional[str]:
@@ -206,7 +206,7 @@ def _url_to_base64(static_path: str) -> Optional[str]:
     Python으로 치면: def url_to_base64(path): return f'data:{mime};base64,{b64}'
     """
     try:
-        file_path = VAULT_DIR / static_path
+        file_path = get_vault_dir() / static_path
         assert_inside_vault(file_path)
         if not file_path.exists():
             return None
@@ -294,7 +294,7 @@ def _blocks_to_html(blocks: list) -> str:
                 if not src:
                     parts.append('<p><em>[빈 이미지 블록]</em></p>')
                 else:
-                    static_match = re.search(r'http://localhost:8000/static/(.+)', src)
+                    static_match = re.search(r'http://(?:127\.0\.0\.1|localhost):8000/static/(.+)', src)
                     if static_match:
                         b64 = _url_to_base64(static_match.group(1))
                         if b64:
@@ -315,7 +315,7 @@ def _blocks_to_html(blocks: list) -> str:
             except Exception:
                 src = content
                 vid_width = None
-            b64 = _url_to_base64(src.replace("http://localhost:8000/static/", "")) if src else None
+            b64 = _url_to_base64(re.sub(r'http://(?:127\.0\.0\.1|localhost):8000/static/', '', src)) if src else None
             if b64:
                 # 저장된 너비가 있으면 그 너비로, 없으면 본문 너비(100%)
                 width_style = f"width:{vid_width}px;max-width:100%" if vid_width else "width:100%;max-width:100%"
@@ -521,9 +521,9 @@ def export_html(page_id: str):
     cat_folder = categories.get(cat_id) if cat_id else None
 
     if cat_folder:
-        content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
+        content_path = resolve_content_file(get_vault_dir() / cat_folder / folder_name)
     else:
-        content_path = resolve_content_file(VAULT_DIR / folder_name)
+        content_path = resolve_content_file(get_vault_dir() / folder_name)
 
     if not content_path.exists():
         raise HTTPException(status_code=404, detail="페이지 파일을 찾을 수 없습니다")
@@ -727,9 +727,9 @@ def export_pdf(page_id: str):
     cat_folder = categories.get(cat_id) if cat_id else None
 
     if cat_folder:
-        content_path = resolve_content_file(VAULT_DIR / cat_folder / folder_name)
+        content_path = resolve_content_file(get_vault_dir() / cat_folder / folder_name)
     else:
-        content_path = resolve_content_file(VAULT_DIR / folder_name)
+        content_path = resolve_content_file(get_vault_dir() / folder_name)
 
     if not content_path.exists():
         raise HTTPException(status_code=404, detail="페이지 파일을 찾을 수 없습니다")
@@ -793,13 +793,13 @@ def import_json(body: ImportBody):
     pages_list = data.get("pages", [])
 
     # 기존 vault 백업 (rollback 가능하도록)
-    backup_dir = VAULT_DIR.parent / f"vault_bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    if VAULT_DIR.exists():
-        shutil.copytree(str(VAULT_DIR), str(backup_dir))
+    backup_dir = get_vault_dir().parent / f"vault_bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    if get_vault_dir().exists():
+        shutil.copytree(str(get_vault_dir()), str(backup_dir))
 
     try:
         # vault 초기화 (이미지 제외)
-        for item in VAULT_DIR.iterdir():
+        for item in get_vault_dir().iterdir():
             # 인덱스 파일(.nct / 구버전 .json) 보존
             if item.name in ("_index.nct", "_index.json"):
                 continue
@@ -824,9 +824,9 @@ def import_json(body: ImportBody):
             cat_folder = categories.get(cat_id) if cat_id else None
 
             if cat_folder:
-                target_dir = VAULT_DIR / cat_folder / folder_name
+                target_dir = get_vault_dir() / cat_folder / folder_name
             else:
-                target_dir = VAULT_DIR / folder_name
+                target_dir = get_vault_dir() / folder_name
 
             # 🔒 vault 탈출 방지
             assert_inside_vault(target_dir)
@@ -843,15 +843,129 @@ def import_json(body: ImportBody):
     except HTTPException:
         # 보안 예외는 그대로 전파 (vault 복구 후)
         if backup_dir.exists():
-            shutil.rmtree(str(VAULT_DIR))
-            shutil.copytree(str(backup_dir), str(VAULT_DIR))
+            shutil.rmtree(str(get_vault_dir()))
+            shutil.copytree(str(backup_dir), str(get_vault_dir()))
             shutil.rmtree(str(backup_dir))
         raise
 
     except Exception as exc:
         # 실패 시 백업에서 롤백
         if backup_dir.exists():
-            shutil.rmtree(str(VAULT_DIR))
-            shutil.copytree(str(backup_dir), str(VAULT_DIR))
+            shutil.rmtree(str(get_vault_dir()))
+            shutil.copytree(str(backup_dir), str(get_vault_dir()))
             shutil.rmtree(str(backup_dir))
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# -----------------------------------------------
+# 병합 가져오기 — 기존 데이터 유지하면서 새 페이지만 추가
+# -----------------------------------------------
+
+@router.post("/import/merge")
+def import_merge(body: ImportBody):
+    """
+    다른 컴퓨터의 백업 JSON을 현재 vault에 병합
+    - 동일한 page ID가 이미 있으면 스킵 (로컬 버전 유지)
+    - 새 페이지만 추가
+    - 카테고리도 ID 기준으로 병합 (없는 것만 추가)
+    Python으로 치면: for page in backup: if page.id not in local: add(page)
+    """
+    data = body.data
+    imported_index = data.get("index", {})
+    imported_pages = data.get("pages", [])
+
+    # 현재 vault 인덱스 로드
+    # Python으로 치면: current = json.load(open('_index.nct'))
+    current_index = load_index()
+
+    current_folder_map: dict = current_index.get("folderMap", {})
+    current_page_order: list = current_index.get("pageOrder", [])
+    current_category_map: dict = current_index.get("categoryMap", {})
+    current_categories: list = current_index.get("categories", [])
+    current_category_ids = {c["id"] for c in current_categories}
+
+    imported_folder_map: dict = imported_index.get("folderMap", {})
+    imported_category_map: dict = imported_index.get("categoryMap", {})
+    imported_categories: list = imported_index.get("categories", [])
+
+    added_pages = 0
+    skipped_pages = 0
+    added_categories = 0
+
+    # ── 1. 새 카테고리 병합 ──────────────────────────
+    # Python으로 치면: for cat in imported: if cat.id not in current: add(cat)
+    for cat in imported_categories:
+        cat_id = cat.get("id", "")
+        if not cat_id or cat_id in current_category_ids:
+            continue
+        cat_folder = cat.get("folderName", "")
+        if not cat_folder:
+            continue
+        # 카테고리 폴더 생성 (없으면)
+        cat_dir = get_vault_dir() / cat_folder
+        assert_inside_vault(cat_dir)
+        cat_dir.mkdir(parents=True, exist_ok=True)
+        current_categories.append(cat)
+        current_category_ids.add(cat_id)
+        added_categories += 1
+
+    # ── 2. 새 페이지 병합 ───────────────────────────
+    # Python으로 치면: for page in imported_pages: if page.id not in current_folder_map: add(page)
+    for page_data in imported_pages:
+        page_id = page_data.get("id", "")
+        if not page_id:
+            continue
+
+        # 이미 존재하는 페이지면 스킵 (로컬 버전 유지)
+        # Python으로 치면: if page_id in current_folder_map: continue
+        if page_id in current_folder_map:
+            skipped_pages += 1
+            continue
+
+        folder_name = imported_folder_map.get(page_id, page_data.get("folder", ""))
+        if not folder_name:
+            skipped_pages += 1
+            continue
+
+        cat_id = imported_category_map.get(page_id)
+        cat_folder = None
+        if cat_id:
+            # 병합된 카테고리 목록에서 폴더명 조회
+            # Python으로 치면: cat_folder = next(c['folderName'] for c in current_categories if c['id'] == cat_id)
+            for c in current_categories:
+                if c["id"] == cat_id:
+                    cat_folder = c.get("folderName")
+                    break
+
+        if cat_folder:
+            target_dir = get_vault_dir() / cat_folder / folder_name
+        else:
+            target_dir = get_vault_dir() / folder_name
+
+        # 🔒 vault 탈출 방지
+        assert_inside_vault(target_dir)
+
+        # 페이지 파일 저장
+        save_page_to_disk(page_data, target_dir)
+
+        # 인덱스에 추가
+        current_folder_map[page_id] = folder_name
+        current_page_order.append(page_id)
+        if cat_id:
+            current_category_map[page_id] = cat_id
+        added_pages += 1
+
+    # ── 3. 업데이트된 인덱스 저장 ────────────────────
+    # Python으로 치면: json.dump(updated_index, open('_index.nct', 'w'))
+    current_index["folderMap"] = current_folder_map
+    current_index["pageOrder"] = current_page_order
+    current_index["categoryMap"] = current_category_map
+    current_index["categories"] = current_categories
+    save_index(current_index)
+
+    return {
+        "ok": True,
+        "added_pages": added_pages,
+        "skipped_pages": skipped_pages,
+        "added_categories": added_categories,
+    }

@@ -12,7 +12,7 @@
 
 'use client'
 
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, CSSProperties } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { Page } from '@/types/block'
 import AIChatPanel, { ChatMsg } from './AIChatPanel'
@@ -180,6 +180,60 @@ export default function GlobalAIChatButton() {
   // Python으로 치면: self.is_open = False
   const [isOpen, setIsOpen] = useState(false)
 
+  // ── FAB 드래그 위치 (left, top 픽셀 절대값) ──────
+  // Python으로 치면: self.fab_pos = {'left': ..., 'top': ...}
+  const [fabPos, setFabPos] = useState<{ left: number; top: number } | null>(null)
+  // ref 미러: useEffect 클로저가 최신 fabPos를 캡처하도록 (stale closure 방지)
+  const fabPosRef = useRef<{ left: number; top: number } | null>(null)
+  // 드래그 시작 스냅샷 (마우스 좌표 + 버튼 좌표)
+  const dragSnapshot = useRef<{ mouseX: number; mouseY: number; left: number; top: number } | null>(null)
+  // 드래그 여부 판별 (5px 이상 이동 시 드래그로 간주)
+  const hasDragged = useRef(false)
+
+  // ── 첫 마운트 시 초기 위치 계산 (SSR 안전) ───────
+  // 화면 오른쪽 하단, 글자수 바 위로 충분히 올림 (bottom ~80px)
+  // Python으로 치면: def __init__(self): self.move(screen.width - 100, screen.height - 100)
+  useEffect(() => {
+    const BTN = 44   // 버튼 크기 (w-11 = 44px)
+    const RIGHT = 80 // 오른쪽 여백
+    const BOTTOM = 80 // 하단 여백 (글자수 바 위로)
+    const initial = {
+      left: window.innerWidth  - RIGHT - BTN,
+      top:  window.innerHeight - BOTTOM - BTN,
+    }
+    fabPosRef.current = initial
+    setFabPos(initial)
+  }, [])
+
+  // ── 전역 mousemove / mouseup 이벤트로 드래그 처리 ──
+  // fabPosRef를 통해 최신 위치 참조 → stale closure 문제 없음
+  // Python으로 치면: window.on('mousemove', self._drag); window.on('mouseup', self._drop)
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      if (!dragSnapshot.current) return
+      const dx = e.clientX - dragSnapshot.current.mouseX
+      const dy = e.clientY - dragSnapshot.current.mouseY
+      // 5px 이상 이동해야 드래그로 인식
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) hasDragged.current = true
+      if (!hasDragged.current) return
+      const BTN = 44
+      const newLeft = Math.max(0, Math.min(window.innerWidth  - BTN, dragSnapshot.current.left + dx))
+      const newTop  = Math.max(0, Math.min(window.innerHeight - BTN, dragSnapshot.current.top  + dy))
+      const next = { left: newLeft, top: newTop }
+      fabPosRef.current = next
+      setFabPos(next)
+    }
+    function onMouseUp() {
+      dragSnapshot.current = null
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
   // ── 현재 선택된 AI 대상 블록 ─────────────────
   // null = 선택 없음 (범용 모드)
   // Python으로 치면: self.ai_target: AiTarget | None = None
@@ -263,27 +317,64 @@ export default function GlobalAIChatButton() {
   // aiTarget.blockType 변경 시 자동으로 새 설정 적용
   const isSpecialBlock = aiTarget && !TEXT_BLOCK_TYPES.has(aiTarget.blockType)
 
+  // ── FAB 버튼 인라인 스타일 (드래그 위치 반영) ───
+  // fabPos가 null(SSR)이면 display:none으로 숨김 → hydration 불일치 방지
+  // Python으로 치면: btn.setGeometry(pos.left, pos.top, 44, 44)
+  const fabStyle: CSSProperties = fabPos
+    ? { position: 'fixed', left: fabPos.left, top: fabPos.top, zIndex: 40 }
+    : { display: 'none' }
+
+  // ── 툴팁 위치: 버튼 왼쪽 8px, 수직 중앙 정렬 ───
+  const tooltipStyle: CSSProperties = fabPos
+    ? { position: 'fixed', left: fabPos.left - 8, top: fabPos.top, zIndex: 40, transform: 'translateX(-100%)' }
+    : { display: 'none' }
+
+  // ── 채팅 패널 초기 위치: 버튼 위쪽 정렬 ───────
+  // 버튼 기준 right/bottom 역산 (AIChatPanel은 right/bottom 값 사용)
+  const panelInitialPos = fabPos
+    ? {
+        right: window.innerWidth  - fabPos.left - 44,
+        bottom: window.innerHeight - fabPos.top + 8,
+      }
+    : { right: 16, bottom: 80 }
+
   return (
     <>
-      {/* ── FAB 버튼 (우하단 고정) ────────────────────
+      {/* ── FAB 버튼 (드래그 가능) ───────────────────
           data-ai-fab: 외부클릭 deselect 예외 처리용
-          블록 선택 상태에 따라 아이콘/배경색 자동 변경
-          Python으로 치면: self.fab_btn = QPushButton(); 상태에 따라 icon 변경 */}
+          onMouseDown: 드래그 시작 스냅샷 저장
+          onClick: hasDragged가 false일 때만 패널 토글
+          Python으로 치면: self.fab_btn = DraggableButton(); */}
       <button
         type="button"
         data-ai-fab="true"
-        onClick={() => setIsOpen(prev => !prev)}
+        style={fabStyle}
+        onMouseDown={(e) => {
+          if (!fabPos) return
+          hasDragged.current = false
+          dragSnapshot.current = {
+            mouseX: e.clientX,
+            mouseY: e.clientY,
+            left:   fabPos.left,
+            top:    fabPos.top,
+          }
+        }}
+        onClick={() => {
+          // 드래그 중이었으면 클릭 무시
+          if (hasDragged.current) return
+          setIsOpen(prev => !prev)
+        }}
         title={cfg.title}
-        className={`fixed bottom-4 right-20 z-40 w-11 h-11 rounded-full shadow-lg flex items-center justify-center text-lg transition-all hover:scale-105 ${isOpen ? 'scale-95 shadow-lg ' + cfg.fabBg : cfg.fabBg + ' hover:shadow-xl'}`}
+        className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center text-lg transition-shadow select-none cursor-grab active:cursor-grabbing hover:scale-105 ${isOpen ? 'scale-95 shadow-lg ' + cfg.fabBg : cfg.fabBg + ' hover:shadow-xl'}`}
       >
         {cfg.icon}
       </button>
 
       {/* ── 선택된 블록 타입 툴팁 (FAB 왼쪽) ─────────
-          블록이 선택되었을 때만 표시 — 현재 AI 모드 안내
-          Python으로 치면: if ai_target: render Label(cfg.title) */}
+          버튼 위치를 따라 이동
+          Python으로 치면: if ai_target: render Label(cfg.title) near btn */}
       {aiTarget && !isOpen && (
-        <div className="fixed bottom-5 right-32 z-40 pointer-events-none">
+        <div style={tooltipStyle} className="pointer-events-none">
           <span className="text-[10px] bg-gray-800 text-white px-2 py-1 rounded-full opacity-80 whitespace-nowrap">
             {cfg.icon} {cfg.title.replace('AI — ', '')}{t.ai.selectedBlock}
           </span>
@@ -293,7 +384,7 @@ export default function GlobalAIChatButton() {
       {/* ── AIChatPanel (floating 모드) ───────────────
           key={historyKey}: 블록 전환 시 재마운트 → 새 시스템 프롬프트 적용
           data-ai-panel: AIChatPanel 래퍼에 전달할 속성 (외부 클릭 예외 처리)
-          initialHistory: 블록별 히스토리 복원
+          initialPos: 버튼 위치 기준으로 동적 계산
           Python으로 치면: if is_open: render AIChatPanel(config=cfg) */}
       {isOpen && (
         <div data-ai-panel="true">
@@ -308,7 +399,7 @@ export default function GlobalAIChatButton() {
             quickCommands={cfg.quickCommands}
             mode="floating"
             applyLabel={cfg.applyLabel}
-            initialPos={{ right: 16, bottom: 72 }}
+            initialPos={panelInitialPos}
             initialHistory={blockHistories[historyKey] ?? []}
             onHistoryChange={handleHistoryChange}
             onApply={handleApply}
@@ -316,10 +407,6 @@ export default function GlobalAIChatButton() {
           />
         </div>
       )}
-
-      {/* ── 특수 블록 선택 시 안내 배너 (채팅 패널 상단) ──
-          isSpecialBlock이고 패널이 열려있을 때 채팅 위에 표시할 정보는
-          emptyHint와 title로 충분히 전달됨 → 별도 UI 불필요 */}
     </>
   )
 }

@@ -49,7 +49,7 @@ export const SearchHighlight = Extension.create({
         props: {
           decorations(state) {
             const { term, caseSensitive } = searchHighlightKey.getState(state) ?? { term: '', caseSensitive: false }
-            if (!term || term.length < 1) return DecorationSet.empty
+            if (!term) return DecorationSet.empty
 
             const decorations: Decoration[] = []
             try {

@@ -77,6 +77,12 @@ a = Analysis(
             'backend.routers.ai',
             'backend.routers.trash',
             'backend.routers.history',
+            'backend.routers.cloud_sync',
+            'requests',
+            'requests.adapters',
+            'requests.auth',
+            'requests.models',
+            'urllib3',
             # OpenAI SDK
             'openai',
             'openai.resources',

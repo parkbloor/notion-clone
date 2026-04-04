@@ -520,8 +520,20 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
       if (!connectingState) return
 
       // caretRangeFromPoint: 클릭 좌표의 텍스트 캐럿 위치 탐색
-      // Python으로 치면: range = document.caret_range_from_point(x, y)
-      const range = document.caretRangeFromPoint?.(e.clientX, e.clientY)
+      // Chrome/Safari: caretRangeFromPoint, Firefox: caretPositionFromPoint 폴백
+      // Python으로 치면: range = caret_range_from_point(x, y)
+      let range: Range | null = null
+      if (document.caretRangeFromPoint) {
+        range = document.caretRangeFromPoint(e.clientX, e.clientY)
+      } else if ((document as any).caretPositionFromPoint) {
+        // Firefox 전용 API → Range로 변환
+        const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY)
+        if (pos) {
+          range = document.createRange()
+          range.setStart(pos.offsetNode, pos.offset)
+          range.setEnd(pos.offsetNode, pos.offset)
+        }
+      }
       if (!range || !range.startContainer || range.startContainer.nodeType !== Node.TEXT_NODE) {
         // 텍스트 노드가 아닌 곳 클릭 → 연결 취소
         useArrowStore.getState().clearConnecting()
@@ -632,7 +644,7 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
         inset: 0,
         width: '100vw',
         height: '100vh',
-        pointerEvents: connectingState ? 'none' : 'none',
+        pointerEvents: 'none',
         zIndex: 9999,
         overflow: 'visible',
         // 연결 대기 모드: 전체 화면 커서 변경 (SVG 자체에는 pointer-events 없으므로 body에 적용)
@@ -650,9 +662,9 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
         const colorHex = ARROW_COLORS[color] ?? color
 
         const isHovered = hoveredKey === key
-        // 기본 낮은 투명도 → 호버 시 원래 opacity로 복원
-        // Python으로 치면: final_opacity = opacity if hovered else opacity * 0.15
-        const baseOpacity = opacity * 0.15
+        // 기본 중간 투명도 → 호버 시 원래 opacity로 복원
+        // Python으로 치면: final_opacity = opacity if hovered else opacity * 0.45
+        const baseOpacity = opacity * 0.45
         const finalOpacity = isHovered ? opacity : baseOpacity
 
         // ── 경로 + 제어점 계산 ──────────────────
@@ -699,7 +711,7 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
           <g
             key={key}
             style={{
-              pointerEvents: 'stroke',
+              pointerEvents: 'all',
               cursor: 'default',
               transition: 'opacity 0.2s ease',
               opacity: finalOpacity,

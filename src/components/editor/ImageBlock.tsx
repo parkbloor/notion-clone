@@ -35,7 +35,7 @@ function parseContent(content: string): { src: string; width?: number; caption?:
 }
 
 export default function ImageBlock({ block, pageId }: ImageBlockProps) {
-  const { updateBlock, updateBlockCanvas } = usePageStore()
+  const { updateBlock, updateBlockCanvas, savePageNow } = usePageStore()
   const t = useLocale()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -109,6 +109,8 @@ export default function ImageBlock({ block, pageId }: ImageBlockProps) {
       // 서버에 실제 파일로 저장 → URL만 반환받아 블록에 저장
       const url = await api.uploadImage(pageId, file)
       saveContent(url, savedWidth, localCaption || undefined)
+      // 디바운스 없이 즉시 저장 — 앱을 바로 닫아도 이미지 URL이 유실되지 않음
+      await savePageNow(pageId)
     } catch {
       // 업로드 실패 시 에러 표시만 — base64 fallback 제거
       toast.error(t.blocks.image.uploadError)

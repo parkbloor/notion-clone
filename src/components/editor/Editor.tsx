@@ -5,7 +5,8 @@
 
 'use client'
 
-import { useEditor, EditorContent, Editor as TiptapEditor, ReactNodeViewRenderer } from '@tiptap/react'
+import { useEditor, EditorContent, Editor as TiptapEditor } from '@tiptap/react'
+import { buildEditorExtensions } from '@/extensions/editorExtensions'
 
 // ── 모듈 레벨 전역: 가장 최근에 포커스된 에디터 + 커서 위치 ──
 // 페이지에 여러 Editor 인스턴스가 마운트되므로 모듈 변수로 공유
@@ -15,41 +16,9 @@ const _aiInsertTarget: { editor: TiptapEditor | null; pos: number } = {
   editor: null,
   pos: 0,
 }
-import { StarterKit } from '@tiptap/starter-kit'
-import { Placeholder } from '@tiptap/extension-placeholder'
-import { Typography } from '@tiptap/extension-typography'
-import { Highlight } from '@tiptap/extension-highlight'
-import { Color } from '@tiptap/extension-color'
-import { TextStyle } from '@tiptap/extension-text-style'
-// ── 폰트 확장 ────────────────────────────────────
-// FontFamily: 선택된 텍스트에 font-family 인라인 적용 (TextStyle mark 기반)
-// FontSize: 커스텀 확장 — 선택된 텍스트에 font-size 인라인 적용
-// Python으로 치면: from tiptap import FontFamily; from extensions import FontSize
-import { FontFamily } from '@tiptap/extension-font-family'
-import { FontSize } from '@/extensions/FontSize'
-// 텍스트 정렬 확장: 좌/중/우/양쪽 정렬 (paragraph, heading에 적용)
-// Python으로 치면: from tiptap import TextAlign
-import { TextAlign } from '@tiptap/extension-text-align'
-// 인라인 수식 확장: $...$ 패턴 → KaTeX 인라인 노드 자동 변환
-// Python으로 치면: from extensions import InlineMath
-import { InlineMath } from '@/extensions/InlineMath'
-// 인라인 각주 확장: [^텍스트] 패턴 → 번호 superscript 자동 변환
-// Python으로 치면: from extensions import FootnoteInline
-import { FootnoteInline } from '@/extensions/FootnoteInline'
-import { TaskList } from '@tiptap/extension-task-list'
-import { TaskItem } from '@tiptap/extension-task-item'
-// ── 테이블 확장 ────────────────────────────────
-// Python으로 치면: from tiptap import Table, TableRow, TableHeader, TableCell
-import { Table } from '@tiptap/extension-table'
-import { TableRow } from '@tiptap/extension-table-row'
-import { TableHeader } from '@tiptap/extension-table-header'
-import { TableCell } from '@tiptap/extension-table-cell'
-// ── 코드 하이라이트 확장 ───────────────────────
-// Python으로 치면: from tiptap import CodeBlockLowlight; from lowlight import common
-import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
-import { createLowlight, common } from 'lowlight'
-import CodeBlockView from './CodeBlockView'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEditorMention } from '@/hooks/useEditorMention'
+import { useEditorLatex } from '@/hooks/useEditorLatex'
 import { Block, BlockType, Page } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import SlashCommand from './SlashCommand'
@@ -81,16 +50,10 @@ import TocBlock from './TocBlock'
 import FileBlock from './FileBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
-import { ChevronRight, ChevronDown, Plus } from 'lucide-react'
-// ── 찾기/바꾸기 확장 ─────────────────────────
-// SearchHighlight: ProseMirror 데코레이션으로 검색어 하이라이트
-// searchHighlightKey: 검색어 변경 시 Transaction 메타 키로 전달
-// Python으로 치면: from extensions import SearchHighlight, searchHighlightKey
-import { SearchHighlight, searchHighlightKey } from '@/extensions/SearchHighlight'
-// ── 화살표 마크 확장 ──────────────────────────
-// ArrowMark: 단어/문구에 화살표 마커(start/end) 속성 부착
-// Python으로 치면: from extensions import ArrowMark
-import { ArrowMark } from '@/extensions/ArrowMark'
+import { ChevronRight, ChevronDown, Plus, Check } from 'lucide-react'
+// searchHighlightKey: 검색어 변경 시 Transaction 메타 키로 전달 (find-replace 기능에서 사용)
+// Python으로 치면: from extensions import searchHighlightKey
+import { searchHighlightKey } from '@/extensions/SearchHighlight'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
 import { useLocale } from '@/locales'
 
@@ -113,24 +76,13 @@ interface EditorProps {
   // 읽기 모드 — true이면 Tiptap 에디터 편집 불가
   // Python으로 치면: self.read_mode = False
   readMode?: boolean
+  // 블록 일괄 선택 — true이면 파란 하이라이트
+  // Python으로 치면: self.is_selected = False
+  isSelected?: boolean
+  // 선택 핸들 클릭 콜백 (MouseEvent 전달 → Shift 키 범위 선택 판단)
+  // Python으로 치면: def on_select(event): ...
+  onSelect?: (e: React.MouseEvent) => void
 }
-
-// -----------------------------------------------
-// lowlight 인스턴스 — common 번들 (~40개 주요 언어 포함)
-// 모듈 레벨에서 한 번만 생성 (컴포넌트 렌더마다 재생성 방지)
-// Python으로 치면: lowlight = create_lowlight(common_languages)
-// -----------------------------------------------
-const lowlight = createLowlight(common)
-
-// -----------------------------------------------
-// CustomCodeBlock: CodeBlockLowlight에 언어 선택 드롭다운 NodeView 추가
-// Python으로 치면: CustomCodeBlock = CodeBlockLowlight.extend(node_view=CodeBlockView)
-// -----------------------------------------------
-const CustomCodeBlock = CodeBlockLowlight.extend({
-  addNodeView() {
-    return ReactNodeViewRenderer(CodeBlockView)
-  },
-}).configure({ lowlight, defaultLanguage: 'javascript' })
 
 const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading1: 1,
@@ -141,11 +93,35 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading6: 6,
 }
 
-export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode }: EditorProps) {
+export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode, isSelected, onSelect }: EditorProps) {
 
   const t = useLocale()
 
   const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage } = usePageStore()
+
+  // ── 일괄 선택 UI 공통 변수 ─────────────────────
+  // 블록 래퍼 클래스 — 선택 시 파란 하이라이트, 아닐 때 기본 hover 스타일
+  // Python으로 치면: wrapper_class = 'selected' if is_selected else 'default'
+  const blockWrapperClass = "block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-all"
+    + (isSelected
+      ? " bg-blue-100/60 dark:bg-blue-900/20 ring-1 ring-inset ring-blue-300 dark:ring-blue-600"
+      : " hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]")
+
+  // 선택 체크박스 — 드래그 핸들 왼쪽에 표시
+  // hover 시 또는 선택 시 나타남, 클릭하면 onSelect 호출
+  // Python으로 치면: selection_checkbox = CheckBox(visible=is_selected or hovered)
+  const selectionCheckbox = (
+    <div
+      onClick={onSelect}
+      className={"w-4 h-4 rounded border flex items-center justify-center cursor-pointer shrink-0 mt-1.5 mr-0.5 transition-all select-none "
+        + (isSelected
+          ? "border-blue-500 bg-blue-500 opacity-100"
+          : "border-gray-300 bg-white opacity-0 group-hover:opacity-60 hover:opacity-100!")}
+      title="블록 선택 (Shift+클릭: 범위 선택)"
+    >
+      {isSelected && <Check size={10} className="text-white" strokeWidth={3} />}
+    </div>
+  )
 
   // -----------------------------------------------
   // useSortable: 이 블록을 dnd-kit의 드래그 가능한 아이템으로 등록
@@ -174,31 +150,24 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     from: 0,  // /query 시작 위치 — 외부 클릭 시 deleteRange에 사용
   })
 
-  // ── @ 멘션 / [[ 페이지링크 상태 ─────────────
-  // from    : 트리거 문자(@, [[) 위치 (deleteRange 시작점)
-  // trigger : '@' 또는 '[[' — 삭제 범위 계산에 사용
-  // Python으로 치면: self.mention_state = {'is_open': False, 'query': '', 'from': 0, 'trigger': '@', 'position': {...}}
-  const [mentionMenu, setMentionMenu] = useState({
-    isOpen: false,
-    query: '',
-    from: 0,
-    trigger: '@' as '@' | '[[',
-    position: { x: 0, y: 0 },
-  })
-  // stale closure 방지용 ref — useEditor 콜백 내에서 최신 상태를 읽기 위해 사용
-  // Python으로 치면: self._mention_ref = self.mention_state
-  const mentionMenuRef = useRef(mentionMenu)
-  useEffect(() => { mentionMenuRef.current = mentionMenu }, [mentionMenu])
+  // @ 멘션 / [[ 페이지링크 상태 + 감지 함수 (useEditorMention.ts)
+  // Python으로 치면: mention_state, check_mention = use_mention_state()
+  const { mentionMenu, mentionMenuRef, checkMention, setMentionMenu } = useEditorMention()
 
   // 우클릭 컨텍스트 메뉴 위치 상태
   // null = 닫힘, { x, y } = 해당 viewport 좌표에 메뉴 표시
   // Python으로 치면: self.ctx_menu_pos: tuple | None = None
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
 
-  // LaTeX 붙여넣기 감지 상태
-  // 블록 수식($$...$$)이 감지되면 latex 문자열 저장 → 변환 여부 묻는 UI 표시
-  // Python으로 치면: self.latex_candidate: str | None = None
-  const [latexCandidate, setLatexCandidate] = useState<string | null>(null)
+  // LaTeX 붙여넣기 감지 상태 (useEditorLatex.ts)
+  // Python으로 치면: latex_candidate, set_latex = use_latex_state()
+  const { latexCandidate, setLatexCandidate } = useEditorLatex()
+
+  // 테이블 툴바 활성 상태 — 클릭으로 커서가 테이블 안에 들어올 때만 true
+  // editor.isActive('table') 직접 사용 시 리렌더링 타이밍 문제가 있어
+  // selectionUpdate 이벤트로 명시적으로 구독함
+  // Python으로 치면: self.table_active: bool = False
+  const [tableActive, setTableActive] = useState(false)
 
   const checkSlash = useCallback((editor: TiptapEditor) => {
     const { state } = editor
@@ -232,123 +201,36 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     }
   }, [])
 
-  // -----------------------------------------------
-  // @ 멘션 / [[ 페이지링크 감지 함수
-  // cursor 앞 텍스트에서 @단어 또는 [[단어 패턴을 찾아 팝업 열기
-  //
-  // @ 트리거:  "@페이지이름"   → trigger='@',  from=@ 위치
-  // [[ 트리거: "[[페이지이름"  → trigger='[[', from=[[ 위치
-  //
-  // Python으로 치면:
-  //   def check_mention(editor):
-  //       if re.search(r'@[\w가-힣]*$', text_before): open_popup(trigger='@')
-  //       elif re.search(r'\[\[[\w가-힣\s]*$', text_before): open_popup(trigger='[[')
-  // -----------------------------------------------
-  const checkMention = useCallback((editor: TiptapEditor) => {
-    const { state } = editor
-    const { from } = state.selection
-    const textBefore = state.doc.textBetween(Math.max(0, from - 40), from, '\n')
-
-    // @ 트리거: @한글/영문/숫자 (슬래시 메뉴와 충돌하지 않게 / 앞 @ 제외)
-    const atMatch = textBefore.match(/@([\w가-힣]*)$/)
-    // [[ 트리거: [[한글/영문/숫자/공백
-    const bracketMatch = textBefore.match(/\[\[([\w가-힣\s]*)$/)
-
-    if (atMatch) {
-      const query = atMatch[1]
-      const atPos = from - query.length - 1  // @ 문자 위치
-      const coords = editor.view.coordsAtPos(from)
-      setMentionMenu({
-        isOpen: true,
-        query,
-        from: atPos,
-        trigger: '@',
-        position: { x: coords.left, y: coords.bottom },
-      })
-    } else if (bracketMatch) {
-      const query = bracketMatch[1]
-      const bracketPos = from - query.length - 2  // [[ 시작 위치 (2글자)
-      const coords = editor.view.coordsAtPos(from)
-      setMentionMenu({
-        isOpen: true,
-        query,
-        from: bracketPos,
-        trigger: '[[',
-        position: { x: coords.left, y: coords.bottom },
-      })
-    } else {
-      setMentionMenu(prev => ({ ...prev, isOpen: false }))
-    }
-  }, [])
-
   const editor = useEditor({
-    extensions: [
-      // link: { openOnClick: false } → StarterKit 내장 Link를 설정
-      // (별도 import 없이 StarterKit.configure로 제어)
-      // codeBlock: false → StarterKit 내장 코드 블록 비활성화
-      // CustomCodeBlock이 대체하므로 중복 등록 방지
-      StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3, 4, 5, 6] }, link: { openOnClick: false } }),
-      Placeholder.configure({
-        placeholder: ({ node }) => {
-          if (node.type.name === 'heading') return t.editor.headingPlaceholder
-          return "'/' 커맨드  ·  '@' 멘션  ·  '[[' 링크"
-        },
-      }),
-      Typography,
-      // multicolor: true → 형광펜에 여러 색상 적용 가능 (기본은 노란색만)
-      // Python으로 치면: highlight = Highlight(multicolor=True)
-      Highlight.configure({ multicolor: true }),
-      TextStyle,
-      Color,
-      // FontFamily: TextStyle보다 뒤에 등록해야 TextStyle mark를 확장할 수 있음
-      // Python으로 치면: extensions.extend([FontFamily, FontSize])
-      FontFamily,
-      FontSize,
-      // 인라인 수식: $...$ 입력 시 자동으로 KaTeX 노드로 변환
-      // Python으로 치면: extensions.append(InlineMath)
-      InlineMath,
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      // ── 테이블 확장 등록 ─────────────────────────
-      // Python으로 치면: extensions = [..., Table(), TableRow(), ...]
-      Table.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      // 언어별 문법 하이라이팅 + 언어 선택 드롭다운 포함
-      // Python으로 치면: extensions.append(CustomCodeBlock)
-      CustomCodeBlock,
-      // ── 텍스트 정렬 확장 ──────────────────────────
-      // paragraph와 heading 노드에 좌/중/우/양쪽 정렬 속성 추가
-      // Python으로 치면: extensions.append(TextAlign(types=['heading', 'paragraph']))
-      TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      // ── 찾기/바꾸기 하이라이트 확장 ───────────────
-      // 검색어와 일치하는 텍스트에 .find-highlight 클래스 추가
-      // Python으로 치면: extensions.append(SearchHighlight)
-      SearchHighlight,
-      // ── 화살표 마크 확장 ──────────────────────────
-      // 단어/문구에 arrowId/isStart/color 속성을 data-* 속성으로 저장
-      // ArrowLayer가 해당 DOM을 스캔해 SVG 화살표 렌더링
-      // Python으로 치면: extensions.append(ArrowMark)
-      ArrowMark,
-      // ── 인라인 각주 확장 ────────────────────────
-      // [^각주 내용] 패턴 입력 시 번호 superscript 노드로 자동 변환
-      // Python으로 치면: extensions.append(FootnoteInline)
-      FootnoteInline,
-    ],
-    // 이미지·토글·칸반·Excalidraw·비디오 블록은 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
-    // JSON content를 HTML로 파싱하는 오류 방지
-    // Python으로 치면: content = '' if type in ('image', 'toggle', 'excalidraw', 'video') else block.content
-    // 이미지·토글·레이아웃 등 비-Tiptap 블록은 Tiptap content를 빈 문자열로 초기화
-    // Python으로 치면: content = '' if type in ('image', 'toggle', 'layout', ...) else block.content
-    // math 블록도 Tiptap이 직접 렌더링하지 않으므로 빈 문자열로 초기화
-    // Python으로 치면: content = '' if type in ('image', 'toggle', ..., 'math') else block.content
-    content: (block.type === 'image' || block.type === 'toggle' || block.type === 'kanban' || block.type === 'excalidraw' || block.type === 'video' || block.type === 'layout' || block.type === 'math' || block.type === 'embed' || block.type === 'mermaid' || block.type === 'file') ? '' : (block.content || ''),
+    // buildEditorExtensions: Tiptap 확장 배열 조립 (src/extensions/editorExtensions.ts)
+    // Python으로 치면: extensions = build_extensions(heading_placeholder)
+    extensions: buildEditorExtensions(t.editor.headingPlaceholder),
+    // 비-Tiptap 블록(이미지/비디오/캔버스/차트 등)은 Tiptap content를 빈 문자열로 초기화
+    // JSON content가 Tiptap에 HTML로 파싱되는 오류 방지
+    // Python으로 치면: content = '' if type in NON_TIPTAP_TYPES else block.content
+    content: (block.type === 'image' || block.type === 'video' || block.type === 'embed' ||
+      block.type === 'toggle' || block.type === 'kanban' || block.type === 'admonition' ||
+      block.type === 'canvas' || block.type === 'excalidraw' || block.type === 'layout' ||
+      block.type === 'math' || block.type === 'mermaid' || block.type === 'file' ||
+      block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
     onCreate: ({ editor }) => { setTimeout(() => applyBlockType(editor, block.type), 0) },
     onUpdate: ({ editor }) => {
+      // 비-Tiptap 블록(이미지·비디오·캔버스 등)은 content를 직접 JSON으로 관리하므로
+      // Tiptap onUpdate를 무시 — 마운트/언마운트 시 <p></p>로 덮어쓰기 방지
+      // Python으로 치면: if type in NON_TIPTAP_TYPES: return
+      if (block.type === 'image' || block.type === 'video' || block.type === 'embed' ||
+          block.type === 'toggle' || block.type === 'kanban' || block.type === 'admonition' ||
+          block.type === 'canvas' || block.type === 'excalidraw' || block.type === 'layout' ||
+          block.type === 'math' || block.type === 'mermaid' || block.type === 'file' ||
+          block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap') return
+      // --- 입력으로 Tiptap이 <hr>을 삽입하면 블록 타입을 'divider'로 자동 동기화
+      // Python으로 치면: if editor.doc starts with hr node: update_block_type('divider')
+      if (block.type !== 'divider' && editor.state.doc.firstChild?.type.name === 'horizontalRule') {
+        updateBlockType(pageId, block.id, 'divider')
+      }
       updateBlock(pageId, block.id, editor.getHTML())
       checkSlash(editor)
       checkMention(editor)
@@ -576,6 +458,24 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
         return false
       },
+      // ── 드롭 완전 차단 ───────────────────────────────────────────
+      // dnd-kit 블록 드래그 중 Tiptap Table 확장이 ProseMirror 내부 노드 드래그를
+      // 동시에 시작 → moved=true로 분류되므로 !moved 조건으로는 막히지 않음
+      // 완전 차단(항상 true 반환)으로 테이블 1열1행 중첩 문제 해결
+      // Python으로 치면: def handle_drop(*args): return True  # always block
+      handleDrop: () => true,
+      // ── ProseMirror 네이티브 dragstart 차단 ─────────────────────
+      // Table 확장이 tableRow/tableCell 노드에 draggable 마크를 추가하여
+      // 에디터 내부에서 HTML5 dragstart 이벤트를 발생시킴
+      // dragstart 자체를 차단해 drop 이벤트의 발생 원천을 제거
+      // 컬럼 리사이즈(mousedown+mousemove 방식)는 영향 없음
+      // Python으로 치면: editor.on('dragstart', lambda e: e.preventDefault())
+      handleDOMEvents: {
+        dragstart: (_view, event) => {
+          event.preventDefault()
+          return true
+        },
+      },
     },
     immediatelyRender: false,
   })
@@ -584,6 +484,29 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (!editor) return
     applyBlockType(editor, block.type)
   }, [block.type, editor])
+
+  // ── 테이블 툴바 활성화: selectionUpdate + blur 이벤트 구독 ──
+  // selectionUpdate: 커서 이동마다 isActive('table') 체크 → tableActive 갱신
+  // blur: 에디터 포커스를 잃으면 툴바 숨김
+  //   (단, 툴바 버튼 클릭 시 chain().focus()로 즉시 포커스가 돌아오므로 깜빡임 없음)
+  // Python으로 치면:
+  //   editor.on('selectionUpdate', lambda: setTableActive(editor.isActive('table')))
+  //   editor.on('blur', lambda: setTableActive(False))
+  useEffect(() => {
+    if (!editor) return
+    const handleSelectionUpdate = () => {
+      setTableActive(editor.isActive('table'))
+    }
+    const handleBlur = () => {
+      setTableActive(false)
+    }
+    editor.on('selectionUpdate', handleSelectionUpdate)
+    editor.on('blur', handleBlur)
+    return () => {
+      editor.off('selectionUpdate', handleSelectionUpdate)
+      editor.off('blur', handleBlur)
+    }
+  }, [editor])
 
   // ── ArrowLayer 연결을 위한 에디터 참조 DOM에 저장 ──
   // ArrowLayer의 caretRangeFromPoint → posAtDOM 변환 시 에디터 인스턴스 필요
@@ -1053,10 +976,15 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       // Python으로 치면: editor.set_code_block(language='javascript')
       editor.chain().focus().setCodeBlock({ language: 'javascript' }).run()
     } else if (type === 'table') {
-      // 에디터가 비어있을 때만 기본 3×3 테이블 삽입
-      // 저장된 테이블 HTML이 있으면 content 로딩으로 이미 복원됨
-      // Python으로 치면: if not editor.get_text(): editor.insert_table(3, 3)
-      if (!editor.getText().trim()) {
+      // 테이블 노드가 문서에 없을 때만 기본 3×3 테이블 삽입
+      // getText()로 체크하면 셀이 비어있는 기존 테이블도 ''로 판정 →
+      // 드래그 후 editor 재생성 시 첫 번째 셀 안에 중복 삽입 → 중첩 버그 발생
+      // doc.content에서 table 노드 존재 여부를 직접 확인해서 방지
+      // Python으로 치면: if not any(n.type == 'table' for n in doc.children): insert_table()
+      const hasTable = editor.state.doc.content.content.some(
+        n => n.type.name === 'table'
+      )
+      if (!hasTable) {
         editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
       }
     } else {
@@ -1081,12 +1009,13 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         {/* + 블록 메뉴 버튼 */}
         <BlockMenu pageId={pageId} blockId={block.id} />
         {/* 드래그 핸들 — 이미지 블록도 동일하게 제공 */}
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1122,10 +1051,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1161,10 +1091,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1205,10 +1136,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1248,10 +1180,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1292,10 +1225,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1336,10 +1270,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1376,10 +1311,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1419,10 +1355,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1458,10 +1395,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1497,10 +1435,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1535,10 +1474,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1568,10 +1508,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         id={block.id}
         ref={setNodeRef}
         style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1601,10 +1542,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         id={block.id}
         ref={setNodeRef}
         style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1634,10 +1576,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         id={block.id}
         ref={setNodeRef}
         style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1667,10 +1610,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         id={block.id}
         ref={setNodeRef}
         style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1700,10 +1644,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         id={block.id}
         ref={setNodeRef}
         style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1737,10 +1682,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         id={block.id}
         ref={setNodeRef}
         style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1780,10 +1726,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1819,10 +1766,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1858,10 +1806,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1896,10 +1845,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           backgroundColor: block.backgroundColor || undefined,
           borderRadius: block.backgroundColor ? '4px' : undefined,
         }}
-        className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+        className={blockWrapperClass}
         onContextMenu={handleContextMenu}
       >
         <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
         <div
           {...attributes}
           {...listeners}
@@ -1935,7 +1885,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         backgroundColor: block.backgroundColor || undefined,
         borderRadius: block.backgroundColor ? '4px' : undefined,
       }}
-      className="block-item group relative flex items-start px-2 py-0.5 rounded-xl transition-shadow transition-colors hover:bg-[#fcf9f8] dark:hover:bg-[#191919] hover:shadow-[0_1px_8px_rgba(0,0,0,0.06)]"
+      className={blockWrapperClass}
       onContextMenu={handleContextMenu}
     >
       {/* ── 섹션 접기/펼치기 버튼 (heading 블록 + 하위 블록이 있을 때만 표시) ──
@@ -1959,7 +1909,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       {/* BlockMenu: hover 시 + 버튼 표시 → 클릭하면 위/아래 추가·복제·삭제 메뉴 */}
       <BlockMenu pageId={pageId} blockId={block.id} />
 
-      {/* ── 드래그 핸들 ─────────────────────────── */}
+      {/* ── 선택 체크박스 + 드래그 핸들 ──────────── */}
+      {selectionCheckbox}
       {/* listeners : 이 요소에서만 드래그가 시작되게 함 (에디터 내 클릭과 충돌 방지) */}
       {/* group-hover:opacity-100 : 블록에 마우스 올릴 때만 보임 (노션과 동일한 UX) */}
       <div
@@ -1974,8 +1925,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       {/* ── 플로팅 테이블 툴바 ────────────────────────
           커서가 테이블 안에 있을 때만 표시
           absolute 포지션: 블록 래퍼(relative) 기준 -top-10 에 띄움
-          Python으로 치면: if editor.is_active('table'): render FloatingTableToolbar() */}
-      {editor && editor.isActive('table') && (
+          Python으로 치면: if table_active: render FloatingTableToolbar() */}
+      {editor && tableActive && (
         <TableToolbar editor={editor} pageId={pageId} blockId={block.id} />
       )}
 
@@ -2020,8 +1971,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         {/* ── 행 추가 버튼 (테이블 하단) ───────────────
             커서가 테이블 안에 있을 때 테이블 바로 아래에 표시
             클릭 시 마지막 행 아래에 새 행 추가
-            Python으로 치면: if editor.is_active('table'): render AddRowBtn() */}
-        {editor && editor.isActive('table') && (
+            Python으로 치면: if table_active: render AddRowBtn() */}
+        {editor && tableActive && (
           <button
             type="button"
             onClick={() => editor.chain().focus().addRowAfter().run()}

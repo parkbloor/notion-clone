@@ -7,7 +7,7 @@
 'use client'
 
 import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
-import { Undo2, Redo2, Lock, Unlock } from 'lucide-react'
+import { Undo2, Redo2, Lock, Unlock, Trash2, Copy, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { api } from '@/lib/api'
@@ -278,6 +278,8 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     applyTemplate, togglePageStar, toggleCanvasMode, sortBlocksByCanvas,
     lockPage, unlockPage,
     pages,
+    selectedBlockIds, toggleBlockSelection, selectBlockRange,
+    clearBlockSelection, deleteSelectedBlocks, duplicateSelectedBlocks,
   } = usePageStore()
 
   // historyVersion 구독 → undo/redo 실행 시 버튼 활성화 상태 자동 갱신
@@ -325,6 +327,52 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     } catch {}
     return new Set()
   })
+
+  // ── 블록 일괄 선택 ─────────────────────────────
+  // Shift+클릭 범위 선택용 앵커 — 마지막으로 단순 클릭된 블록 ID
+  // Python으로 치면: self._selection_anchor: str | None = None
+  const selectionAnchorRef = useRef<string | null>(null)
+
+  // 페이지 이동 시 선택 초기화
+  // Python으로 치면: @watch(page_id) def on_page_change(): clear_selection()
+  useEffect(() => {
+    clearBlockSelection()
+    selectionAnchorRef.current = null
+  }, [pageId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 선택 핸들 클릭 핸들러 (체크박스 클릭 → Shift 여부로 분기)
+  // Python으로 치면: def handle_select(block_id, event): ...
+  const handleBlockSelect = useCallback((blockId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (e.shiftKey && selectionAnchorRef.current) {
+      // Shift+클릭 → 앵커~타겟 범위 선택
+      selectBlockRange(pageId, selectionAnchorRef.current, blockId)
+    } else {
+      // 단순 클릭 → 토글 + 앵커 업데이트
+      toggleBlockSelection(blockId)
+      selectionAnchorRef.current = blockId
+    }
+  }, [pageId, selectBlockRange, toggleBlockSelection])
+
+  // Delete/Backspace 키 → 선택된 블록 일괄 삭제, Escape → 선택 해제
+  // Python으로 치면: @window.on('keydown') def on_key(e): ...
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (selectedBlockIds.length === 0) return
+      // 텍스트 입력 중엔 무시 (input/textarea/contenteditable 제외)
+      const target = e.target as HTMLElement
+      if (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        deleteSelectedBlocks(pageId)
+      } else if (e.key === 'Escape') {
+        clearBlockSelection()
+        selectionAnchorRef.current = null
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedBlockIds, pageId, deleteSelectedBlocks, clearBlockSelection])
 
   // collapsedSections 변경 시 localStorage에 저장 (TocPanel과 동일 키 공유)
   // Python으로 치면: @collapsed_sections.setter: save_to_storage(v)
@@ -563,6 +611,12 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   const [localCoverPos, setLocalCoverPos] = useState<number>(50)
   // 드래그 중 최신 pos를 클로저 밖에서 읽기 위한 ref
   const dragPosRef = useRef<number>(50)
+  // 드래그 중 unmount 시 document 리스너를 정리하기 위한 cleanup ref
+  // Python으로 치면: self._cover_drag_cleanup: Callable | None = None
+  const coverDragCleanupRef = useRef<(() => void) | null>(null)
+
+  // 컴포넌트 언마운트 시 커버 드래그 리스너 강제 제거 (드래그 중 페이지 이동 시 누수 방지)
+  useEffect(() => () => { coverDragCleanupRef.current?.() }, [])
 
   // 페이지 변경 시 로컬 위치 + 조정 모드 초기화
   useEffect(() => {
@@ -653,12 +707,18 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     function onMouseUp() {
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
+      coverDragCleanupRef.current = null
       // 드래그 완료 → store에 저장 (debounce 없이 즉시)
       updatePageCoverPosition(pageId, dragPosRef.current)
     }
 
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
+    // unmount cleanup에서 참조할 수 있도록 저장
+    coverDragCleanupRef.current = () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
   }
 
   // -----------------------------------------------
@@ -1205,8 +1265,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                   if (row.length === 1) {
                     const block = row[0]
                     const { hidden, hasChild } = visibilityMap.get(block.id) ?? { hidden: false, hasChild: false }
+                    // 구분선 블록은 섹션이 접혀도 항상 표시 (레이아웃 구분자이므로 예외)
+                    // Python으로 치면: is_hidden = hidden and block.type != 'divider'
+                    const isHidden = hidden && block.type !== 'divider'
                     return (
-                      <div key={block.id} className={hidden ? 'hidden' : undefined}>
+                      <div key={block.id} className={isHidden ? 'hidden' : undefined}>
                         <Editor
                           block={block}
                           pageId={pageId}
@@ -1215,6 +1278,8 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                           isSectionCollapsed={collapsedSections.has(block.id)}
                           onToggleSectionCollapse={() => toggleSection(block.id)}
                           readMode={readMode || !!page.isLocked}
+                          isSelected={selectedBlockIds.includes(block.id)}
+                          onSelect={(e) => handleBlockSelect(block.id, e)}
                         />
                       </div>
                     )
@@ -1228,9 +1293,12 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                     <div key={`row-${rowIndex}`} className="flex items-start">
                       {row.map((block, colIndex) => {
                         const { hidden, hasChild } = visibilityMap.get(block.id) ?? { hidden: false, hasChild: false }
+                        // 구분선 블록은 섹션이 접혀도 항상 표시 (레이아웃 구분자이므로 예외)
+                        // Python으로 치면: is_hidden = hidden and block.type != 'divider'
+                        const isHidden = hidden && block.type !== 'divider'
                         // 두 번째 열부터 왼쪽에 얇은 구분선 표시
                         // Python으로 치면: border = 'border-l' if col_index > 0 else ''
-                        const colClass = hidden
+                        const colClass = isHidden
                           ? 'hidden'
                           : colIndex > 0
                             ? 'min-w-0 pl-3 border-l border-gray-200'
@@ -1249,6 +1317,8 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                               isSectionCollapsed={collapsedSections.has(block.id)}
                               onToggleSectionCollapse={() => toggleSection(block.id)}
                               readMode={readMode || !!page.isLocked}
+                              isSelected={selectedBlockIds.includes(block.id)}
+                              onSelect={(e) => handleBlockSelect(block.id, e)}
                             />
                           </div>
                         )
@@ -1313,8 +1383,11 @@ export default function PageEditor({ pageId }: PageEditorProps) {
 
                 return page.blocks.map((block, index) => {
                   const { hidden, hasChild } = visibility[index]
+                  // 구분선 블록은 섹션이 접혀도 항상 표시 (레이아웃 구분자이므로 예외)
+                  // Python으로 치면: is_hidden = hidden and block.type != 'divider'
+                  const isHidden = hidden && block.type !== 'divider'
                   return (
-                    <div key={block.id} className={hidden ? 'hidden' : undefined}>
+                    <div key={block.id} className={isHidden ? 'hidden' : undefined}>
                       <Editor
                         block={block}
                         pageId={pageId}
@@ -1323,6 +1396,8 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                         isSectionCollapsed={collapsedSections.has(block.id)}
                         onToggleSectionCollapse={() => toggleSection(block.id)}
                         readMode={readMode || !!page.isLocked}
+                        isSelected={selectedBlockIds.includes(block.id)}
+                        onSelect={(e) => handleBlockSelect(block.id, e)}
                       />
                     </div>
                   )
@@ -1366,6 +1441,49 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       )}
 
       </div>{/* ── flex 래퍼 닫기 */}
+
+      {/* ── 블록 일괄 선택 플로팅 툴바 ──────────────────────────────────
+          선택된 블록이 1개 이상일 때 하단 중앙에 표시
+          Python으로 치면: if selected_block_ids: render BulkActionToolbar() */}
+      {selectedBlockIds.length > 0 && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-gray-900 dark:bg-gray-800 text-white rounded-xl shadow-2xl border border-gray-700">
+          {/* 선택 개수 표시 */}
+          <span className="text-sm font-medium text-gray-200 mr-1">
+            {selectedBlockIds.length}개 블록 선택됨
+          </span>
+          <div className="w-px h-4 bg-gray-600" />
+          {/* 복제 버튼 */}
+          <button
+            type="button"
+            onClick={() => duplicateSelectedBlocks(pageId)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-sm text-gray-200 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="선택 블록 복제"
+          >
+            <Copy size={14} />
+            복제
+          </button>
+          {/* 삭제 버튼 */}
+          <button
+            type="button"
+            onClick={() => deleteSelectedBlocks(pageId)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 rounded-lg transition-colors"
+            title="선택 블록 삭제 (Delete)"
+          >
+            <Trash2 size={14} />
+            삭제
+          </button>
+          <div className="w-px h-4 bg-gray-600" />
+          {/* 선택 해제 버튼 */}
+          <button
+            type="button"
+            onClick={() => { clearBlockSelection(); selectionAnchorRef.current = null }}
+            className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+            title="선택 해제 (Esc)"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* ── 찾기/바꾸기 플로팅 패널 (Ctrl+H/F로 열림, z-50 fixed) ──
           isOpen 이 false 면 패널 컴포넌트가 null 반환 → 항상 마운트해도 무방

@@ -2,3 +2,4 @@ fastapi>=0.129.0
 uvicorn>=0.41.0
 python-multipart>=0.0.22
 xhtml2pdf>=0.2.11
+requests>=2.32.0

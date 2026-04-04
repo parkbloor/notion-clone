@@ -10,288 +10,9 @@ import { toast } from 'sonner'
 import { Block, BlockType, Category, Page, PageProperty, createBlock, createPage } from '@/types/block'
 import { api } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
-
-// -----------------------------------------------
-// 페이지 저장 디바운서
-// 타이핑할 때마다 저장하면 요청이 너무 많으므로
-// 마지막 변경 후 500ms 뒤에 한 번만 저장
-// Python으로 치면: save_timers: dict[str, threading.Timer] = {}
-// -----------------------------------------------
-const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
-// Python으로 치면: def schedule_save(page_id, get_state, set_state): ...
-function scheduleSave(
-  pageId: string,
-  getState: () => PageStore,
-  setState: (fn: (state: PageStore) => void) => void
-) {
-  // 기존 타이머 취소 (디바운스)
-  const existing = saveTimers.get(pageId)
-  if (existing) clearTimeout(existing)
-
-  // 500ms 후 저장
-  saveTimers.set(pageId, setTimeout(async () => {
-    saveTimers.delete(pageId)
-    const page = getState().pages.find(p => p.id === pageId)
-    if (page) {
-      try {
-        const updatedPage = await api.savePage(pageId, page)
-        // 제목 변경으로 폴더 rename이 발생한 경우:
-        // 백엔드가 이미지 URL을 업데이트한 page를 반환 → store에 반영
-        if (updatedPage) {
-          setState((state) => {
-            const idx = state.pages.findIndex(p => p.id === pageId)
-            if (idx !== -1) {
-              const local = state.pages[idx]
-              // 백엔드 응답을 베이스로 하되, 로컬 전용 필드 보존
-              // properties: 백엔드가 모르는 속성 데이터
-              // isLocked, canvasMode: Page 레벨 로컬 필드
-              // blocks: 서버 블록을 쓰되 backgroundColor/canvasX 등 로컬 필드 병합
-              // Python으로 치면: merged = {**server_page, **{k: local[k] for k in local_only}}
-              const mergedBlocks = (updatedPage.blocks ?? []).map(serverBlock => {
-                const localBlock = local.blocks.find(b => b.id === serverBlock.id)
-                if (!localBlock) return serverBlock
-                // 서버가 보존 못하는 클라이언트 전용 필드를 로컬 값으로 덮어쓰기
-                return {
-                  ...serverBlock,
-                  backgroundColor: localBlock.backgroundColor,
-                  canvasX: localBlock.canvasX,
-                  canvasY: localBlock.canvasY,
-                  canvasW: localBlock.canvasW,
-                  canvasH: localBlock.canvasH,
-                  children: localBlock.children,
-                }
-              })
-              state.pages[idx] = {
-                ...updatedPage,
-                properties: local.properties,
-                isLocked: local.isLocked,
-                canvasMode: local.canvasMode,
-                blocks: mergedBlocks,
-              }
-            }
-          })
-        }
-      } catch {
-        // 자동 저장 실패 — id 고정으로 중복 토스트 방지 (타이핑마다 실패해도 1개만 표시)
-        // Python으로 치면: toast_map['save-error'] = show_once(msg)
-        toast.error('자동 저장 실패. 서버 연결을 확인해 주세요.', {
-          id: 'save-error',
-          duration: 3000,
-        })
-      }
-    }
-  }, 500))
-}
-
-
-// -----------------------------------------------
-// 블록 구조 히스토리 (undo/redo)
-// 텍스트 수정(updateBlock)은 Tiptap 내장 History가 처리
-// 블록 추가/삭제/이동/타입변경/복제만 이 히스토리가 담당
-// Python으로 치면: page_history: dict[str, {"past": list[str], "future": list[str]}] = {}
-// -----------------------------------------------
-const pageHistoryMap = new Map<string, { past: string[]; future: string[] }>()
-
-// 히스토리 엔트리 가져오기 (없으면 새로 생성)
-// Python으로 치면: def get_history(page_id): return page_history.setdefault(page_id, {...})
-function getHistory(pageId: string): { past: string[]; future: string[] } {
-  if (!pageHistoryMap.has(pageId)) {
-    pageHistoryMap.set(pageId, { past: [], future: [] })
-  }
-  return pageHistoryMap.get(pageId)!
-}
-
-// 현재 블록 배열 스냅샷을 past에 푸시 (새 액션 직전에 호출)
-// Python으로 치면: def push_block_history(page_id, blocks): history["past"].append(json.dumps(blocks))
-function pushBlockHistory(pageId: string, blocks: readonly Block[]): void {
-  const h = getHistory(pageId)
-  h.past.push(JSON.stringify(blocks))
-  h.future = []  // 새 액션 발생 시 redo 히스토리 초기화
-  if (h.past.length > 50) h.past.shift()  // 최대 50개 유지
-}
-
-// JSON 문자열에서 블록 배열 복원 (createdAt/updatedAt은 ISO 문자열 그대로 사용)
-// Python으로 치면: def parse_blocks(json_str): return json.loads(json_str)
-function parseBlocksFromJson(json: string): Block[] {
-  return JSON.parse(json) as Block[]
-}
-
-
-// -----------------------------------------------
-// 스토어 타입 정의
-// -----------------------------------------------
-interface PageStore {
-
-  // ── 페이지 상태 ──────────────────────────────
-  pages: Page[]
-  currentPageId: string | null
-  // 탭 시스템 — 열린 탭 ID 목록 (순서 유지)
-  // Python으로 치면: self.open_tabs: list[str] = []
-  openTabs: string[]
-  closeTab: (id: string) => void
-  // 세션 복원용 — 저장된 탭 목록을 한 번에 덮어쓰기
-  // Python으로 치면: def restore_open_tabs(self, ids): self.open_tabs = ids
-  setOpenTabs: (ids: string[]) => void
-
-  // ── 카테고리 상태 ─────────────────────────────
-  categories: Category[]
-  // pageId → categoryId 매핑 (없거나 null이면 미분류)
-  // Python으로 치면: category_map: dict[str, str | None] = {}
-  categoryMap: Record<string, string | null>
-  // 최상위 카테고리 표시 순서 (ID 목록)
-  categoryOrder: string[]
-  // 하위 폴더 순서: { parentCatId: [childCatId, ...] }
-  // Python으로 치면: category_child_order: dict[str, list[str]] = {}
-  categoryChildOrder: Record<string, string[]>
-  // 현재 선택된 카테고리 ID (null = 전체보기)
-  currentCategoryId: string | null
-
-  // ── 최근 파일 ─────────────────────────────────
-  // 최근 열어본 페이지 ID 목록 (최대 10개, localStorage 동기화)
-  // Python으로 치면: recent_page_ids: list[str] = []
-  recentPageIds: string[]
-  // 페이지 열 때 최근 목록 맨 앞에 추가 (중복 제거, 최대 10개 유지)
-  // Python으로 치면: def push_recent_page(self, page_id): ...
-  pushRecentPage: (pageId: string) => void
-
-  // ── 서버 연동 ─────────────────────────────────
-  loadFromServer: () => Promise<void>
-
-  // ── 페이지 액션 ───────────────────────────────
-  addPage: (title?: string, categoryId?: string | null) => Promise<void>
-  setCurrentPage: (id: string) => void
-  updatePageTitle: (pageId: string, title: string) => void
-  deletePage: (pageId: string) => void
-  updatePageIcon: (pageId: string, icon: string) => void
-  updatePageCover: (pageId: string, cover: string | undefined) => void
-  // 커버 이미지 Y 위치 변경 (0~100, 드래그로 조정)
-  // Python으로 치면: def update_cover_position(self, page_id, position): ...
-  updatePageCoverPosition: (pageId: string, position: number) => void
-
-  // ── 태그 액션 ─────────────────────────────────
-  // Python으로 치면: def add_tag(self, page_id, tag): page.tags.append(tag)
-  addTagToPage: (pageId: string, tag: string) => void
-  // Python으로 치면: def remove_tag(self, page_id, tag): page.tags.remove(tag)
-  removeTagFromPage: (pageId: string, tag: string) => void
-
-  // ── 페이지 속성 액션 ──────────────────────────
-  // Python으로 치면: def set_property(self, page_id, property): page.properties[id] = property
-  setPageProperty: (pageId: string, property: PageProperty) => void
-  // Python으로 치면: def remove_property(self, page_id, property_id): page.properties.remove(id)
-  removePageProperty: (pageId: string, propertyId: string) => void
-
-  // ── 페이지 잠금 액션 ──────────────────────────
-  // Python으로 치면: def lock_page(self, page_id, pin_hash): page.is_locked = True
-  lockPage: (pageId: string, pinHash: string) => void
-  // Python으로 치면: def unlock_page(self, page_id): page.is_locked = False
-  unlockPage: (pageId: string) => void
-
-  // ── 즐겨찾기 / 복제 액션 ─────────────────────
-  // Python으로 치면: def toggle_star(self, page_id): page.starred = not page.starred
-  togglePageStar: (pageId: string) => void
-  // 페이지와 모든 블록을 복제, 원본 바로 아래에 삽입
-  // Python으로 치면: def duplicate_page(self, page_id): pages.insert(idx+1, copy(page))
-  duplicatePage: (pageId: string) => void
-
-  // 페이지 잠금 토글 (잠금 ↔ 해제) — 잠긴 페이지는 편집 불가
-  // Python으로 치면: def toggle_page_lock(self, page_id): page.is_locked = not page.is_locked
-  togglePageLock: (pageId: string) => void
-
-  // ── 캔버스 모드 액션 ──────────────────────────
-  // 페이지의 캔버스 모드를 토글 (문서 ↔ 캔버스)
-  // Python으로 치면: def toggle_canvas_mode(self, page_id): page.canvas_mode = not page.canvas_mode
-  toggleCanvasMode: (pageId: string) => void
-  // 캔버스 Y/X 좌표 기준으로 page.blocks 순서 재정렬
-  // 캔버스 모드 → 일반 모드 전환 시 호출 → 캔버스 배치 순서가 문서 순서에 반영됨
-  // Python으로 치면: def sort_blocks_by_canvas(self, page_id): page.blocks.sort(key=lambda b: (b.canvas_y, b.canvas_x))
-  sortBlocksByCanvas: (pageId: string) => void
-  // 특정 블록의 캔버스 위치/크기 업데이트
-  // Python으로 치면: def update_block_canvas(self, page_id, block_id, x, y, w, h): ...
-  updateBlockCanvas: (pageId: string, blockId: string, canvas: { x?: number; y?: number; w?: number; h?: number }) => void
-  // 가상 박스 추가
-  addCanvasBox: (pageId: string, box: import('@/types/block').CanvasBox) => void
-  // 가상 박스 위치/크기 업데이트
-  updateCanvasBox: (pageId: string, boxId: string, update: Partial<import('@/types/block').CanvasBox>) => void
-  // 가상 박스 삭제
-  deleteCanvasBox: (pageId: string, boxId: string) => void
-  // 블록 배경색 변경 (hex 문자열 또는 '' = 투명)
-  // Python으로 치면: def update_block_background(self, page_id, block_id, color): ...
-  updateBlockBackground: (pageId: string, blockId: string, color: string) => void
-
-  // ── 블록 액션 ─────────────────────────────────
-  // 마크다운 텍스트를 파싱해서 빈 페이지에 블록으로 삽입 (템플릿 적용)
-  // Python으로 치면: def apply_template(self, page_id, markdown_content): ...
-  applyTemplate: (pageId: string, markdownContent: string) => void
-  // Block 배열을 직접 받아서 페이지 블록을 교체 (그리드 템플릿 적용용)
-  // Python으로 치면: def set_page_blocks(self, page_id, blocks): page.blocks = blocks
-  setPageBlocks: (pageId: string, blocks: Block[]) => void
-  addBlock: (pageId: string, afterBlockId?: string) => void
-  updateBlock: (pageId: string, blockId: string, content: string) => void
-  updateBlockType: (pageId: string, blockId: string, type: BlockType) => void
-  deleteBlock: (pageId: string, blockId: string) => void
-  moveBlock: (pageId: string, fromIndex: number, toIndex: number) => void
-  addBlockBefore: (pageId: string, beforeBlockId: string) => void
-  duplicateBlock: (pageId: string, blockId: string) => void
-  // 블록을 다른 페이지로 이동 (원본 삭제 + 대상 마지막에 추가)
-  // Python으로 치면: def move_block_to_page(self, from_id, to_id, block_id): ...
-  moveBlockToPage: (fromPageId: string, toPageId: string, blockId: string) => void
-  // 블록을 다른 페이지로 복사 (원본 유지 + 대상 마지막에 복사본 추가)
-  // Python으로 치면: def copy_block_to_page(self, from_id, to_id, block_id): ...
-  copyBlockToPage: (fromPageId: string, toPageId: string, blockId: string) => void
-
-  // ── 블록 히스토리 ──────────────────────────────
-  // 구조 변경(추가/삭제/이동/타입/복제) 또는 undo/redo 실행 시 증가 → UI 리렌더링 트리거
-  // Python으로 치면: history_version: int = 0
-  historyVersion: number
-  undoPage: (pageId: string) => void
-  redoPage: (pageId: string) => void
-  // 순수 계산 (외부 Map 조회) → 컴포넌트는 historyVersion을 구독해서 리렌더링
-  // Python으로 치면: def can_undo(self, page_id): return bool(history[page_id]["past"])
-  canUndo: (pageId: string) => boolean
-  canRedo: (pageId: string) => boolean
-
-  // ── 카테고리 액션 ─────────────────────────────
-  setCurrentCategory: (categoryId: string | null) => void
-  // parentId가 있으면 해당 카테고리의 하위 폴더로 생성
-  // Python으로 치면: async def add_category(self, name, parent_id=None): ...
-  addCategory: (name: string, parentId?: string | null) => Promise<void>
-  renameCategory: (categoryId: string, name: string) => Promise<void>
-  // 안에 메모가 있으면 hasPages: true 반환 (삭제 안 됨)
-  // 하위 폴더가 있으면 hasChildren: true 반환 (삭제 안 됨)
-  // Python으로 치면: async def delete_category(self, cat_id) -> dict
-  deleteCategory: (categoryId: string) => Promise<{ hasPages: boolean; hasChildren?: boolean; count?: number }>
-  // 페이지를 다른 카테고리로 이동 (null = 미분류)
-  movePageToCategory: (pageId: string, categoryId: string | null) => Promise<void>
-  reorderCategories: (newOrder: string[]) => void
-  // 하위 카테고리 순서 변경 → 서버에도 저장
-  // Python으로 치면: def reorder_child_categories(self, parent_id, new_order): ...
-  reorderChildCategories: (parentId: string, newOrder: string[]) => void
-  // 폴더를 다른 부모 폴더로 이동 (newParentId=null이면 최상위로)
-  // Python으로 치면: async def move_category_to_parent(self, cat_id, new_parent_id): ...
-  moveCategoryToParent: (categoryId: string, newParentId: string | null) => Promise<void>
-  // 폴더 색상 변경 (null이면 기본 색상 초기화)
-  // Python으로 치면: async def update_category_color(self, cat_id, color): ...
-  updateCategoryColor: (categoryId: string, color: string | null) => Promise<void>
-  // 메모 목록 내 드래그로 순서 변경
-  // Python으로 치면: def reorder_pages(self, from_id, to_id): ...
-  reorderPages: (fromId: string, toId: string) => void
-
-  // ── 휴지통 상태/액션 ──────────────────────────
-  // Python으로 치면: self.trash_items: list[TrashItem] = []
-  trashedItems: import('@/types/block').TrashItem[]
-  loadTrash: () => Promise<void>
-  restoreFromTrash: (itemId: string) => Promise<void>
-  permanentDelete: (itemId: string) => Promise<void>
-  emptyTrash: () => Promise<void>
-
-  // ── 태그 필터 ─────────────────────────────────
-  // 사이드바 태그 브라우저에서 선택된 태그 (null = 필터 없음)
-  // Python으로 치면: self.active_tag_filter: str | None = None
-  activeTagFilter: string | null
-  // Python으로 치면: def set_tag_filter(self, tag): self.active_tag_filter = tag
-  setTagFilter: (tag: string | null) => void
-}
+import { useSettingsStore } from '@/store/settingsStore'
+import type { PageStore } from '@/types/pageStore'
+import { scheduleSave, saveNow, pageHistoryMap, getHistory, pushBlockHistory, parseBlocksFromJson } from '@/store/pageStoreHelpers'
 
 
 // -----------------------------------------------
@@ -303,7 +24,11 @@ export const usePageStore = create<PageStore>()(
   immer((set, get) => ({
 
     // ── 초기 상태 ──────────────────────────────
-    pages: [createPage('첫 번째 페이지')],
+    // 빈 배열로 시작 — loadFromServer() 완료 전 에디터가 플레이스홀더 페이지를
+    // 렌더링하지 않도록 함. 렌더 시 Tiptap onUpdate → scheduleSave → api.savePage()
+    // 가 발동해 서버에 "첫 번째 페이지"가 영구 저장되는 버그 방지.
+    // Python으로 치면: self.pages = []  (서버 로드 후 채워짐)
+    pages: [],
     currentPageId: null,
     // 탭 시스템 — 열린 탭 ID 목록 (순서 유지, 중복 없음)
     // Python으로 치면: self.open_tabs: list[str] = []
@@ -315,10 +40,20 @@ export const usePageStore = create<PageStore>()(
     currentCategoryId: null,  // null = 전체보기
     trashedItems: [],
     activeTagFilter: null,
+    currentVaultName: '',
+
+    // 일괄 선택된 블록 ID 목록
+    // Python으로 치면: self.selected_block_ids = []
+    selectedBlockIds: [],
 
     // 구조 변경/undo/redo 발생 시 증가 → 버튼 활성화 상태 리렌더링용
     // Python으로 치면: self.history_version = 0
     historyVersion: 0,
+
+    // 저장 상태 — 저장 버튼 UI 표시용
+    // 'saved': 서버와 동기화됨 | 'saving': 저장 중 | 'unsaved': 미저장 변경사항 있음
+    // Python으로 치면: self.save_status = 'saved'
+    saveStatus: 'saved' as 'saved' | 'saving' | 'unsaved',
 
     // 최근 파일 목록 — localStorage에서 복원 (서버 사이드에선 빈 배열)
     // Python으로 치면: self.recent_page_ids = json.load(local_storage) or []
@@ -329,6 +64,27 @@ export const usePageStore = create<PageStore>()(
       } catch { return [] }
     })(),
 
+
+    // -----------------------------------------------
+    // 볼트 전환 시 전체 상태 초기화
+    // Python으로 치면: def reset_store(self): self.pages = []; self.categories = []; ...
+    // -----------------------------------------------
+    resetStore: () => {
+      set((state) => {
+        state.pages = []
+        state.currentPageId = null
+        state.openTabs = []
+        state.categories = []
+        state.categoryMap = {}
+        state.categoryOrder = []
+        state.categoryChildOrder = {}
+        state.currentCategoryId = null
+        state.trashedItems = []
+        state.activeTagFilter = null
+        state.currentVaultName = ''
+        state.selectedBlockIds = []
+      })
+    },
 
     // -----------------------------------------------
     // 서버에서 페이지+카테고리 목록 불러오기
@@ -342,12 +98,19 @@ export const usePageStore = create<PageStore>()(
       try {
         const data = await api.getPages()
 
-        // 서버에 페이지가 없으면 (첫 실행) 초기 페이지를 서버에 저장
+        // 서버에 페이지가 없으면 (첫 실행 또는 빈 볼트) 새 페이지를 생성해 저장
+        // pages[] 초기값이 []이므로 항상 createPage('새 페이지') 사용
+        // Python으로 치면: if not pages: page = Page.create('새 페이지'); api.save(page)
         if (data.pages.length === 0) {
-          const initialPage = get().pages[0]
+          const initialPage = createPage('새 페이지')
           await api.savePage(initialPage.id, initialPage)
           await api.setCurrentPage(initialPage.id)
-          set((state) => { state.currentPageId = initialPage.id })
+          set((state) => {
+            if (!state.pages.find(p => p.id === initialPage.id)) {
+              state.pages = [initialPage]
+            }
+            state.currentPageId = initialPage.id
+          })
           return
         }
 
@@ -364,22 +127,28 @@ export const usePageStore = create<PageStore>()(
           state.categoryMap = data.categoryMap ?? {}
           state.categoryOrder = data.categoryOrder ?? []
           state.categoryChildOrder = data.categoryChildOrder ?? {}
+          // 현재 볼트 이름 저장 (사이드바 표시용)
+          if (data.vault_name) state.currentVaultName = data.vault_name
         })
 
         // ── 주기적 노트 전용 카테고리 자동 생성 ──────────────────
-        // 일간/주간 노트를 보관할 카테고리가 없으면 최초 1회 자동 생성
-        // Python으로 치면: for name in ['📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트']: create_if_not_exists(name)
-        const periodicCatNames = ['📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트']
-        for (const catName of periodicCatNames) {
-          if (!get().categories.find(c => c.name === catName)) {
-            try {
-              const newCat = await api.createCategory(catName)
-              set((state) => {
-                state.categories.push(newCat)
-                state.categoryOrder.push(newCat.id)
-              })
-            } catch {
-              // 카테고리 생성 실패는 조용히 무시 (서버 오프라인 등)
+        // periodicNotes 플러그인이 활성화된 경우에만 생성
+        // 비활성 시 또는 사용자가 삭제한 경우 재생성하지 않음
+        // Python으로 치면: if settings.plugins.periodic_notes: create_if_not_exists(...)
+        const isPeriodicEnabled = useSettingsStore.getState().plugins.periodicNotes
+        if (isPeriodicEnabled) {
+          const periodicCatNames = ['📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트']
+          for (const catName of periodicCatNames) {
+            if (!get().categories.find(c => c.name === catName)) {
+              try {
+                const newCat = await api.createCategory(catName)
+                set((state) => {
+                  state.categories.push(newCat)
+                  state.categoryOrder.push(newCat.id)
+                })
+              } catch {
+                // 카테고리 생성 실패는 조용히 무시 (서버 오프라인 등)
+              }
             }
           }
         }
@@ -696,6 +465,12 @@ export const usePageStore = create<PageStore>()(
         if (catId !== undefined) state.categoryMap[newId] = catId
       })
       scheduleSave(newId, get, set)
+      // 카테고리가 있으면 서버의 folderMap에도 등록 (재시작 후 올바른 폴더에 위치)
+      // Python으로 치면: if cat_id: await api.move_page_to_category(new_id, cat_id)
+      const catId = get().categoryMap[pageId]
+      if (catId) {
+        api.movePageToCategory(newId, catId).catch(() => {})
+      }
     },
 
 
@@ -848,6 +623,10 @@ export const usePageStore = create<PageStore>()(
       scheduleSave(pageId, get, set)
     },
 
+    // 이미지/비디오 업로드 완료 후 디바운스 없이 즉시 서버 저장
+    // Python으로 치면: async def save_page_now(page_id): await api.save(page_id)
+    savePageNow: (pageId) => saveNow(pageId, get, set),
+
     updateBlockType: (pageId, blockId, type) => {
       const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
       if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
@@ -869,6 +648,83 @@ export const usePageStore = create<PageStore>()(
         if (!page) return
         page.blocks = page.blocks.filter(b => b.id !== blockId)
         if (page.blocks.length === 0) page.blocks.push(createBlock('paragraph'))
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // ── 블록 일괄 선택 액션 ──────────────────────────
+    // 단일 블록 선택/해제 토글
+    // Python으로 치면: def toggle_block_selection(self, block_id): ...
+    toggleBlockSelection: (blockId) => {
+      set((state) => {
+        const idx = state.selectedBlockIds.indexOf(blockId)
+        if (idx === -1) state.selectedBlockIds.push(blockId)
+        else state.selectedBlockIds.splice(idx, 1)
+      })
+    },
+
+    // Shift+클릭 — 페이지 블록 순서 기준 anchorId~targetId 범위 선택
+    // Python으로 치면: def select_block_range(self, page_id, anchor_id, target_id): ...
+    selectBlockRange: (pageId, anchorId, targetId) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const ids = page.blocks.map(b => b.id)
+        const a = ids.indexOf(anchorId)
+        const b = ids.indexOf(targetId)
+        if (a === -1 || b === -1) return
+        const [from, to] = a <= b ? [a, b] : [b, a]
+        state.selectedBlockIds = ids.slice(from, to + 1)
+      })
+    },
+
+    // 선택 전체 해제
+    // Python으로 치면: def clear_block_selection(self): self.selected_block_ids = []
+    clearBlockSelection: () => {
+      set((state) => { state.selectedBlockIds = [] })
+    },
+
+    // 선택된 블록 일괄 삭제 — undo/redo 히스토리에 포함
+    // Python으로 치면: def delete_selected_blocks(self, page_id): ...
+    deleteSelectedBlocks: (pageId) => {
+      const { selectedBlockIds } = get()
+      if (selectedBlockIds.length === 0) return
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const toDelete = new Set(state.selectedBlockIds)
+        page.blocks = page.blocks.filter(b => !toDelete.has(b.id))
+        if (page.blocks.length === 0) page.blocks.push(createBlock('paragraph'))
+        state.selectedBlockIds = []
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // 선택된 블록 일괄 복제 — 각 블록 바로 뒤에 복사본 삽입 (undo 가능)
+    // Python으로 치면: def duplicate_selected_blocks(self, page_id): ...
+    duplicateSelectedBlocks: (pageId) => {
+      const { selectedBlockIds } = get()
+      if (selectedBlockIds.length === 0) return
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const toClone = new Set(state.selectedBlockIds)
+        const newBlocks: string[] = []
+        const now = new Date().toISOString()
+        // 블록 순서를 유지하며 각 선택 블록 바로 뒤에 복제본 삽입
+        page.blocks = page.blocks.flatMap(b => {
+          if (!toClone.has(b.id)) return [b]
+          const clone: Block = { ...b, id: crypto.randomUUID(), createdAt: now, updatedAt: now }
+          newBlocks.push(clone.id)
+          return [b, clone]
+        })
+        state.selectedBlockIds = newBlocks
         state.historyVersion++
       })
       scheduleSave(pageId, get, set)
@@ -1289,28 +1145,44 @@ export const usePageStore = create<PageStore>()(
 
     // 휴지통 목록 로드
     loadTrash: async () => {
-      const data = await api.getTrash()
-      set({ trashedItems: data.items })
+      try {
+        const data = await api.getTrash()
+        set({ trashedItems: data.items })
+      } catch {
+        toast.error('휴지통 로드에 실패했습니다.')
+      }
     },
 
     // 항목 복원 → 서버에서 복원 후 로컬 상태 갱신
     restoreFromTrash: async (itemId) => {
-      await api.restoreTrashItem(itemId)
-      // 복원 후 전체 데이터 새로고침 (페이지/카테고리 목록 변경됨)
-      await get().loadFromServer()
-      await get().loadTrash()
+      try {
+        await api.restoreTrashItem(itemId)
+        // 복원 후 전체 데이터 새로고침 (페이지/카테고리 목록 변경됨)
+        await get().loadFromServer()
+        await get().loadTrash()
+      } catch {
+        toast.error('복원에 실패했습니다.')
+      }
     },
 
     // 영구 삭제
     permanentDelete: async (itemId) => {
-      await api.permanentDeleteTrashItem(itemId)
-      await get().loadTrash()
+      try {
+        await api.permanentDeleteTrashItem(itemId)
+        await get().loadTrash()
+      } catch {
+        toast.error('영구 삭제에 실패했습니다.')
+      }
     },
 
     // 전체 비우기
     emptyTrash: async () => {
-      await api.emptyTrash()
-      set({ trashedItems: [] })
+      try {
+        await api.emptyTrash()
+        set({ trashedItems: [] })
+      } catch {
+        toast.error('휴지통 비우기에 실패했습니다.')
+      }
     },
 
   }))

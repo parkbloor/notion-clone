@@ -245,6 +245,17 @@ function getPluginList(t: ReturnType<typeof useLocale>): PluginMeta[] {
       fullDesc: p.globalAiChat.fullDesc,
       available: true,
     },
+    {
+      id: 'math',
+      icon: '∑',
+      name: p.math.name,
+      author: sp.authorBuiltin,
+      version: '1.0.0',
+      tags: p.math.tags,
+      desc: p.math.desc,
+      fullDesc: p.math.fullDesc,
+      available: true,
+    },
   ]
 }
 

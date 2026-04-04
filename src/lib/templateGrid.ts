@@ -164,8 +164,9 @@ export function gridCellsToBlocks(cells: TemplateCell[], gridCols = 12): Block[]
   const result: Block[] = []
 
   for (const group of rowGroups) {
-    if (group.length === 1 && group[0].gridW === gridCols) {
-      // 단독 전체 너비 → 일반 블록
+    if (group.length === 1) {
+      // 단독 셀 — 전체 너비 여부와 관계없이 일반 블록으로 변환
+      // 그리드 width 정보는 LayoutBlock이 아닌 단독 블록에는 적용 불가하므로 width 무시
       result.push(cellToBlock(group[0]))
     } else if (group.length >= 2 && group.length <= 3) {
       // 2~3칸 나란히 → LayoutBlock
@@ -191,7 +192,7 @@ export function gridCellsToBlocks(cells: TemplateCell[], gridCols = 12): Block[]
       })
       result.push(layoutBlock)
     } else {
-      // 4개 이상이거나 혼자지만 전체 너비가 아닌 경우 → 첫 번째만 일반 블록으로 처리
+      // 4개 이상 → 각각 일반 블록으로 변환
       // (에디터에서 최대 3개 제한으로 사실상 발생하지 않음)
       for (const cell of group) {
         result.push(cellToBlock(cell))

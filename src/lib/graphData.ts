@@ -60,7 +60,8 @@ function extractLinkedPageIds(content: string): string[] {
 // -----------------------------------------------
 function flattenBlockContent(blocks: Page['blocks']): string {
   return blocks.flatMap(b => [
-    b.content,
+    // content가 undefined/null이면 빈 문자열로 대체 — "undefined" 문자열이 UUID 검색에 끼어드는 것 방지
+    b.content ?? '',
     b.children?.length ? flattenBlockContent(b.children) : '',
   ]).join(' ')
 }

@@ -20,6 +20,7 @@
 | 파일 | 역할 |
 |------|------|
 | [src/store/pageStore.ts](src/store/pageStore.ts) | 페이지/카테고리 CRUD, 선택 상태, 탭, 드래그앤드롭 순서 |
+| [src/store/pageStoreHelpers.ts](src/store/pageStoreHelpers.ts) | pageStore 저장 디바운서 + 히스토리 유틸 (pageStore.ts에서 분리) |
 | [src/store/settingsStore.ts](src/store/settingsStore.ts) | 전역 설정 (폰트/테마/플러그인 ON·OFF), PluginSettings 키 관리 |
 | [src/store/findReplaceStore.ts](src/store/findReplaceStore.ts) | 찾기/바꾸기 패널 열림 상태 + 검색어 공유 |
 | [src/store/arrowStore.ts](src/store/arrowStore.ts) | 캔버스 블록 간 SVG 화살표 연결 상태 |
@@ -31,6 +32,7 @@
 | 파일 | 역할 |
 |------|------|
 | [src/types/block.ts](src/types/block.ts) | Block, Page, Category, Property 등 전체 도메인 타입 정의 |
+| [src/types/pageStore.ts](src/types/pageStore.ts) | PageStore 인터페이스 정의 (pageStore.ts에서 분리) |
 
 ---
 
@@ -43,6 +45,7 @@
 | [src/extensions/SearchHighlight.ts](src/extensions/SearchHighlight.ts) | ProseMirror 검색 하이라이트 데코레이션 확장 |
 | [src/extensions/FootnoteInline.ts](src/extensions/FootnoteInline.ts) | 각주 인라인 노드 확장 |
 | [src/extensions/ArrowMark.ts](src/extensions/ArrowMark.ts) | 캔버스 화살표 연결용 마크 확장 |
+| [src/extensions/editorExtensions.ts](src/extensions/editorExtensions.ts) | Tiptap 에디터 확장 배열 조립 — Editor.tsx의 useEditor에 전달 |
 
 ---
 
@@ -80,6 +83,10 @@
 | 파일 | 역할 |
 |------|------|
 | [src/components/editor/CategorySidebar.tsx](src/components/editor/CategorySidebar.tsx) | 좌측 통합 사이드바. 폴더 트리 + 페이지 목록 + 검색 + 캘린더 + 최근파일 |
+| [src/components/sidebar/CategoryRow.tsx](src/components/sidebar/CategoryRow.tsx) | 사이드바 카테고리(폴더) 행 컴포넌트 |
+| [src/components/sidebar/DraggablePageRow.tsx](src/components/sidebar/DraggablePageRow.tsx) | dnd-kit 드래그 가능한 페이지 행 컴포넌트 |
+| [src/components/sidebar/PageInlineMenu.tsx](src/components/sidebar/PageInlineMenu.tsx) | 페이지 행 우측 인라인 액션 메뉴 |
+| [src/components/sidebar/sidebarUtils.ts](src/components/sidebar/sidebarUtils.ts) | 사이드바 공통 유틸 함수 |
 | [src/components/editor/TabBar.tsx](src/components/editor/TabBar.tsx) | 상단 탭 바 (여러 페이지 동시 열기) |
 | [src/components/editor/CommandPalette.tsx](src/components/editor/CommandPalette.tsx) | Ctrl+P 퍼지검색 팔레트 (페이지 이동 + 빠른 액션) |
 | [src/components/editor/GlobalSearch.tsx](src/components/editor/GlobalSearch.tsx) | 전체 텍스트 검색 오버레이 |
@@ -158,7 +165,16 @@
 
 ---
 
-## 11. 위젯 / 플로팅 UI → [상세 문서](docs/11_Widgets.md)
+## 11. 커스텀 훅 (Hooks)
+
+| 파일 | 역할 |
+|------|------|
+| [src/hooks/useEditorLatex.ts](src/hooks/useEditorLatex.ts) | 에디터 내 KaTeX 수식 입력 처리 훅 |
+| [src/hooks/useEditorMention.ts](src/hooks/useEditorMention.ts) | 에디터 내 @멘션 자동완성 처리 훅 |
+
+---
+
+## 12. 위젯 / 플로팅 UI → [상세 문서](docs/12_Widgets.md)
 
 | 파일 | 역할 |
 |------|------|
@@ -169,7 +185,7 @@
 
 ---
 
-## 12. 설정 모달 (Settings) → [상세 문서](docs/12_Settings.md)
+## 13. 설정 모달 (Settings) → [상세 문서](docs/13_Settings.md)
 
 | 파일 | 역할 |
 |------|------|
@@ -180,12 +196,13 @@
 | [src/components/settings/tabs/AITab.tsx](src/components/settings/tabs/AITab.tsx) | AI 설정 (공급자/모델/API 키) |
 | [src/components/settings/tabs/DataTab.tsx](src/components/settings/tabs/DataTab.tsx) | 데이터 관리 (내보내기/가져오기) |
 | [src/components/settings/tabs/StorageTab.tsx](src/components/settings/tabs/StorageTab.tsx) | Vault 경로 설정 |
+| [src/components/settings/tabs/CloudSyncTab.tsx](src/components/settings/tabs/CloudSyncTab.tsx) | 클라우드 동기화 설정 (Google Drive / OneDrive OAuth 연동) |
 | [src/components/settings/tabs/TemplatesTab.tsx](src/components/settings/tabs/TemplatesTab.tsx) | 사용자 정의 템플릿 관리 |
 | [src/components/settings/tabs/DebugTab.tsx](src/components/settings/tabs/DebugTab.tsx) | 디버그 로그 뷰어 |
 
 ---
 
-## 13. 공통 UI 컴포넌트
+## 14. 공통 UI 컴포넌트
 
 | 파일 | 역할 |
 |------|------|
@@ -196,7 +213,7 @@
 
 ---
 
-## 14. 백엔드 (Python FastAPI) → [상세 문서](docs/13_Backend.md)
+## 15. 백엔드 (Python FastAPI) → [상세 문서](docs/15_Backend.md)
 
 | 파일 | 역할 |
 |------|------|
@@ -211,12 +228,13 @@
 | [backend/routers/ai.py](backend/routers/ai.py) | AI 프록시 라우터 (OpenAI/Claude/Ollama, SSE 스트리밍) |
 | [backend/routers/templates.py](backend/routers/templates.py) | 기본 템플릿 5종 시드 |
 | [backend/routers/system.py](backend/routers/system.py) | Vault 경로 조회·변경, 디버그 로그 |
+| [backend/routers/cloud_sync.py](backend/routers/cloud_sync.py) | Google Drive / OneDrive OAuth 2.0 + vault 전체 업로드/다운로드 |
 | [backend/requirements.txt](backend/requirements.txt) | Python 의존성 목록 |
 | [backend/backend.spec](backend/backend.spec) | PyInstaller 빌드 스펙 (hiddenimports 포함) |
 
 ---
 
-## 15. Electron (데스크탑 패키징) → [상세 문서](docs/14_Electron.md)
+## 16. Electron (데스크탑 패키징) → [상세 문서](docs/16_Electron.md)
 
 | 파일 | 역할 |
 |------|------|
@@ -226,7 +244,7 @@
 
 ---
 
-## 16. 빌드 스크립트
+## 17. 빌드 스크립트
 
 | 파일 | 역할 |
 |------|------|
@@ -236,7 +254,7 @@
 
 ---
 
-## 17. 루트 설정 파일
+## 18. 루트 설정 파일
 
 | 파일 | 역할 |
 |------|------|

@@ -11,22 +11,27 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from backend.core import (
-    VAULT_DIR,
+    get_vault_dir,
     CategoryReorderBody,
     CreateCategoryBody,
     MoveFolderBody,
     RenameCategoryBody,
     UpdateCategoryColorBody,
     assert_inside_vault,
+    get_cat_dir,
     get_folder_name,
+    get_trash_dir,
     load_index,
     load_page,
+    load_trash_index,
     now_iso,
     replace_image_urls_in_page,
     resolve_content_file,
+    resolve_trash_name,
     sanitize_category_name,
     save_index,
     save_page_to_disk,
+    save_trash_index,
     validate_uuid,
 )
 
@@ -85,7 +90,7 @@ def create_category(body: CreateCategoryBody):
         counter += 1
 
     # 🔒 vault 탈출 방지
-    cat_dir = VAULT_DIR / folder_name
+    cat_dir = get_vault_dir() / folder_name
     assert_inside_vault(cat_dir)
     cat_dir.mkdir(exist_ok=True)
 
@@ -143,8 +148,8 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
     renamed = old_folder != new_folder
 
     if renamed:
-        old_path = VAULT_DIR / old_folder
-        new_path = VAULT_DIR / new_folder
+        old_path = get_vault_dir() / old_folder
+        new_path = get_vault_dir() / new_folder
 
         # 🔒 vault 탈출 방지
         assert_inside_vault(old_path)
@@ -159,15 +164,15 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
             if cid != cat_id:
                 continue
             page_folder = get_folder_name(page_id, index)
-            content_file = resolve_content_file(VAULT_DIR / new_folder / page_folder)
+            content_file = resolve_content_file(get_vault_dir() / new_folder / page_folder)
             if not content_file.exists():
                 continue
             page_data = json.loads(content_file.read_text(encoding="utf-8"))
-            old_prefix = f"http://localhost:8000/static/{old_folder}/{page_folder}/"
-            new_prefix = f"http://localhost:8000/static/{new_folder}/{page_folder}/"
+            old_prefix = f"http://127.0.0.1:8000/static/{old_folder}/{page_folder}/"
+            new_prefix = f"http://127.0.0.1:8000/static/{new_folder}/{page_folder}/"
             replace_image_urls_in_page(page_data, old_prefix, new_prefix)
             # 항상 .nct로 저장 (구버전 .json은 save_page_to_disk가 정리)
-            save_page_to_disk(page_data, VAULT_DIR / new_folder / page_folder)
+            save_page_to_disk(page_data, get_vault_dir() / new_folder / page_folder)
 
         cat["folderName"] = new_folder
 
@@ -180,10 +185,10 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
 @router.delete("/categories/{cat_id}")
 def delete_category(cat_id: str):
     """
-    카테고리 소프트 삭제 → 휴지통으로 이동
-    하위 페이지 + 하위 폴더(재귀) 전체를 같은 trashGroupId로 묶어 휴지통 이동
-    물리 파일은 유지, 복원 가능
-    Python으로 치면: for item in [cat] + all_children: item.is_trashed = True
+    카테고리 삭제 → _vault_trash/ 폴더로 물리 이동
+    폴더 통째로 shutil.move — 하위 페이지/하위 폴더가 자동으로 함께 이동됨
+    _index.nct에서 완전 제거 (isTrashed 플래그 없음)
+    Python으로 치면: shutil.move(cat_dir, trash_dir); del index[cat]
     """
     import uuid as _uuid
     validate_uuid(cat_id, "카테고리 ID")
@@ -194,68 +199,104 @@ def delete_category(cat_id: str):
     if not cat:
         raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다")
 
-    if cat.get("isTrashed"):
+    # 이미 휴지통에 있는지 확인 (새 방식: _vault_trash/index.json 기준)
+    trash_entries = load_trash_index()
+    if any(e.get("id") == cat_id and e.get("type") == "category" for e in trash_entries):
         raise HTTPException(status_code=400, detail="이미 휴지통에 있는 폴더입니다")
-
-    # 그룹 ID: 이 폴더와 하위 항목을 하나로 묶어 함께 복원/삭제 가능하게 함
-    group_id = str(_uuid.uuid4())
-    trashed_at = now_iso()
 
     # ── BFS로 하위 카테고리 ID 전체 수집 ──────────────────
     # Python으로 치면: descendants = BFS(cat_id, child_order)
     child_order = index.get("categoryChildOrder", {})
-    all_cat_ids = []  # cat_id 포함 전체 (자기 자신도 포함)
+    all_cat_ids = []
     queue = [cat_id]
     while queue:
         cid = queue.pop()
         all_cat_ids.append(cid)
         queue.extend(child_order.get(cid, []))
-
-    # ── 해당 카테고리들에 속한 페이지 ID 수집 ──────────────
     cat_id_set = set(all_cat_ids)
+
+    # ── 해당 카테고리들에 속한 모든 페이지 ID + 메타 수집 ──
     cat_map = index.get("categoryMap", {})
+    folder_map = index.get("folderMap", {})
     page_ids_in_group = [pid for pid, cid in cat_map.items() if cid in cat_id_set]
 
-    # ── 페이지 소프트 삭제 ─────────────────────────────────
-    # index["pages"]는 휴지통 메타데이터용. 파일에서 title/icon을 읽어 추가/갱신
-    # Python으로 치면: for pid in page_ids: load_page(pid) → append to pages_list
-    now_iso_val = trashed_at
-    pages_list = index.setdefault("pages", [])
+    # ── children 배열 구성 (복원 시 _index.nct 재건에 사용) ─
+    # Python으로 치면: children = [page_meta, ...] + [subcat_meta, ...]
+    children = []
     for pid in page_ids_in_group:
         page_data = load_page(pid, index)
-        title = page_data.get("title", "제목 없음") if page_data else "제목 없음"
-        icon = page_data.get("icon", "📄") if page_data else "📄"
-        orig_cat = cat_map.get(pid)
-        existing_entry = next((p for p in pages_list if p["id"] == pid), None)
-        if existing_entry:
-            existing_entry.update({
-                "title": title, "icon": icon,
-                "isTrashed": True, "trashedAt": now_iso_val,
-                "originalCategoryId": orig_cat, "trashGroupId": group_id,
-            })
-        else:
-            pages_list.append({
-                "id": pid, "title": title, "icon": icon,
-                "isTrashed": True, "trashedAt": now_iso_val,
-                "originalCategoryId": orig_cat, "trashGroupId": group_id,
+        children.append({
+            "type":               "page",
+            "id":                 pid,
+            "title":              page_data.get("title", "제목 없음") if page_data else "제목 없음",
+            "icon":               page_data.get("icon", "📄") if page_data else "📄",
+            "folderName":         folder_map.get(pid, pid),
+            "originalCategoryId": cat_map.get(pid),
+        })
+
+    cat_by_id = {c["id"]: c for c in index.get("categories", [])}
+    for cid in all_cat_ids:
+        if cid == cat_id:
+            continue  # 대표 카테고리는 최상위 entry에 저장
+        c = cat_by_id.get(cid)
+        if c:
+            children.append({
+                "type":             "category",
+                "id":               cid,
+                "name":             c.get("name", ""),
+                "folderName":       c.get("folderName", ""),
+                "originalParentId": c.get("parentId"),
             })
 
-    # pageOrder / categoryMap에서 제거
+    # ── 카테고리 폴더 물리 이동 ────────────────────────────
+    # 부모 체인 포함한 전체 경로 계산 후 _vault_trash/ 로 이동
+    # Python으로 치면: shutil.move(cat_full_path, trash_dir / dst_name)
+    cat_dir = get_cat_dir(cat_id, index)
+    trash_dir = get_trash_dir()
+    folder_name = cat.get("folderName", "")
+    dst_name = resolve_trash_name(folder_name, trash_dir)
+
+    if cat_dir.exists():
+        assert_inside_vault(cat_dir)
+        shutil.move(str(cat_dir), str(trash_dir / dst_name))
+    else:
+        import logging
+        logging.getLogger(__name__).warning("카테고리 폴더 없음, 메타만 기록: %s", cat_dir)
+        dst_name = folder_name
+
+    # ── _vault_trash/index.json 업데이트 ─────────────────────
+    orig_parent_id = cat.get("parentId")
+    orig_parent_folder = None
+    if orig_parent_id:
+        parent_cat = cat_by_id.get(orig_parent_id)
+        if parent_cat:
+            orig_parent_folder = parent_cat.get("folderName")
+
+    trash_entries.append({
+        "id":                     cat_id,
+        "type":                   "category",
+        "groupId":                str(_uuid.uuid4()),
+        "trashedAt":              now_iso(),
+        "name":                   cat.get("name", ""),
+        "icon":                   cat.get("icon"),
+        "color":                  cat.get("color"),
+        "folderName":             folder_name,
+        "trashedFolderName":      dst_name,
+        "originalParentId":       orig_parent_id,
+        "originalParentFolderName": orig_parent_folder,
+        "children":               children,
+    })
+    save_trash_index(trash_entries)
+
+    # ── _index.nct에서 완전 제거 ─────────────────────────────
     page_id_set = set(page_ids_in_group)
+    index["pages"] = [p for p in index.get("pages", []) if p["id"] not in page_id_set]
     index["pageOrder"] = [pid for pid in index.get("pageOrder", []) if pid not in page_id_set]
     for pid in page_id_set:
+        folder_map.pop(pid, None)
         cat_map.pop(pid, None)
 
-    # ── 카테고리 소프트 삭제 ───────────────────────────────
-    for c in index.get("categories", []):
-        if c["id"] not in cat_id_set:
-            continue
-        c["isTrashed"] = True
-        c["trashedAt"] = trashed_at
-        c["originalParentId"] = c.get("parentId")
-        c["trashGroupId"] = group_id
-
-    # categoryOrder / categoryChildOrder에서 제거
+    index["categories"] = [c for c in index.get("categories", []) if c["id"] not in cat_id_set]
     index["categoryOrder"] = [cid for cid in index.get("categoryOrder", []) if cid not in cat_id_set]
     parent_id = cat.get("parentId")
     if parent_id and parent_id in child_order:
@@ -266,7 +307,7 @@ def delete_category(cat_id: str):
         child_order.pop(cid, None)
 
     save_index(index)
-    return {"ok": True, "groupId": group_id}
+    return {"ok": True}
 
 
 @router.patch("/categories/{cat_id}/move")

@@ -33,7 +33,9 @@ export const useFindReplaceStore = create<FindReplaceState>((set) => ({
   caseSensitive: false,
 
   open: (showReplace = false) => set({ isOpen: true, showReplace }),
-  close: () => set({ isOpen: false, query: '', replaceStr: '' }),
+  // 닫을 때 검색어·대소문자 구분 모두 초기화 (다음 번 열 때 깨끗한 상태로 시작)
+  // Python으로 치면: def close(self): self.is_open = False; self.query = ''; self.case_sensitive = False
+  close: () => set({ isOpen: false, query: '', replaceStr: '', caseSensitive: false }),
   setQuery: (query) => set({ query }),
   setReplaceStr: (replaceStr) => set({ replaceStr }),
   toggleCase: () => set(s => ({ caseSensitive: !s.caseSensitive })),

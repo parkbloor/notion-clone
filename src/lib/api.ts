@@ -57,6 +57,8 @@ export const api = {
     categoryOrder: string[]
     // 하위 폴더 순서: { parentCatId: [childCatId, ...] }
     categoryChildOrder: Record<string, string[]>
+    // 현재 볼트 폴더명 (사이드바 표시용)
+    vault_name?: string
   }> => {
     const res = await fetch(`${BASE_URL}/api/pages`)
     if (!res.ok) throw new Error('페이지 목록 불러오기 실패')
@@ -90,7 +92,12 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serializePage(page)),
     })
-    if (!res.ok) return null
+    // !res.ok 시 throw → scheduleSave의 catch 블록에서 toast 표시
+    // 기존: return null (조용한 실패 — 사용자가 저장 오류를 알 수 없음)
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      throw new Error(`저장 실패 (${res.status}): ${errText}`)
+    }
     const data = await res.json()
     // rename이 발생한 경우에만 업데이트된 page 반환
     if (!data.renamed || !data.page) return null
@@ -99,7 +106,8 @@ export const api = {
 
   // ── 페이지 삭제 ──────────────────────────────
   deletePage: async (pageId: string): Promise<void> => {
-    await fetch(`${BASE_URL}/api/pages/${pageId}`, { method: 'DELETE' })
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('페이지 삭제 실패')
   },
 
   // ── 현재 페이지 ID 저장 ──────────────────────
@@ -157,7 +165,10 @@ export const api = {
       throw new Error(body.detail ?? '파일 업로드 실패')
     }
     const data = await res.json()
-    const ext = ('.' + (data.original_name as string).split('.').pop()).toLowerCase()
+    // lastIndexOf로 마지막 점 위치 확인 — 확장자 없는 파일명(index <= 0)이면 빈 문자열
+    const originalName = data.original_name as string
+    const dotIdx = originalName.lastIndexOf('.')
+    const ext = dotIdx > 0 ? originalName.slice(dotIdx).toLowerCase() : ''
     return {
       url: data.url as string,
       name: data.original_name as string,
@@ -223,53 +234,58 @@ export const api = {
   // ── 최상위 카테고리 순서 변경 ────────────────
   // Python으로 치면: requests.patch(url, json={'order': order})
   reorderCategories: async (order: string[]): Promise<void> => {
-    await fetch(`${BASE_URL}/api/categories/reorder`, {
+    const res = await fetch(`${BASE_URL}/api/categories/reorder`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
     })
+    if (!res.ok) throw new Error('카테고리 순서 변경 실패')
   },
 
   // ── 하위 카테고리 순서 변경 ───────────────────
   // Python으로 치면: requests.patch(url, json={'order': order})
   reorderChildCategories: async (parentId: string, order: string[]): Promise<void> => {
-    await fetch(`${BASE_URL}/api/categories/${parentId}/reorder-children`, {
+    const res = await fetch(`${BASE_URL}/api/categories/${parentId}/reorder-children`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
     })
+    if (!res.ok) throw new Error('하위 카테고리 순서 변경 실패')
   },
 
   // ── 폴더를 다른 부모로 이동 ───────────────────
   // parentId=null이면 최상위로 이동, str이면 해당 폴더의 자식으로
   // Python으로 치면: requests.patch(url, json={'parentId': parent_id})
   moveCategoryToParent: async (categoryId: string, parentId: string | null): Promise<void> => {
-    await fetch(`${BASE_URL}/api/categories/${categoryId}/move`, {
+    const res = await fetch(`${BASE_URL}/api/categories/${categoryId}/move`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ parentId }),
     })
+    if (!res.ok) throw new Error('폴더 이동 실패')
   },
 
   // ── 폴더 색상 변경 ───────────────────────────
   // color=null이면 기본 색상으로 초기화
   // Python으로 치면: requests.patch(url, json={'color': color})
   updateCategoryColor: async (categoryId: string, color: string | null): Promise<void> => {
-    await fetch(`${BASE_URL}/api/categories/${categoryId}/color`, {
+    const res = await fetch(`${BASE_URL}/api/categories/${categoryId}/color`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ color }),
     })
+    if (!res.ok) throw new Error('폴더 색상 변경 실패')
   },
 
   // ── 페이지 순서 변경 ──────────────────────────
   // Python으로 치면: requests.patch(url, json={'order': order})
   reorderPages: async (order: string[]): Promise<void> => {
-    await fetch(`${BASE_URL}/api/pages/reorder`, {
+    const res = await fetch(`${BASE_URL}/api/pages/reorder`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ order }),
     })
+    if (!res.ok) throw new Error('페이지 순서 변경 실패')
   },
 
   // ── 전체 텍스트 검색 ──────────────────────────
@@ -291,15 +307,18 @@ export const api = {
   },
 
   restoreTrashItem: async (itemId: string): Promise<void> => {
-    await fetch(`${BASE_URL}/api/trash/${itemId}/restore`, { method: 'PATCH' })
+    const res = await fetch(`${BASE_URL}/api/trash/${itemId}/restore`, { method: 'PATCH' })
+    if (!res.ok) throw new Error('항목 복원 실패')
   },
 
   permanentDeleteTrashItem: async (itemId: string): Promise<void> => {
-    await fetch(`${BASE_URL}/api/trash/${itemId}`, { method: 'DELETE' })
+    const res = await fetch(`${BASE_URL}/api/trash/${itemId}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('영구 삭제 실패')
   },
 
   emptyTrash: async (): Promise<void> => {
-    await fetch(`${BASE_URL}/api/trash`, { method: 'DELETE' })
+    const res = await fetch(`${BASE_URL}/api/trash`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('휴지통 비우기 실패')
   },
 }
 
@@ -353,7 +372,8 @@ export const templateApi = {
   // 템플릿 삭제
   // Python으로 치면: requests.delete(url)
   delete: async (id: string): Promise<void> => {
-    await fetch(`${BASE_URL}/api/templates/${id}`, { method: 'DELETE' })
+    const res = await fetch(`${BASE_URL}/api/templates/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error('템플릿 삭제 실패')
   },
 }
 
@@ -396,7 +416,8 @@ export const historyApi = {
   get: async (pageId: string, filename: string): Promise<Page> => {
     const res = await fetch(`${BASE_URL}/api/pages/${pageId}/history/${encodeURIComponent(filename)}`)
     if (!res.ok) throw new Error('버전 데이터 조회 실패')
-    return await res.json() as Page
+    // parsePage 호출로 blocks ?? [] 정규화 (누락 시 blocks.map() TypeError 발생)
+    return parsePage(await res.json())
   },
 
   // 선택한 버전으로 복원

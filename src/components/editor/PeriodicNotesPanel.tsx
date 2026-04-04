@@ -274,6 +274,7 @@ export default function PeriodicNotesPanel() {
     addPage,
     updatePageIcon,
     setPageBlocks,
+    deletePage,
   } = usePageStore()
 
   // ── 오늘 기준 날짜 정보 ──────────────────────
@@ -484,13 +485,19 @@ export default function PeriodicNotesPanel() {
                     const datePart = note.title.replace('일간 노트 ', '').slice(5)
                     const isToday = note.title === `일간 노트 ${todayDateStr}`
                     return (
-                      <button key={note.id} type="button" onClick={() => setCurrentPage(note.id)}
-                        className={`w-full flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
-                      >
-                        <span className="text-blue-400">📅</span>
-                        <span className="flex-1 truncate">{datePart}</span>
-                        {isToday && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded">{t.overlay.periodic.todayBadge}</span>}
-                      </button>
+                      <div key={note.id} className="group flex items-center">
+                        <button type="button" onClick={() => setCurrentPage(note.id)}
+                          className={`flex-1 flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          <span className="text-blue-400">📅</span>
+                          <span className="flex-1 truncate">{datePart}</span>
+                          {isToday && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-blue-100 text-blue-600 rounded">{t.overlay.periodic.todayBadge}</span>}
+                        </button>
+                        <button type="button" onClick={() => deletePage(note.id)}
+                          className="opacity-0 group-hover:opacity-100 pr-2 text-gray-300 hover:text-red-400 transition-opacity text-xs"
+                          title="삭제"
+                        >✕</button>
+                      </div>
                     )
                   })
                 )}
@@ -519,13 +526,19 @@ export default function PeriodicNotesPanel() {
                     const weekPart = note.title.replace(`주간 노트 ${viewYear}-`, '')
                     const isThisWeek = note.title === `주간 노트 ${todayWeekStr}`
                     return (
-                      <button key={note.id} type="button" onClick={() => setCurrentPage(note.id)}
-                        className={`w-full flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:bg-gray-50'}`}
-                      >
-                        <span className="text-violet-400">📆</span>
-                        <span className="flex-1 truncate">{weekPart}</span>
-                        {isThisWeek && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-violet-100 text-violet-600 rounded">{t.overlay.periodic.thisWeekBadge}</span>}
-                      </button>
+                      <div key={note.id} className="group flex items-center">
+                        <button type="button" onClick={() => setCurrentPage(note.id)}
+                          className={`flex-1 flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-violet-50 text-violet-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          <span className="text-violet-400">📆</span>
+                          <span className="flex-1 truncate">{weekPart}</span>
+                          {isThisWeek && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-violet-100 text-violet-600 rounded">{t.overlay.periodic.thisWeekBadge}</span>}
+                        </button>
+                        <button type="button" onClick={() => deletePage(note.id)}
+                          className="opacity-0 group-hover:opacity-100 pr-2 text-gray-300 hover:text-red-400 transition-opacity text-xs"
+                          title="삭제"
+                        >✕</button>
+                      </div>
                     )
                   })
                 )}
@@ -554,13 +567,19 @@ export default function PeriodicNotesPanel() {
                     const monthPart = note.title.replace(`월간 노트 ${viewYear}-`, '') + '월'
                     const isThisMonth = note.title === `월간 노트 ${todayMonthStr}`
                     return (
-                      <button key={note.id} type="button" onClick={() => setCurrentPage(note.id)}
-                        className={`w-full flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}
-                      >
-                        <span className="text-emerald-400">🗓️</span>
-                        <span className="flex-1 truncate">{monthPart}</span>
-                        {isThisMonth && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-emerald-100 text-emerald-600 rounded">{t.overlay.periodic.thisMonthBadge}</span>}
-                      </button>
+                      <div key={note.id} className="group flex items-center">
+                        <button type="button" onClick={() => setCurrentPage(note.id)}
+                          className={`flex-1 flex items-center gap-1.5 px-3 py-1 text-xs text-left transition-colors ${currentPageId === note.id ? 'bg-emerald-50 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          <span className="text-emerald-400">🗓️</span>
+                          <span className="flex-1 truncate">{monthPart}</span>
+                          {isThisMonth && <span className="shrink-0 px-1 py-0.5 text-[10px] bg-emerald-100 text-emerald-600 rounded">{t.overlay.periodic.thisMonthBadge}</span>}
+                        </button>
+                        <button type="button" onClick={() => deletePage(note.id)}
+                          className="opacity-0 group-hover:opacity-100 pr-2 text-gray-300 hover:text-red-400 transition-opacity text-xs"
+                          title="삭제"
+                        >✕</button>
+                      </div>
                     )
                   })
                 )}
@@ -614,17 +633,24 @@ export default function PeriodicNotesPanel() {
                   const isCurrentQ = longViewYear === todayYear && q === todayCurQ
                   const qRanges = t.overlay.periodic.quarterRanges
                   return (
-                    <button
-                      key={q}
-                      type="button"
-                      onClick={() => handleOpenQuarterly(longViewYear, q)}
-                      className={`flex flex-col items-center py-2.5 rounded-lg border text-xs transition-colors ${isCurrentQ ? 'border-amber-300 bg-amber-50 text-amber-700 font-semibold' : note ? 'border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-dashed border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-500'}`}
-                    >
-                      <span className="font-bold">Q{q}</span>
-                      <span className="text-[10px] mt-0.5 opacity-70">{qRanges[q - 1]}</span>
-                      {note && <span className="text-[9px] mt-1 text-emerald-500">{t.overlay.periodic.noteExists}</span>}
-                      {!note && <span className="text-[9px] mt-1 opacity-50">{t.overlay.periodic.clickToCreate}</span>}
-                    </button>
+                    <div key={q} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenQuarterly(longViewYear, q)}
+                        className={`w-full flex flex-col items-center py-2.5 rounded-lg border text-xs transition-colors ${isCurrentQ ? 'border-amber-300 bg-amber-50 text-amber-700 font-semibold' : note ? 'border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100' : 'border-dashed border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-500'}`}
+                      >
+                        <span className="font-bold">Q{q}</span>
+                        <span className="text-[10px] mt-0.5 opacity-70">{qRanges[q - 1]}</span>
+                        {note && <span className="text-[9px] mt-1 text-emerald-500">{t.overlay.periodic.noteExists}</span>}
+                        {!note && <span className="text-[9px] mt-1 opacity-50">{t.overlay.periodic.clickToCreate}</span>}
+                      </button>
+                      {note && (
+                        <button type="button" onClick={() => deletePage(note.id)}
+                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 text-[10px] text-gray-300 hover:text-red-400 transition-opacity leading-none"
+                          title="삭제"
+                        >✕</button>
+                      )}
+                    </div>
                   )
                 })}
               </div>
@@ -650,15 +676,23 @@ export default function PeriodicNotesPanel() {
                   const note = pages.find(p => p.title === yTitle)
                   const isCurrentYear = longViewYear === todayYear
                   return (
-                    <button
-                      type="button"
-                      onClick={() => handleOpenYearly(longViewYear)}
-                      className={`w-full py-4 rounded-lg border text-sm font-medium transition-colors ${isCurrentYear ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100' : note ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100' : 'border-dashed border-gray-200 text-gray-400 hover:border-rose-300 hover:text-rose-500'}`}
-                    >
-                      <div className="text-2xl mb-1">🌟</div>
-                      <div>{t.overlay.periodic.yearlyNoteLabel.replace('{year}', String(longViewYear))}</div>
-                      <div className="text-xs mt-1 opacity-60">{note ? t.overlay.periodic.open : t.overlay.periodic.create}</div>
-                    </button>
+                    <div className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenYearly(longViewYear)}
+                        className={`w-full py-4 rounded-lg border text-sm font-medium transition-colors ${isCurrentYear ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100' : note ? 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100' : 'border-dashed border-gray-200 text-gray-400 hover:border-rose-300 hover:text-rose-500'}`}
+                      >
+                        <div className="text-2xl mb-1">🌟</div>
+                        <div>{t.overlay.periodic.yearlyNoteLabel.replace('{year}', String(longViewYear))}</div>
+                        <div className="text-xs mt-1 opacity-60">{note ? t.overlay.periodic.open : t.overlay.periodic.create}</div>
+                      </button>
+                      {note && (
+                        <button type="button" onClick={() => deletePage(note.id)}
+                          className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-xs text-gray-300 hover:text-red-400 transition-opacity"
+                          title="삭제"
+                        >✕</button>
+                      )}
+                    </div>
                   )
                 })()}
               </div>

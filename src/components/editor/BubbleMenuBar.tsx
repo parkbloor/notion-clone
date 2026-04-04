@@ -250,15 +250,16 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
 
   // -----------------------------------------------
   // 선택 복원 헬퍼 — 패널 안의 버튼 클릭 전 selection을 복원
+  // useCallback: editor가 바뀔 때만 재생성 → runAi 의존성 배열에 포함 가능
   // Python으로 치면: def restore_sel(): if saved and collapsed: editor.restore(saved)
   // -----------------------------------------------
-  const restoreSelection = () => {
+  const restoreSelection = useCallback(() => {
     const editorSel = editor.state.selection
     const saved = savedSelection.current
     if (editorSel.from === editorSel.to && saved && saved.from !== saved.to) {
       editor.commands.setTextSelection(saved)
     }
-  }
+  }, [editor])
 
 
   // -----------------------------------------------
@@ -407,7 +408,7 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
     } finally {
       setAiLoading(false)
     }
-  }, [editor, aiProvider, aiModel, aiApiKey, ollamaUrl])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor, aiProvider, aiModel, aiApiKey, ollamaUrl, restoreSelection])
 
   // 읽기 모드이거나 선택 없으면 숨김
   // Python으로 치면: if read_mode or not visible: return None

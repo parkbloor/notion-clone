@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore, applyTheme, applyEditorStyle, applyThemePreset } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
@@ -259,13 +259,29 @@ export default function Home() {
   } = usePageStore()
 
   // -----------------------------------------------
+  // Web Notification 알림 스케줄러용 reminder 목록 메모이제이션
+  // pages 전체 배열을 effect deps로 쓰면 매 저장마다 순회 발생 →
+  // reminder=true 인 date 속성만 추출해 문자열로 직렬화 후 비교
+  // Python으로 치면: reminder_keys = [(p.id, prop.id, prop.value) for p in pages for prop in p.properties if prop.reminder]
+  // -----------------------------------------------
+  const reminderKey = useMemo(() => {
+    if (pages.length === 0) return ''
+    return pages
+      .flatMap(p =>
+        (p.properties ?? [])
+          .filter(prop => prop.type === 'date' && prop.reminder && prop.value)
+          .map(prop => `${p.id}:${prop.id}:${prop.value}`)
+      )
+      .join('|')
+  }, [pages])
+
+  // -----------------------------------------------
   // Web Notification 알림 스케줄러
-  // pages 로드 완료 후 한 번 실행 — reminder=true인 date 속성을 오늘 날짜와 비교
+  // reminderKey 변경 시(=reminder 속성 추가/수정 시)만 실행 — 일반 편집 저장 시 불필요한 순회 방지
   // Python으로 치면: def schedule_reminders(self): ...
   // -----------------------------------------------
   useEffect(() => {
-    // pages가 비어있으면 아직 로딩 중이므로 건너뜀
-    if (pages.length === 0) return
+    if (!reminderKey) return
 
     // 브라우저 Notification API 지원 확인
     // Python으로 치면: if not hasattr(window, 'Notification'): return
@@ -307,7 +323,7 @@ export default function Home() {
       const arr = [...notified].slice(-500)
       localStorage.setItem('notion-clone-notified', JSON.stringify(arr))
     })
-  }, [pages]) // pages 변경 시마다 재검사 (앱 시작 후 로딩 완료 시점 포착)
+  }, [reminderKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
   // ISO 8601 주차 계산 헬퍼 (1월 첫째 목요일이 속한 주 = 1주)
@@ -324,9 +340,10 @@ export default function Home() {
   // -----------------------------------------------
   // 오늘의 일간 노트를 열거나 없으면 템플릿으로 생성
   // 제목 형식: "일간 노트 YYYY-MM-DD" / 아이콘: 📅
+  // useCallback: categories/pages가 바뀔 때 핸들러 갱신 (스테일 클로저 방지)
   // Python으로 치면: async def open_daily_note(self): ...
   // -----------------------------------------------
-  async function openDailyNote() {
+  const openDailyNote = useCallback(async () => {
     const today = new Date()
     const yy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, '0')
@@ -361,14 +378,14 @@ export default function Home() {
       { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.dailyMemo, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
-  }
+  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
   // 이번 주 주간 노트를 열거나 없으면 템플릿으로 생성
   // 제목 형식: "주간 노트 YYYY-WNN" / 아이콘: 📆
   // Python으로 치면: async def open_weekly_note(self): ...
   // -----------------------------------------------
-  async function openWeeklyNote() {
+  const openWeeklyNote = useCallback(async () => {
     const today = new Date()
     const yy = today.getFullYear()
     const ww = String(getISOWeek(today)).padStart(2, '0')
@@ -395,7 +412,7 @@ export default function Home() {
       { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.weeklyReview, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
-  }
+  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
   // Ctrl+Alt+D 단축키 → 오늘의 일간 노트 열기/생성 (Periodic Notes)
@@ -413,7 +430,7 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleDailyKey)
     return () => window.removeEventListener('keydown', handleDailyKey)
-  }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [plugins.periodicNotes, openDailyNote])
 
   // -----------------------------------------------
   // Ctrl+Alt+W 단축키 → 이번 주 주간 노트 열기/생성
@@ -431,14 +448,14 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleWeeklyKey)
     return () => window.removeEventListener('keydown', handleWeeklyKey)
-  }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [plugins.periodicNotes, openWeeklyNote])
 
   // -----------------------------------------------
   // 이번 달 월간 노트를 열거나 없으면 템플릿으로 생성
   // 제목 형식: "월간 노트 YYYY-MM" / 아이콘: 🗓️
   // Python으로 치면: async def open_monthly_note(self): ...
   // -----------------------------------------------
-  async function openMonthlyNote() {
+  const openMonthlyNote = useCallback(async () => {
     const today = new Date()
     const yy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, '0')
@@ -467,7 +484,7 @@ export default function Home() {
       { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.monthlyReview, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
-  }
+  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
   // Ctrl+Alt+M 단축키 → 이번 달 월간 노트 열기/생성
@@ -485,7 +502,7 @@ export default function Home() {
     }
     window.addEventListener('keydown', handleMonthlyKey)
     return () => window.removeEventListener('keydown', handleMonthlyKey)
-  }, [plugins.periodicNotes, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [plugins.periodicNotes, openMonthlyNote])
 
   // -----------------------------------------------
   // Ctrl+Shift+R → 읽기 모드 토글 (PageEditor에 CustomEvent 발행)
@@ -589,10 +606,11 @@ export default function Home() {
         setCurrentPage(session.currentPageId)
       }
 
-      // 스플릿 뷰 복원
+      // 스플릿 뷰 복원 — ?? 는 NaN을 통과시키므로 Number.isFinite로 명시 검사
+      // Python으로 치면: ratio = r if isinstance(r, float) and r == r else 0.5
       if (session.splitPageId && pageIds.has(session.splitPageId)) {
         setSplitPageId(session.splitPageId)
-        setSplitRatio(session.splitRatio ?? 0.5)
+        setSplitRatio(Number.isFinite(session.splitRatio) ? session.splitRatio : 0.5)
       }
     } catch {}
   }, [pages.length]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -719,9 +737,11 @@ export default function Home() {
     if (activeType === 'page' && overType === 'category') {
       // 페이지를 카테고리(또는 전체보기=null)로 이동
       const targetCategoryId = over.data.current?.categoryId as string | null
-      const pageId = active.data.current?.pageId as string
-      if (pageId !== undefined) {
-        movePageToCategory(pageId, targetCategoryId)
+      // pageId가 실제로 존재하는지 확인 (타입 단언 대신 런타임 검사)
+      // Python으로 치면: if page_id := active.data.get('pageId'): move(page_id, target)
+      const pageId = active.data.current?.pageId
+      if (pageId) {
+        movePageToCategory(pageId as string, targetCategoryId)
       }
     } else if (activeType === 'category' && overType === 'category' && active.id !== over.id) {
       // 드래그한 폴더와 드롭 대상 폴더의 parentId 비교
@@ -823,7 +843,7 @@ export default function Home() {
             flex-col: TabBar + 에디터 + BottomBar를 세로로 배치
             min-h-0: flex-col 자식이 넘치지 않도록 최소 높이 제한
             Python으로 치면: main_panel = VBox([tab_bar, scrollable_area, bottom_bar]) */}
-        <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0 dot-grid-bg">
+        <main className="flex-1 flex flex-col min-h-0 pt-14 md:pt-0 bg-[#fcf9f8] dark:bg-[#191919]">
           {/* ── 크롬 스타일 탭 바 ───────────────────
               집중 모드 시 숨김 / 탭 없으면 자동 미표시
               onSplit: 탭의 ⊞ 버튼 클릭 시 스플릿 뷰 활성화
@@ -845,7 +865,7 @@ export default function Home() {
             {/* split-left-panel: @media print에서 전체 너비로 강제 확장 */}
             <div
               className="overflow-y-auto min-w-0 split-left-panel"
-              style={{ flex: splitPageId ? `${splitRatio * 100} 1 0%` : '1 1 0%' }}
+              style={{ flexGrow: splitPageId ? splitRatio * 100 : 1, flexShrink: 1, flexBasis: '0%' }}
             >
               {dbViewActive ? (
                 <DatabaseView onClose={() => setDbViewActive(false)} />

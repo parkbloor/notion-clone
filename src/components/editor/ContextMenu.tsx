@@ -96,11 +96,16 @@ export default function ContextMenu({ x, y, sections, onClose }: ContextMenuProp
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onClose()
     }
+    // 창 크기 변경 시 메뉴 위치가 틀어지므로 닫기
+    // Python으로 치면: window.bind('<Configure>', lambda e: close())
+    function onResize() { onClose() }
     document.addEventListener('mousedown', onMouseDown)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onResize)
     return () => {
       document.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onResize)
     }
   }, [onClose])
 

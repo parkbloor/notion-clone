@@ -18,24 +18,29 @@ from backend.core import (
     MAX_VIDEO_SIZE,
     ALLOWED_FILE_EXTS,
     MAX_FILE_SIZE,
-    VAULT_DIR,
+    get_vault_dir,
     CreatePageBody,
     MoveCategoryBody,
     PageModel,
     PageReorderBody,
     assert_inside_vault,
+    auto_discover_new_folders,
     get_category_folder_name,
     get_folder_name,
     get_image_url_prefix,
     get_page_dir,
+    get_trash_dir,
     load_index,
     load_page,
+    load_trash_index,
     make_folder_name,
     now_iso,
     replace_image_urls_in_page,
     resolve_content_file,
+    resolve_trash_name,
     save_index,
     save_page_to_disk,
+    save_trash_index,
     validate_uuid,
 )
 
@@ -54,6 +59,10 @@ def get_pages():
     Python으로 치면: return [load_page(p) for p in index['pageOrder']]
     """
     index = load_index()
+    # 탐색기에서 볼트에 직접 추가된 새 폴더 자동 감지 (스캔 버튼 없이도 반영)
+    # Python으로 치면: if discover_new(index): save(index)
+    if auto_discover_new_folders(index, get_vault_dir()):
+        save_index(index)
     pages = []
     for page_id in index.get("pageOrder", []):
         page = load_page(page_id, index)
@@ -67,6 +76,8 @@ def get_pages():
         "categoryOrder": index.get("categoryOrder", []),
         # 하위 폴더 순서: { parentCatId: [childCatId, ...] }
         "categoryChildOrder": index.get("categoryChildOrder", {}),
+        # 현재 활성 볼트 이름 (폴더명) — 사이드바 표시용
+        "vault_name": get_vault_dir().name,
     }
 
 
@@ -130,9 +141,9 @@ def create_page(body: CreatePageBody):
     # Python으로 치면: dir = cat_dir / folder if cat else vault / folder
     cat_folder = get_category_folder_name(body.categoryId, index) if body.categoryId else None
     if cat_folder:
-        target_dir = VAULT_DIR / cat_folder / folder_name
+        target_dir = get_vault_dir() / cat_folder / folder_name
     else:
-        target_dir = VAULT_DIR / folder_name
+        target_dir = get_vault_dir() / folder_name
 
     # 🔒 vault 탈출 방지
     assert_inside_vault(target_dir)
@@ -185,11 +196,11 @@ def save_page(page_id: str, page: PageModel):
     if old_folder != new_folder:
         # 카테고리 유무에 따라 올바른 경로 계산
         if cat_folder:
-            old_path = VAULT_DIR / cat_folder / old_folder
-            new_path = VAULT_DIR / cat_folder / new_folder
+            old_path = get_vault_dir() / cat_folder / old_folder
+            new_path = get_vault_dir() / cat_folder / new_folder
         else:
-            old_path = VAULT_DIR / old_folder
-            new_path = VAULT_DIR / new_folder
+            old_path = get_vault_dir() / old_folder
+            new_path = get_vault_dir() / new_folder
 
         # 🔒 vault 탈출 방지
         assert_inside_vault(old_path)
@@ -210,9 +221,9 @@ def save_page(page_id: str, page: PageModel):
 
     # content.json 저장
     if cat_folder:
-        target_dir = VAULT_DIR / cat_folder / new_folder
+        target_dir = get_vault_dir() / cat_folder / new_folder
     else:
-        target_dir = VAULT_DIR / new_folder
+        target_dir = get_vault_dir() / new_folder
 
     # 🔒 vault 탈출 방지
     assert_inside_vault(target_dir)
@@ -239,17 +250,16 @@ def save_page(page_id: str, page: PageModel):
 @router.delete("/pages/{page_id}")
 def delete_page(page_id: str):
     """
-    페이지 소프트 삭제 → 휴지통으로 이동
-    물리 파일은 유지, isTrashed=True + trashedAt 기록
-    영구 삭제는 DELETE /api/trash/{id} 사용
-    Python으로 치면: page.is_trashed = True; page.trashed_at = now()
+    페이지 삭제 → _vault_trash/ 폴더로 물리 이동
+    isTrashed 플래그 방식 폐기: 파일을 _vault_trash/<folderName>/ 으로 실제 이동
+    _index.nct에서 완전 제거 (isTrashed 필드 없음)
+    Python으로 치면: shutil.move(src, trash_dir/dst_name); del index[page_id]
     """
     validate_uuid(page_id, "페이지 ID")
 
     index = load_index()
 
-    # pageOrder 또는 folderMap 기준으로 존재 여부 확인
-    # (index["pages"]는 휴지통 메타데이터용으로만 사용 — 일반 페이지는 여기 없음)
+    # 활성 페이지인지 확인
     # Python으로 치면: page_exists = page_id in page_order or page_id in folder_map
     page_exists = (
         page_id in index.get("pageOrder", []) or
@@ -257,45 +267,61 @@ def delete_page(page_id: str):
     )
     if not page_exists:
         # 이미 휴지통에 있는지 확인
-        existing_trash = next(
-            (p for p in index.get("pages", []) if p["id"] == page_id and p.get("isTrashed")),
-            None,
+        already_trashed = any(
+            e.get("id") == page_id and e.get("type") == "page"
+            for e in load_trash_index()
         )
-        if existing_trash:
+        if already_trashed:
             raise HTTPException(status_code=400, detail="이미 휴지통에 있는 페이지입니다")
         raise HTTPException(status_code=404, detail="페이지를 찾을 수 없습니다")
 
-    # 원래 카테고리 ID 저장 (복원 시 사용)
-    orig_cat = index.get("categoryMap", {}).get(page_id)
+    # 원래 카테고리 정보 수집 (복원 시 사용)
+    orig_cat_id = index.get("categoryMap", {}).get(page_id)
+    orig_cat_folder = get_category_folder_name(orig_cat_id, index)
 
     # 파일에서 title, icon 읽기 (TrashPanel 표시용)
-    # Python으로 치면: page_data = json.load(open(content_file))
     page_data = load_page(page_id, index)
     title = page_data.get("title", "제목 없음") if page_data else "제목 없음"
     icon = page_data.get("icon", "📄") if page_data else "📄"
+    folder_name = get_folder_name(page_id, index)
 
-    # index["pages"]에 휴지통 메타데이터 추가/갱신
-    # Python으로 치면: index['pages'].append({'id': ..., 'isTrashed': True, ...})
-    now = now_iso()
-    pages_list = index.setdefault("pages", [])
-    existing_entry = next((p for p in pages_list if p["id"] == page_id), None)
-    if existing_entry:
-        existing_entry.update({
-            "title": title, "icon": icon,
-            "isTrashed": True, "trashedAt": now,
-            "originalCategoryId": orig_cat, "trashGroupId": None,
-        })
+    # ── 물리 파일 이동 ──────────────────────────────────────
+    # Python으로 치면: shutil.move(src, trash_dir / dst_name)
+    src_path = get_page_dir(page_id, index)
+    trash_dir = get_trash_dir()
+    dst_name = resolve_trash_name(folder_name, trash_dir)
+
+    if src_path.exists():
+        assert_inside_vault(src_path)
+        shutil.move(str(src_path), str(trash_dir / dst_name))
     else:
-        pages_list.append({
-            "id": page_id, "title": title, "icon": icon,
-            "isTrashed": True, "trashedAt": now,
-            "originalCategoryId": orig_cat, "trashGroupId": None,
-        })
+        # 물리 파일이 없어도 메타 기록은 유지
+        import logging
+        logging.getLogger(__name__).warning("페이지 폴더 없음, 메타만 기록: %s", src_path)
+        dst_name = folder_name
 
-    # pageOrder에서 제거 (사이드바에 안 보이도록)
+    # ── _vault_trash/index.json 업데이트 ────────────────────
+    trash_entries = load_trash_index()
+    trash_entries.append({
+        "id":                       page_id,
+        "type":                     "page",
+        "groupId":                  None,
+        "trashedAt":                now_iso(),
+        "title":                    title,
+        "icon":                     icon,
+        "folderName":               folder_name,
+        "trashedFolderName":        dst_name,
+        "originalCategoryId":       orig_cat_id,
+        "originalCategoryFolderName": orig_cat_folder,
+    })
+    save_trash_index(trash_entries)
+
+    # ── _index.nct에서 완전 제거 (isTrashed 플래그 없이 깔끔하게) ──
     index["pageOrder"] = [pid for pid in index.get("pageOrder", []) if pid != page_id]
-    # categoryMap에서 제거
+    index.get("folderMap", {}).pop(page_id, None)
     index.get("categoryMap", {}).pop(page_id, None)
+    # 레거시 isTrashed 잔존 항목도 정리
+    index["pages"] = [p for p in index.get("pages", []) if p["id"] != page_id]
 
     if index.get("currentPageId") == page_id:
         remaining = index.get("pageOrder", [])
@@ -373,8 +399,8 @@ def move_page_to_category(page_id: str, body: MoveCategoryBody):
     new_cat_folder = get_category_folder_name(new_cat_id, index)
 
     # 실제 폴더 이동
-    old_path = VAULT_DIR / old_cat_folder / page_folder if old_cat_folder else VAULT_DIR / page_folder
-    new_path = VAULT_DIR / new_cat_folder / page_folder if new_cat_folder else VAULT_DIR / page_folder
+    old_path = get_vault_dir() / old_cat_folder / page_folder if old_cat_folder else get_vault_dir() / page_folder
+    new_path = get_vault_dir() / new_cat_folder / page_folder if new_cat_folder else get_vault_dir() / page_folder
 
     # 🔒 vault 탈출 방지
     assert_inside_vault(old_path)
@@ -382,7 +408,7 @@ def move_page_to_category(page_id: str, body: MoveCategoryBody):
 
     if new_cat_folder:
         # 대상 카테고리 폴더가 없으면 생성
-        (VAULT_DIR / new_cat_folder).mkdir(exist_ok=True)
+        (get_vault_dir() / new_cat_folder).mkdir(exist_ok=True)
 
     if old_path.exists():
         shutil.move(str(old_path), str(new_path))

@@ -174,8 +174,9 @@ html.dark .tiptap h1 { color: #f3f4f6; border-left-color: #60a5fa; }
 html.dark .tiptap h2 { color: #e5e7eb; border-left-color: #a5b4fc; }
 html.dark .tiptap h3 { color: #d1d5db; border-left-color: #ddd6fe; }
 html.dark .tiptap h4 { color: #9ca3af; }
-html.dark .tiptap h5 { color: #6b7280; }
-html.dark .tiptap h6 { color: #4b5563; }
+/* H5/H6: 라이트 모드 값(#6b7280, #4b5563)은 다크 배경에서 대비 부족 → 밝은 값으로 보정 */
+html.dark .tiptap h5 { color: #9ca3af; }
+html.dark .tiptap h6 { color: #6b7280; }
 
 /* -----------------------------------------------
    목록 스타일
@@ -441,6 +442,12 @@ html.dark .tiptap a[href^="#block-"]:hover {
   background-color: #fef08a;
   border-radius: 0.2rem;
   padding: 0.1rem 0;
+}
+
+/* 다크 모드 형광펜: 노란 배경 + 흰 글자 대비 부족 → 진한 배경 + 어두운 글자 */
+html.dark .tiptap mark {
+  background-color: #854d0e;
+  color: #fef9c3;
 }
 
 /* -----------------------------------------------

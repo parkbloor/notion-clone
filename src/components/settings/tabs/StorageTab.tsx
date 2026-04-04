@@ -1,264 +1,422 @@
-// =============================================
-// src/components/settings/tabs/StorageTab.tsx
-// 역할: 저장 위치 탭 — vault 경로 표시 + 사용자 지정 변경
-// Python으로 치면: class StorageSettings(SettingsTab): def render_vault_info(): ...
-// =============================================
-
 'use client'
+// ==============================================
+// StorageTab.tsx
+// 역할: 멀티 볼트 관리 UI
+//   - vaults_root 하위 폴더 자동 스캔 (설정 탭 열릴 때마다)
+//   - 볼트 목록 표시 + 전환 (재시작 없이 즉시)
+//   - 탐색기에서 만든 폴더도 자동 인식
+//   - 고급: 데이터 복사 포함 경로 변경
+// Python으로 치면: class StorageSettingsView(QWidget): ...
+// ==============================================
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
 
-const BASE_URL = 'http://localhost:8000'
+// Windows에서 localhost가 IPv6(::1)로 해석되는 문제 방지 — api.ts와 동일하게 127.0.0.1 사용
+const BASE_URL = 'http://127.0.0.1:8000'
 
-// vault 정보 응답 타입
-// Python으로 치면: @dataclass class VaultInfo: vault_path: str; total_pages: int; ...
+// 볼트 정보 타입
+// Python으로 치면: @dataclass class VaultInfo: name, path, page_count, initialized, is_current
+interface VaultEntry {
+  name: string
+  path: string
+  page_count: number
+  initialized: boolean
+  is_current: boolean
+}
+
 interface VaultInfo {
-  vault_path: string
+  vaults_root: string
+  current_vault: string
+  current_vault_path: string
   total_pages: number
-  total_size_kb: number
   categories: number
+  total_size_kb: number
+  vaults: VaultEntry[]
 }
 
-// 경로 변경 결과 타입
-// Python으로 치면: @dataclass class ChangeResult: ok: bool; new_path: str; moved: bool; ...
-interface ChangeResult {
-  ok: boolean
-  new_path: string
-  moved: boolean
-  requires_restart: boolean
-}
-
-export default function StorageTab() {
-  // Python으로 치면: t = get_locale()
+export default function StorageTab({ onClose }: { onClose?: () => void }) {
   const t = useLocale()
+  const s = t.settings.storage
 
-  // vault 정보 상태
-  // Python으로 치면: self.vault_info = None
+  // 볼트 정보 상태
   const [info, setInfo] = useState<VaultInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
-  // 경로 변경 폼 상태
-  // Python으로 치면: self.new_path = ''; self.move_data = True
-  const [newPath, setNewPath] = useState('')
+  // 볼트 전환 상태
+  const [switching, setSwitching] = useState<string | null>(null)  // 전환 중인 볼트명
+  const [switchMsg, setSwitchMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
+
+  // vaults_root 변경 상태
+  const [rootInput, setRootInput] = useState('')
+  const [rootChanging, setRootChanging] = useState(false)
+  const [rootMsg, setRootMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
+
+  // 고급: 데이터 복사 포함 경로 변경
+  const [advPath, setAdvPath] = useState('')
   const [moveData, setMoveData] = useState(true)
-  const [changing, setChanging] = useState(false)
-  const [changeError, setChangeError] = useState('')
-  const [changeResult, setChangeResult] = useState<ChangeResult | null>(null)
+  const [advChanging, setAdvChanging] = useState(false)
+  const [advMsg, setAdvMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
 
-  // 컴포넌트 마운트 시 vault 정보 조회
-  // Python으로 치면: def on_mount(self): self.vault_info = fetch_vault_info()
-  useEffect(() => {
-    fetch(`${BASE_URL}/api/settings/vault-path`)
-      .then(r => r.json())
-      .then(data => {
-        setInfo(data)
-        setLoading(false)
-      })
-      .catch(() => {
-        setError(true)
-        setLoading(false)
-      })
-  }, [])
+  const { resetStore, loadFromServer } = usePageStore()
 
-  // 경로를 클립보드에 복사
-  // Python으로 치면: def copy_to_clipboard(self, text): pyperclip.copy(text)
-  function copyPath() {
-    if (info?.vault_path) {
-      navigator.clipboard.writeText(info.vault_path)
-        .catch(() => {/* noop */})
-    }
-  }
-
-  // Windows 탐색기 폴더 선택 다이얼로그 호출
-  // Python으로 치면: async def browse(self): path = await api.get('/settings/browse-folder')
-  async function handleBrowse() {
+  // 볼트 정보 로드 — 설정 탭 열릴 때마다 실행 (탐색기 폴더 자동 인식)
+  // Python으로 치면: async def load_vault_info(self): self.info = await api.get('/vault-info')
+  const loadInfo = async () => {
+    setLoading(true)
+    setError(false)
     try {
-      const res = await fetch(`${BASE_URL}/api/settings/browse-folder`)
-      const data = await res.json()
-      if (data.path) {
-        setNewPath(data.path)
-        setChangeError('')
-      }
+      const res = await fetch(BASE_URL + '/api/settings/vault-info')
+      if (!res.ok) throw new Error()
+      const data: VaultInfo = await res.json()
+      setInfo(data)
+      setRootInput(data.vaults_root)
     } catch {
-      setChangeError(t.settings.storage.errorBrowse)
+      setError(true)
+    } finally {
+      setLoading(false)
     }
   }
 
-  // vault 경로 변경 요청
-  // Python으로 치면: async def handle_change_path(self): await api.post('/settings/vault-path', ...)
-  async function handleChangePath() {
-    if (!newPath.trim()) {
-      setChangeError(t.settings.storage.errorEmpty)
-      return
-    }
-    setChanging(true)
-    setChangeError('')
-    setChangeResult(null)
+  useEffect(() => { loadInfo() }, [])
+
+  // 볼트 전환 — 백엔드 즉시 교체 + 프론트 상태 초기화 + 재fetch
+  // Python으로 치면: async def switch_vault(name): api.post('/switch-vault', name); reload()
+  const handleSwitch = async (vaultName: string) => {
+    if (switching) return
+    setSwitching(vaultName)
+    setSwitchMsg(null)
     try {
-      const res = await fetch(`${BASE_URL}/api/settings/vault-path`, {
+      const res = await fetch(BASE_URL + '/api/settings/switch-vault', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ new_path: newPath.trim(), move_data: moveData }),
+        body: JSON.stringify({ vault_name: vaultName }),
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        setChangeError(body.detail ?? t.common.error)
+        const err = await res.json()
+        setSwitchMsg({ type: 'error', text: err.detail ?? s.errorServer })
         return
       }
-      const result: ChangeResult = await res.json()
-      setChangeResult(result)
-      setNewPath('')
+      // 프론트 상태 초기화 → 새 볼트 데이터 fetch
+      resetStore()
+      await loadFromServer()
+      await loadInfo()  // 볼트 목록 갱신
+      setSwitchMsg({ type: 'ok', text: `"${vaultName}" ${s.switchedMsg}` })
+      // 0.8초 후 모달 닫기 — 성공 메시지 잠깐 보여준 뒤 사이드바/에디터 노출
+      setTimeout(() => onClose?.(), 800)
     } catch {
-      setChangeError(t.settings.storage.errorServer)
+      setSwitchMsg({ type: 'error', text: s.errorServer })
     } finally {
-      setChanging(false)
+      setSwitching(null)
     }
+  }
+
+  // vaults_root 변경
+  const handleRootChange = async () => {
+    if (!rootInput.trim()) return
+    setRootChanging(true)
+    setRootMsg(null)
+    try {
+      const res = await fetch(BASE_URL + '/api/settings/vaults-root', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vaults_root: rootInput.trim() }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setRootMsg({ type: 'error', text: err.detail ?? s.errorServer })
+        return
+      }
+      // vaults_root 변경 후 스토어 재초기화 — 새 루트에 현재 볼트가 없을 수 있으므로 반드시 재로드
+      resetStore()
+      await loadFromServer()
+      await loadInfo()
+      setRootMsg({ type: 'ok', text: s.rootChangedMsg })
+    } catch {
+      setRootMsg({ type: 'error', text: s.errorServer })
+    } finally {
+      setRootChanging(false)
+    }
+  }
+
+  // 폴더 탐색기 열기
+  const handleBrowse = async (setter: (v: string) => void) => {
+    try {
+      const res = await fetch(BASE_URL + '/api/settings/browse-folder')
+      const data = await res.json()
+      if (data.path) setter(data.path)
+    } catch {}
+  }
+
+  // 고급: 데이터 복사 포함 경로 변경
+  const handleAdvChange = async () => {
+    if (!advPath.trim()) return
+    setAdvChanging(true)
+    setAdvMsg(null)
+    try {
+      const res = await fetch(BASE_URL + '/api/settings/vault-path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_path: advPath.trim(), move_data: moveData }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setAdvMsg({ type: 'error', text: err.detail ?? s.errorServer })
+        return
+      }
+      const result = await res.json()
+      resetStore()
+      await loadFromServer()
+      await loadInfo()
+      setAdvMsg({
+        type: 'ok',
+        text: result.moved ? s.pathChangedWithCopy : s.pathChangedMsg,
+      })
+    } catch {
+      setAdvMsg({ type: 'error', text: s.errorServer })
+    } finally {
+      setAdvChanging(false)
+    }
+  }
+
+  // 볼트 스캔 상태 — 탐색기에서 넣은 메모 폴더 인식용
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg, setScanMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
+
+  // 볼트 스캔 — 현재 볼트의 미인식 page 폴더를 찾아 _index.nct에 추가
+  // Python으로 치면: async def scan(): api.post('/scan-vault'); reload()
+  const handleScan = async () => {
+    if (scanning) return
+    setScanning(true)
+    setScanMsg(null)
+    try {
+      const res = await fetch(BASE_URL + '/api/settings/scan-vault', { method: 'POST' })
+      if (!res.ok) {
+        setScanMsg({ type: 'error', text: s.errorServer })
+        return
+      }
+      const data = await res.json()
+      // 인식된 페이지가 있으면 스토어 새로고침
+      if (data.added > 0) {
+        await loadFromServer()
+        await loadInfo()
+        setScanMsg({ type: 'ok', text: s.scanDoneAdded(data.added) })
+      } else {
+        setScanMsg({ type: 'ok', text: s.scanDoneNone })
+      }
+    } catch {
+      setScanMsg({ type: 'error', text: s.errorServer })
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  // 용량 단위 변환
+  const formatSize = (kb: number) => {
+    if (kb < 1024) return `${kb} KB`
+    return `${(kb / 1024).toFixed(1)} MB`
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.storage.title}</h3>
-        <p className="text-xs text-gray-400 mb-6">
-          {t.settings.storage.titleDesc}
-        </p>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{s.title}</h3>
+        <p className="text-xs text-gray-400 mb-6">{s.titleDesc}</p>
       </div>
 
-      {/* 로딩 중 */}
+      {/* 로딩 / 에러 */}
       {loading && (
-        <div className="flex items-center gap-2 text-sm text-gray-400 py-8 justify-center">
-          <span className="animate-spin">⟳</span> {t.settings.storage.loading}
+        <div className="text-xs text-gray-400 flex items-center gap-1">
+          <span className="animate-spin">⟳</span> {s.loading}
         </div>
       )}
-
-      {/* 서버 연결 오류 */}
       {error && (
-        <div className="text-sm text-red-500 bg-red-50 px-4 py-3 rounded-xl">
-          {t.settings.storage.serverError}
-        </div>
+        <div className="text-xs text-red-500">{s.serverError}</div>
       )}
 
       {info && (
         <>
-          {/* ── vault 현재 경로 ──────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.storage.currentPath}</h4>
-            <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-gray-200 bg-gray-50">
-              <span className="text-lg">📁</span>
-              <p className="flex-1 text-sm text-gray-700 font-mono break-all">{info.vault_path}</p>
+          {/* 현재 볼트 */}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-green-500 text-xs">●</span>
+              <span className="text-sm font-semibold text-green-800">{info.current_vault}</span>
+              <span className="text-xs text-green-600 ml-auto">{s.currentLabel}</span>
+            </div>
+            <div className="text-xs text-green-700 font-mono break-all">{info.current_vault_path}</div>
+            <div className="flex gap-4 text-xs text-green-700">
+              <span>{s.totalPages}: <strong>{info.total_pages}</strong></span>
+              <span>{s.categories}: <strong>{info.categories}</strong></span>
+              <span>{s.totalSize}: <strong>{formatSize(info.total_size_kb)}</strong></span>
+            </div>
+          </div>
+
+          {/* 볼트 스캔 — 탐색기에서 넣은 메모 폴더 인식 */}
+          <div className="border border-dashed border-gray-300 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-gray-700">🔍 {s.scanVault}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{s.scanVaultDesc}</div>
+              </div>
               <button
-                type="button"
-                onClick={copyPath}
-                className="shrink-0 text-xs text-gray-400 hover:text-gray-600 transition-colors px-2 py-1 rounded hover:bg-gray-100"
-                title={t.settings.storage.copyPathTitle}
+                onClick={handleScan}
+                disabled={scanning}
+                className="text-xs px-3 py-1.5 bg-indigo-500 text-white rounded hover:bg-indigo-600 disabled:opacity-50 shrink-0 ml-3"
               >
-                {t.settings.storage.copy}
+                {scanning ? s.scanning : s.scanVault}
               </button>
             </div>
-          </section>
+            {scanMsg && (
+              <div className={`text-xs px-2 py-1 rounded ${
+                scanMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {scanMsg.text}
+              </div>
+            )}
+          </div>
 
-          {/* ── 사용 현황 통계 ──────────────────────── */}
-          <section className="space-y-2">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.storage.usage}</h4>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="px-4 py-4 rounded-xl border border-gray-200 bg-white text-center">
-                <p className="text-2xl font-bold text-blue-600">{info.total_pages}</p>
-                <p className="text-xs text-gray-500 mt-1">{t.settings.storage.totalPages}</p>
-              </div>
-              <div className="px-4 py-4 rounded-xl border border-gray-200 bg-white text-center">
-                <p className="text-2xl font-bold text-green-600">{info.categories}</p>
-                <p className="text-xs text-gray-500 mt-1">{t.settings.storage.categories}</p>
-              </div>
-              <div className="px-4 py-4 rounded-xl border border-gray-200 bg-white text-center">
-                <p className="text-2xl font-bold text-purple-600">
-                  {info.total_size_kb < 1024
-                    ? `${info.total_size_kb}KB`
-                    : `${(info.total_size_kb / 1024).toFixed(1)}MB`}
-                </p>
-                <p className="text-xs text-gray-500 mt-1">{t.settings.storage.totalSize}</p>
-              </div>
+          {/* 볼트 목록 */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{s.vaultList}</h4>
+              <button
+                onClick={loadInfo}
+                className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                title={s.refreshList}
+              >
+                🔄 {s.refreshList}
+              </button>
             </div>
-          </section>
-        </>
-      )}
 
-      {/* ── vault 경로 변경 ──────────────────────────
-          서버 응답과 무관하게 항상 표시 (서버 오류일 때도 경로 변경 가능하도록)
-          Python으로 치면: class ChangePathSection(Widget): def render(): ... */}
-      {!error && !loading && (
-        <section className="space-y-3">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{t.settings.storage.changePath}</h4>
+            <div className="text-xs text-gray-400 mb-2">{s.vaultListHint}</div>
 
-          {/* 경로 변경 성공 결과 박스 */}
-          {changeResult && (
-            <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-1">
-              <p className="text-sm font-semibold text-green-700">{t.settings.storage.pathChangedMsg}</p>
-              <p className="text-xs text-green-600 font-mono break-all">{changeResult.new_path}</p>
-              {changeResult.moved && (
-                <p className="text-xs text-green-600">{t.settings.storage.dataMoved}</p>
+            {switchMsg && (
+              <div className={`text-xs mb-2 px-2 py-1 rounded ${
+                switchMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {switchMsg.text}
+              </div>
+            )}
+
+            <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 overflow-hidden">
+              {(info.vaults ?? []).map((vault) => (
+                <div
+                  key={vault.name}
+                  className={`flex items-center px-3 py-2.5 gap-3 ${
+                    vault.is_current ? 'bg-green-50' : 'bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <span className={`text-sm ${vault.is_current ? 'text-green-500' : 'text-gray-300'}`}>
+                    {vault.is_current ? '●' : '○'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-700 truncate">{vault.name}</div>
+                    <div className="text-xs text-gray-400">
+                      {vault.initialized ? `${vault.page_count}${s.pageUnit}` : s.emptyVault}
+                    </div>
+                  </div>
+                  {!vault.is_current && (
+                    <button
+                      onClick={() => handleSwitch(vault.name)}
+                      disabled={switching !== null}
+                      className="text-xs px-2.5 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 shrink-0"
+                    >
+                      {switching === vault.name ? '...' : s.openVault}
+                    </button>
+                  )}
+                </div>
+              ))}
+              {(info.vaults ?? []).length === 0 && (
+                <div className="text-xs text-gray-400 px-3 py-4 text-center">{s.noVaults}</div>
               )}
-              <p className="text-xs text-orange-600 font-semibold mt-1">
-                {t.settings.storage.restartWarning}
-              </p>
             </div>
-          )}
 
-          {/* 새 경로 입력 + 탐색기 버튼 */}
-          <div className="space-y-2">
-            <label className="text-xs text-gray-500">{t.settings.storage.newPathLabel}</label>
+            <p className="text-xs text-blue-600 bg-blue-50 rounded p-2 mt-2">{s.explorerHint}</p>
+          </div>
+
+          {/* vaults_root 변경 */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">{s.vaultsRoot}</h4>
+            <p className="text-xs text-gray-400 mb-2">{s.vaultsRootDesc}</p>
+            {rootMsg && (
+              <div className={`text-xs mb-2 px-2 py-1 rounded ${
+                rootMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {rootMsg.text}
+              </div>
+            )}
             <div className="flex gap-2">
               <input
-                type="text"
-                value={newPath}
-                onChange={e => { setNewPath(e.target.value); setChangeError('') }}
-                placeholder={t.settings.storage.newPathPlaceholder}
-                className="flex-1 text-sm font-mono border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-400 bg-white"
+                value={rootInput}
+                onChange={e => setRootInput(e.target.value)}
+                className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 font-mono"
+                placeholder={s.newPathPlaceholder}
               />
-              {/* 탐색기 버튼 — 클릭 시 tkinter 폴더 선택 다이얼로그 오픈 */}
               <button
-                type="button"
-                onClick={handleBrowse}
-                className="shrink-0 px-3 py-2 text-xs text-gray-600 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition-colors"
-                title={t.settings.storage.browseTitle}
+                onClick={() => handleBrowse(setRootInput)}
+                className="text-xs px-2.5 py-1.5 border border-gray-200 rounded hover:bg-gray-50 shrink-0"
               >
-                {t.settings.storage.browse}
+                {s.browse}
+              </button>
+              <button
+                onClick={handleRootChange}
+                disabled={rootChanging}
+                className="text-xs px-2.5 py-1.5 bg-gray-700 text-white rounded hover:bg-gray-900 disabled:opacity-50 shrink-0"
+              >
+                {rootChanging ? s.processing : s.changeApply}
               </button>
             </div>
           </div>
 
-          {/* 기존 데이터 복사 체크박스 */}
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={moveData}
-              onChange={e => setMoveData(e.target.checked)}
-              className="w-4 h-4 accent-blue-500"
-            />
-            <span className="text-xs text-gray-600">{t.settings.storage.moveDataLabel}</span>
-          </label>
-
-          {/* 재시작 경고 */}
-          <p className="text-xs text-orange-500 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2">
-            {t.settings.storage.pathChangeWarning}
-          </p>
-
-          {/* 에러 메시지 */}
-          {changeError && (
-            <p className="text-xs text-red-500">{changeError}</p>
-          )}
-
-          {/* 변경 적용 버튼 */}
-          <button
-            type="button"
-            onClick={handleChangePath}
-            disabled={changing || !newPath.trim()}
-            className="px-4 py-2 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {changing ? t.settings.storage.processing : t.settings.storage.changeApply}
-          </button>
-        </section>
+          {/* 고급 섹션 */}
+          <details className="group">
+            <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+              {s.advancedSection} ›
+            </summary>
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-gray-400">{s.advancedDesc}</p>
+              {advMsg && (
+                <div className={`text-xs px-2 py-1 rounded ${
+                  advMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+                }`}>
+                  {advMsg.text}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  value={advPath}
+                  onChange={e => setAdvPath(e.target.value)}
+                  className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 font-mono"
+                  placeholder={s.newPathPlaceholder}
+                />
+                <button
+                  onClick={() => handleBrowse(setAdvPath)}
+                  className="text-xs px-2.5 py-1.5 border border-gray-200 rounded hover:bg-gray-50 shrink-0"
+                >
+                  {s.browse}
+                </button>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={moveData}
+                  onChange={e => setMoveData(e.target.checked)}
+                  className="rounded"
+                />
+                {s.moveDataLabel}
+              </label>
+              <button
+                onClick={handleAdvChange}
+                disabled={advChanging}
+                className="text-xs px-3 py-1.5 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50"
+              >
+                {advChanging ? s.processing : s.changeApply}
+              </button>
+            </div>
+          </details>
+        </>
       )}
     </div>
   )

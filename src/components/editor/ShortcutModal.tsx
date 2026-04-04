@@ -111,6 +111,12 @@ const SLASH_GROUPS = [
     ],
   },
   {
+    group: '수식',
+    items: [
+      { icon: '∑',  name: '수식',      desc: 'KaTeX 블록 수식 (display 모드)' },
+    ],
+  },
+  {
     group: '고급 블록 (플러그인)',
     items: [
       { icon: '📋', name: '칸반',      desc: '칸반 보드 (드래그앤드롭 카드)' },
@@ -143,6 +149,7 @@ const PLUGIN_INFO = [
   { icon: '🎬', name: '비디오 블록',    shortcut: '/ 비디오',        desc: '로컬 비디오 파일 업로드+재생. 자동재생/반복 설정 가능.' },
   { icon: '📐', name: '레이아웃 블록',  shortcut: '/ 레이아웃',      desc: 'A4 다단 레이아웃 8종. 인쇄 시 A4에 맞게 자동 조정.' },
   { icon: '🔗', name: '백링크 패널',    shortcut: '페이지 하단',     desc: '@멘션·[[ 링크로 이 페이지를 참조하는 페이지 목록.' },
+  { icon: '∑',  name: 'LaTeX 수식',    shortcut: '/ 수식  |  $수식$', desc: '블록 수식: /수식으로 삽입, KaTeX display 렌더링. 인라인 수식: $...$로 텍스트 중간에 삽입.' },
 ]
 
 

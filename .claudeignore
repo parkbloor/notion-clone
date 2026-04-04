@@ -1,0 +1,71 @@
+# 의존성 및 빌드 산출물
+node_modules/
+.next/
+out/
+dist/
+build/
+dist-electron/
+dist-backend/
+build-backend/
+
+# 잠금 파일
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# 환경 변수 (보안)
+.env
+.env.*
+*.pem
+*.key
+
+# 버전 관리 / 에디터
+.git/
+.vscode/
+.idea/
+
+# 로그 및 캐시
+*.log
+.cache/
+.turbo/
+.eslintcache
+
+# 정적 파일 (이미지·폰트·미디어)
+public/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.mp4
+*.pdf
+*.zip
+
+# 타입 선언 자동 생성
+*.d.ts
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# Vault (개인 노트 — 민감 데이터)
+vault/
+
+# 빌드 스크립트 및 Electron
+electron/
+*.spec
+
+# 오래된 상태 문서 (코드가 원본)
+PROJECT_STATUS.md
+FILE_MAP.md
+
+# 계획 문서 (코드가 원본)
+BLUEPRINT.md
+MULTI_VAULT_PLAN.md
+TRASH_REFACTOR_PLAN.md
+
+# 백엔드 빌드 스펙 (작업 시 직접 언급)
+backend/backend.spec
+
+# 로케일 (작업 시 직접 언급)
+src/locales/

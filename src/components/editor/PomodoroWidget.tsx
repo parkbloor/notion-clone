@@ -211,7 +211,7 @@ export default function PomodoroWidget() {
               strokeWidth="2.5"
               strokeDasharray={`${progress} 100`}
               strokeLinecap="round"
-              style={{ transition: 'stroke-dasharray 0.5s ease' }}
+              style={{ transitionProperty: 'stroke-dasharray', transitionDuration: '0.5s', transitionTimingFunction: 'ease' }}
             />
           </svg>
           {/* 중앙 시간 텍스트 */}

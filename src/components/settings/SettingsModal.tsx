@@ -16,6 +16,7 @@ import StorageTab    from './tabs/StorageTab'
 import DebugTab      from './tabs/DebugTab'
 import TemplatesTab  from './tabs/TemplatesTab'
 import AITab        from './tabs/AITab'
+import CloudSyncTab from './tabs/CloudSyncTab'
 
 interface SettingsModalProps {
   onClose: () => void
@@ -25,7 +26,7 @@ interface SettingsModalProps {
 // 탭 목록 정의
 // Python으로 치면: TABS = [{'id': 'appearance', 'icon': '🎨'}, ...]
 // -----------------------------------------------
-type TabId = 'appearance' | 'editor' | 'plugins' | 'data' | 'storage' | 'debug' | 'templates' | 'ai'
+type TabId = 'appearance' | 'editor' | 'plugins' | 'data' | 'storage' | 'cloud' | 'debug' | 'templates' | 'ai'
 
 const TAB_ICONS: Record<TabId, string> = {
   appearance: '🎨',
@@ -35,10 +36,11 @@ const TAB_ICONS: Record<TabId, string> = {
   ai:         '✨',
   data:       '📦',
   storage:    '📁',
+  cloud:      '☁️',
   debug:      '🔍',
 }
 
-const TAB_IDS: TabId[] = ['appearance', 'editor', 'plugins', 'templates', 'ai', 'data', 'storage', 'debug']
+const TAB_IDS: TabId[] = ['appearance', 'editor', 'plugins', 'templates', 'ai', 'data', 'storage', 'cloud', 'debug']
 
 // 탭 ID → 컴포넌트 매핑
 // Python으로 치면: TAB_COMPONENTS = {'appearance': AppearanceTab, ...}
@@ -50,6 +52,7 @@ const TAB_COMPONENTS: Record<TabId, React.ComponentType> = {
   ai:         AITab,
   data:       DataTab,
   storage:    StorageTab,
+  cloud:      CloudSyncTab,
   debug:      DebugTab,
 }
 
@@ -79,7 +82,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     if (e.target === e.currentTarget) onClose()
   }
 
-  // 현재 탭 컴포넌트
+  // 현재 탭 컴포넌트 (StorageTab 제외)
   const ActiveTabComponent = TAB_COMPONENTS[activeTab]
 
   return (
@@ -132,7 +135,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           {/* 우측 탭 콘텐츠 — 스크롤 가능 */}
           {/* Python으로 치면: self.content_area.render(self.active_tab_component) */}
           <div className="flex-1 overflow-y-auto">
-            <ActiveTabComponent />
+            {activeTab === 'storage'
+              ? <StorageTab onClose={onClose} />
+              : <ActiveTabComponent />
+            }
           </div>
         </div>
       </div>

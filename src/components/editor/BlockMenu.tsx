@@ -167,6 +167,10 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
   // Python으로 치면: is_open = False
   const [isOpen, setIsOpen] = useState(false)
 
+  // 드롭다운 메뉴의 fixed 위치 (뷰포트 기준 px)
+  // Python으로 치면: self.menu_pos: dict = {'left': 0, 'top': 0}
+  const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
+
   // 페이지 선택 모드: null = 닫힘, 'move' = 이동, 'copy' = 복사
   // Python으로 치면: self.picker_mode: Optional[str] = None
   const [pickerMode, setPickerMode] = useState<'move' | 'copy' | null>(null)
@@ -175,9 +179,14 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
   // Python으로 치면: self.picker_anchor: Optional[DOMRect] = None
   const [pickerAnchor, setPickerAnchor] = useState<DOMRect | null>(null)
 
-  // 메뉴 컨테이너 DOM 참조 (외부 클릭 감지 + 팝업 위치 계산)
-  // Python으로 치면: menu_ref = None
+  // + 버튼 wrapper DOM 참조 (버튼 위치 계산에 사용)
+  // Python으로 치면: btn_ref = None
   const menuRef = useRef<HTMLDivElement>(null)
+
+  // fixed 드롭다운 DOM 참조 (외부 클릭 감지에 사용)
+  // fixed 요소는 menuRef DOM 트리 밖에 있으므로 별도 ref 필요
+  // Python으로 치면: dropdown_ref = None
+  const dropdownRef = useRef<HTMLDivElement>(null)
 
   const {
     pages, currentPageId,
@@ -195,7 +204,10 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
     if (!isOpen) return
 
     function handleOutside(e: MouseEvent) {
-      if (!menuRef.current?.contains(e.target as Node)) {
+      // + 버튼(menuRef)과 fixed 드롭다운(dropdownRef) 둘 다 체크
+      // Python으로 치면: if not (btn.contains(t) or dropdown.contains(t)): close()
+      const t = e.target as Node
+      if (!menuRef.current?.contains(t) && !dropdownRef.current?.contains(t)) {
         setIsOpen(false)
       }
     }
@@ -257,6 +269,32 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
         onClick={(e) => {
           // stopPropagation: 버튼 클릭이 에디터 포커스 해제로 이어지지 않게
           e.stopPropagation()
+
+          // -----------------------------------------------
+          // 뷰포트 경계 검사 후 메뉴 위치 계산
+          // 버튼 아래 공간이 부족하면 위쪽으로 뒤집음
+          // Python으로 치면:
+          //   rect = btn.getBoundingClientRect()
+          //   top = rect.bottom if rect.bottom + MENU_H < vh else rect.top - MENU_H
+          // -----------------------------------------------
+          if (!isOpen && menuRef.current) {
+            const rect = menuRef.current.getBoundingClientRect()
+            const MENU_H = 230 // 메뉴 예상 높이 (px)
+            const MENU_W = 192 // min-w-48 = 12rem = 192px
+            const vw = window.innerWidth
+            const vh = window.innerHeight
+
+            // 아래 공간 충분 → 버튼 아래, 부족 → 버튼 위로 뒤집기
+            const top = rect.bottom + MENU_H < vh
+              ? rect.bottom + 2
+              : rect.top - MENU_H - 2
+
+            // 오른쪽 넘침 방지
+            const left = Math.min(rect.left, vw - MENU_W - 8)
+
+            setMenuPos({ left, top })
+          }
+
           setIsOpen(prev => !prev)
         }}
         className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-all select-none text-base leading-none"
@@ -266,13 +304,16 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
       </button>
 
       {/* ── 드롭다운 메뉴 ──────────────────────────────
-          absolute: + 버튼 기준 위치 지정
-          top-6: 버튼 바로 아래
-          left-0: 버튼 왼쪽 정렬
+          fixed: 뷰포트 기준 위치 → 부모의 overflow/scroll 영향 없음
+          menuPos: 클릭 시 계산한 뷰포트 좌표 (위/아래 자동 선택)
           z-50: 다른 요소 위에 표시
-          Python으로 치면: dropdown.position = (button.left, button.bottom) */}
-      {isOpen && (
-        <div className="absolute left-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-48 py-1 overflow-hidden">
+          Python으로 치면: dropdown.position = calc_pos(button.rect, viewport) */}
+      {isOpen && menuPos && (
+        <div
+          ref={dropdownRef}
+          style={{ position: 'fixed', left: menuPos.left, top: menuPos.top }}
+          className="bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-48 py-1 overflow-hidden"
+        >
 
           {/* ── 블록 추가 그룹 ────────────────────────── */}
           <MenuItem
