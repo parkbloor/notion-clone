@@ -76,12 +76,22 @@ export const FOLDER_COLOR_GROUPS: { id: string; colors: (string | null)[] }[] = 
 ]
 
 // -----------------------------------------------
-// HTML 태그 제거 — 페이지 검색용 텍스트 추출
-// Python으로 치면: def strip_html(html): return re.sub(r'<[^>]+>', ' ', html).strip()
+// HTML 태그 제거 + 엔티티 디코딩 — 페이지 검색/템플릿 저장용 텍스트 추출
+// &amp; &lt; &gt; &nbsp; 등을 실제 문자로 변환
+// Python으로 치면: def strip_html(html): return html2text(html).strip()
 // -----------------------------------------------
 export function stripHtml(html: string): string {
   if (!html) return ''
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 // 페이지 블록 전체 텍스트 추출 (검색용)
@@ -120,16 +130,20 @@ export function blocksToMarkdown(page: Page): string {
     }
     const text = block.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
     switch (block.type) {
-      case 'heading1': lines.push(`# ${text}`); break
-      case 'heading2': lines.push(`## ${text}`); break
-      case 'heading3': lines.push(`### ${text}`); break
-      case 'heading4': lines.push(`#### ${text}`); break
-      case 'heading5': lines.push(`##### ${text}`); break
-      case 'heading6': lines.push(`###### ${text}`); break
-      case 'divider':  lines.push('---'); break
-      case 'code':     lines.push(`\`\`\`\n${text}\n\`\`\``); break
-      case 'paragraph': if (text) lines.push(text); break
-      default: if (text) lines.push(text)
+      case 'heading1':    lines.push(`# ${text}`); break
+      case 'heading2':    lines.push(`## ${text}`); break
+      case 'heading3':    lines.push(`### ${text}`); break
+      case 'heading4':    lines.push(`#### ${text}`); break
+      case 'heading5':    lines.push(`##### ${text}`); break
+      case 'heading6':    lines.push(`###### ${text}`); break
+      case 'divider':     lines.push('---'); break
+      case 'code':        lines.push(`\`\`\`\n${text}\n\`\`\``); break
+      case 'bulletList':   if (text) lines.push(`- ${text}`); break
+      case 'orderedList':  if (text) lines.push(`1. ${text}`); break
+      case 'admonition':   if (text) lines.push(`> 💡 ${text}`); break
+      case 'taskList':     if (text) lines.push(`- [ ] ${text}`); break
+      case 'paragraph':   if (text) lines.push(text); break
+      default:            if (text) lines.push(text)
     }
   }
   return lines.join('\n\n')

@@ -196,7 +196,7 @@ export default function MonthlyCalendarBlock({ block, pageId }: Props) {
       { ...createBlock('heading2'), content: t.planner.monthly.dailyNoteSchedule },
       { ...createBlock('dayplanner'), content: plannerContent },
       createBlock('divider'),
-      { ...createBlock('heading2'), content: '✅ 오늘 할 일' },
+      { ...createBlock('heading2'), content: `✅ ${t.planner.monthly.dailyTodo}` },
       createBlock('taskList'),
       createBlock('taskList'),
       createBlock('taskList'),

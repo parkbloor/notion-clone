@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Page } from '@/types/block'
 
 // -----------------------------------------------
@@ -64,13 +64,14 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
   // -----------------------------------------------
   // 페이지 생성일 SET 계산 — 해당 월에 페이지가 있는 날짜만 추출
   // Python으로 치면: date_set = {iso_to_local_date(p.createdAt) for p in pages if p.createdAt}
+  // pages 배열이 바뀔 때만 재계산 (매 렌더마다 전체 순회 방지)
   // -----------------------------------------------
-  const pageDateSet = new Set(
+  const pageDateSet = useMemo(() => new Set(
     pages
       .filter(p => p.createdAt)
       .map(p => isoToLocalDateStr(p.createdAt))
       .filter(d => d.length === 10)  // 변환 실패한 빈 문자열 제거
-  )
+  ), [pages])
 
   // -----------------------------------------------
   // 이전 달로 이동

@@ -33,13 +33,14 @@ export default function AITab() {
   // 로케일 훅 — Python으로 치면: t = get_translation()
   const t = useLocale()
   const {
-    aiProvider, aiModel, aiApiKey, ollamaUrl,
-    setAiProvider, setAiModel, setAiApiKey, setOllamaUrl,
+    aiProvider, aiModel, openaiApiKey, anthropicApiKey, ollamaUrl,
+    setAiProvider, setAiModel, setOpenaiApiKey, setAnthropicApiKey, setOllamaUrl,
   } = useSettingsStore()
 
-  // API 키 표시/숨김 토글
-  // Python으로 치면: self.show_key = False
-  const [showKey, setShowKey] = useState(false)
+  // API 키 표시/숨김 토글 — provider별 독립 관리
+  // Python으로 치면: self.show_openai_key = False; self.show_anthropic_key = False
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false)
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false)
 
   // 연결 테스트 상태: 'idle' | 'loading' | 'ok' | 'error'
   // Python으로 치면: self.test_status = 'idle'
@@ -63,8 +64,16 @@ export default function AITab() {
   // 연결 테스트 — POST /api/ai/test 호출
   // Python으로 치면: async def test_connection(self): ...
   // -----------------------------------------------
+  // 현재 provider의 키 반환
+  // Python으로 치면: def current_key(self): return self.openai_key if provider=='openai' else ...
+  function currentKey(): string {
+    if (aiProvider === 'openai') return openaiApiKey
+    if (aiProvider === 'claude') return anthropicApiKey
+    return ''
+  }
+
   async function handleTest() {
-    if (aiProvider !== 'ollama' && !aiApiKey.trim()) {
+    if (aiProvider !== 'ollama' && !currentKey().trim()) {
       setTestStatus('error')
       setTestMsg(t.settings.ai.apiKeyRequired)
       return
@@ -75,7 +84,7 @@ export default function AITab() {
       const body: Record<string, string> = {
         provider: aiProvider,
         model: aiModel,
-        api_key: aiApiKey,
+        api_key: currentKey(),
       }
       // Ollama는 base_url 추가 전송
       if (aiProvider === 'ollama') body.base_url = ollamaUrl
@@ -169,32 +178,61 @@ export default function AITab() {
         </div>
       )}
 
-      {/* ── API 키 입력 (OpenAI / Claude) ──────── */}
-      {/* Python으로 치면: if provider != 'ollama': render_api_key_input() */}
+      {/* ── API 키 입력 — OpenAI / Claude 각각 독립 저장 ──────── */}
+      {/* provider를 바꿔도 기존 키가 지워지지 않음 */}
       {aiProvider !== 'ollama' && (
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-gray-700">{t.settings.ai.apiKey}</label>
-          <div className="relative">
-            <input
-              type={showKey ? 'text' : 'password'}
-              value={aiApiKey}
-              onChange={(e) => { setAiApiKey(e.target.value); setTestStatus('idle') }}
-              placeholder={aiProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
-              spellCheck={false}
-              className="w-full pr-16 pl-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-blue-400 font-mono text-gray-700"
-            />
-            {/* 표시/숨김 토글 버튼 */}
-            <button
-              type="button"
-              onClick={() => setShowKey(v => !v)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded"
-            >
-              {showKey ? t.settings.ai.keyHide : t.settings.ai.keyShow}
-            </button>
+        <div className="space-y-4">
+          {/* OpenAI 키 */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+              🟢 OpenAI API Key
+              {openaiApiKey && <span className="text-green-500 text-xs">✓ 저장됨</span>}
+            </label>
+            <div className="relative">
+              <input
+                type={showOpenaiKey ? 'text' : 'password'}
+                value={openaiApiKey}
+                onChange={(e) => { setOpenaiApiKey(e.target.value); setTestStatus('idle') }}
+                placeholder="sk-proj-..."
+                spellCheck={false}
+                className="w-full pr-16 pl-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-green-400 font-mono text-gray-700"
+              />
+              <button
+                type="button"
+                onClick={() => setShowOpenaiKey(v => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded"
+              >
+                {showOpenaiKey ? t.settings.ai.keyHide : t.settings.ai.keyShow}
+              </button>
+            </div>
           </div>
-          <p className="text-xs text-gray-400">
-            {t.settings.ai.apiKeyHint}
-          </p>
+
+          {/* Claude(Anthropic) 키 */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+              🟠 Claude (Anthropic) API Key
+              {anthropicApiKey && <span className="text-green-500 text-xs">✓ 저장됨</span>}
+            </label>
+            <div className="relative">
+              <input
+                type={showAnthropicKey ? 'text' : 'password'}
+                value={anthropicApiKey}
+                onChange={(e) => { setAnthropicApiKey(e.target.value); setTestStatus('idle') }}
+                placeholder="sk-ant-api03-..."
+                spellCheck={false}
+                className="w-full pr-16 pl-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-orange-400 font-mono text-gray-700"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAnthropicKey(v => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 px-1.5 py-0.5 rounded"
+              >
+                {showAnthropicKey ? t.settings.ai.keyHide : t.settings.ai.keyShow}
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-gray-400">{t.settings.ai.apiKeyHint}</p>
         </div>
       )}
 

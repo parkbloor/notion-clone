@@ -9,7 +9,7 @@
 import { useEditor, EditorContent } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extension-placeholder'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
@@ -57,6 +57,11 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
   // Python으로 치면: is_new = not init_header and not init_body
   const isNew = !initHeader && !initBody
 
+  // Enter 키로 토글을 열 때 바디 에디터 포커스 이동 트리거
+  // setTimeout(0) 대신 useEffect로 처리 — DOM 업데이트 후 안정적으로 실행됨
+  // Python으로 치면: self._focus_body_on_open = False
+  const [focusBodyOnOpen, setFocusBodyOnOpen] = useState(false)
+
   // -----------------------------------------------
   // header/body 중 하나가 변경될 때 block.content에 JSON으로 저장
   // Python으로 치면: def save(header=None, body=None): update_block(json.dumps({...}))
@@ -97,8 +102,9 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
         if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault()
           setIsOpen(true)
-          // setTimeout 0: 상태 업데이트(setIsOpen) 후 DOM이 갱신된 다음 포커스
-          setTimeout(() => bodyEditor?.commands.focus('end'), 0)
+          // useEffect가 DOM 업데이트 후 포커스를 처리 (setTimeout 0보다 안정적)
+          // Python으로 치면: self._focus_body_on_open = True
+          setFocusBodyOnOpen(true)
           return true
         }
         // Backspace + 헤더 비어있음 → 블록 삭제 (마지막 블록은 삭제 방지)
@@ -129,6 +135,16 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
     onUpdate: ({ editor }) => { saveContent(undefined, editor.getHTML()) },
     immediatelyRender: false,
   })
+
+  // isOpen + focusBodyOnOpen이 모두 true일 때 바디로 포커스
+  // useEffect는 DOM 업데이트 후 실행되므로 bodyEditor가 마운트된 상태 보장
+  // Python으로 치면: @observe(is_open, focus_body_on_open) def focus_body(): ...
+  useEffect(() => {
+    if (isOpen && focusBodyOnOpen && bodyEditor) {
+      bodyEditor.commands.focus('end')
+      setFocusBodyOnOpen(false)
+    }
+  }, [isOpen, focusBodyOnOpen, bodyEditor])
 
   // ── 화살표 버튼 스타일 (열리면 90° 회전) ─────────
   // Python으로 치면: arrow_class = "rotate-90 ..." if is_open else "..."

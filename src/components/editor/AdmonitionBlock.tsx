@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extension-placeholder'
@@ -155,6 +155,10 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
       save(variant, ed.getHTML())
     },
   })
+
+  // 언마운트 시 Tiptap 에디터 명시적 정리 — 메모리 누수 방지
+  // Python으로 치면: def __del__(self): self.editor.destroy()
+  useEffect(() => () => { editor?.destroy() }, [editor])
 
   return (
     // -----------------------------------------------

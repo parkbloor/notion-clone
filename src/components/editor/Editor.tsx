@@ -40,6 +40,7 @@ import MermaidBlock from './MermaidBlock'
 import ChartBlock from './ChartBlock'
 import GanttBlock from './GanttBlock'
 import DayPlannerBlock from './DayPlannerBlock'
+import WeekPlannerBlock from './WeekPlannerBlock'
 import WeeklyPlannerBlock from './WeeklyPlannerBlock'
 import RoutineMatrixBlock from './RoutineMatrixBlock'
 import MonthlyCalendarBlock from './MonthlyCalendarBlock'
@@ -1025,7 +1026,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           ⠿
         </div>
         <div className="flex-1 min-w-0">
-          <ImageBlock block={block} pageId={pageId} />
+          <ImageBlock block={block} pageId={pageId} readMode={readMode} />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
@@ -1523,6 +1524,40 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         </div>
         <div className="flex-1 min-w-0">
           <DayPlannerBlock block={block} pageId={pageId} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // Week Planner 블록: WeekPlannerBlock 컴포넌트로 렌더링
+  // content는 JSON 문자열: { weekStart: 'YYYY-MM-DD', range: '7'|'5'|'3' }
+  // Python으로 치면: if block.type == 'weekplanner': return render(WeekPlannerBlock)
+  // -----------------------------------------------
+  if (block.type === 'weekplanner') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className={blockWrapperClass}
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <WeekPlannerBlock block={block} pageId={pageId} />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />

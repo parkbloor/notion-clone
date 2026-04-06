@@ -4,7 +4,7 @@
 // Python으로 치면: @dataclass class PageStore: ...
 // =============================================
 
-import { Block, BlockType, Category, Page, PageProperty, TrashItem, CanvasBox } from '@/types/block'
+import { Block, BlockType, Category, Page, PageProperty, TrashItem, CanvasBox, LayoutDescriptor, LayoutCell, LayoutTheme } from '@/types/block'
 
 // -----------------------------------------------
 // PageStore: Zustand 스토어 전체 타입
@@ -206,4 +206,33 @@ export interface PageStore {
   // ── 현재 볼트 이름 (폴더명) — 사이드바 표시용 ──
   // Python으로 치면: self.current_vault_name: str = ''
   currentVaultName: string
+
+  // ── Magazine Layout 상태/액션 ─────────────────
+  // pageId → LayoutDescriptor 매핑 (메모리 캐시)
+  // Python으로 치면: self.layout_descriptors: dict[str, LayoutDescriptor] = {}
+  layoutDescriptors: Record<string, LayoutDescriptor>
+
+  // 매거진 모드가 활성화된 페이지 ID 집합
+  // Python으로 치면: self.magazine_mode_pages: set[str] = set()
+  magazineModePages: Record<string, boolean>
+
+  // 매거진 모드 토글 (원고 ↔ 레이아웃)
+  // Python으로 치면: def toggle_magazine_mode(self, page_id): ...
+  toggleMagazineMode: (pageId: string) => void
+
+  // 레이아웃 디스크립터 저장 (AI 생성 or 사용자 편집)
+  // Python으로 치면: def set_layout_descriptor(self, page_id, descriptor): ...
+  setLayoutDescriptor: (pageId: string, descriptor: LayoutDescriptor) => void
+
+  // 특정 셀 업데이트 (드래그/리사이즈 후 위치 변경)
+  // Python으로 치면: def update_layout_cell(self, page_id, cell_id, update): ...
+  updateLayoutCell: (pageId: string, cellId: string, update: Partial<LayoutCell>) => void
+
+  // 레이아웃 테마 변경
+  // Python으로 치면: def update_layout_theme(self, page_id, theme): ...
+  updateLayoutTheme: (pageId: string, theme: Partial<LayoutTheme>) => void
+
+  // 레이아웃 초기화 (AI 재생성을 위해 cells 비움, locked 셀 제외)
+  // Python으로 치면: def clear_layout(self, page_id, keep_locked=True): ...
+  clearLayout: (pageId: string, keepLocked?: boolean) => void
 }

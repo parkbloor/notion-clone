@@ -77,9 +77,20 @@ export default function CodeBlockView({ node, updateAttributes }: CodeBlockViewP
     // NodeViewWrapper DOM에서 code 텍스트 추출
     const wrapper = (e.currentTarget as HTMLElement).closest('.code-block-container')
     const codeText = wrapper?.querySelector('pre code')?.textContent ?? ''
+    // clipboard API 실패 시(HTTPS 미적용, 권한 거부 등) 사용자에게 피드백
+    // Python으로 치면: try: clipboard.write(text) except PermissionError: show_error()
     navigator.clipboard.writeText(codeText).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {
+      // 복사 실패 시 선택 영역으로 폴백 (레거시 브라우저 대응)
+      const range = document.createRange()
+      const codeEl = wrapper?.querySelector('pre code')
+      if (codeEl) {
+        range.selectNode(codeEl)
+        window.getSelection()?.removeAllRanges()
+        window.getSelection()?.addRange(range)
+      }
     })
   }
 

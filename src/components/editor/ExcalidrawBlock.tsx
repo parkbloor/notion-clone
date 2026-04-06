@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useCallback, useRef, useState, useMemo } from 'react'
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react'
 import dynamic from 'next/dynamic'
 // Excalidraw UI 스타일시트 — 클라이언트 번들에만 포함됨
 import '@excalidraw/excalidraw/index.css'
@@ -66,6 +66,10 @@ export default function ExcalidrawBlock({ blockId, content, onChange }: Excalidr
   // ── 디바운스 타이머 ref ──────────────────────
   // Python으로 치면: self._save_timer = None
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 언마운트 시 대기 중인 디바운스 타이머 정리 — 미완료 저장 방지
+  // Python으로 치면: def __del__(self): cancel_timer(self._save_timer)
+  useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current) }, [])
 
   // ── 전체화면 모드 토글 상태 ──────────────────
   // Python으로 치면: self.is_fullscreen = False

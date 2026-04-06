@@ -73,6 +73,18 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
   // 컨테이너 DOM 참조 — 리사이즈 시작 시점 실제 너비 측정용
   // Python으로 치면: container_ref = None
   const containerRef = useRef<HTMLDivElement>(null)
+  // 리사이즈 핸들러 중복 등록 방지용 ref
+  const isResizingRef = useRef(false)
+  // 언마운트 시 리사이즈 리스너 정리용 ref
+  const resizeCleanupRef = useRef<(() => void) | null>(null)
+  // 업로드 진행 타이머 ref — 언마운트 시 정리
+  const uploadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // 언마운트 시 남은 이벤트 리스너 및 타이머 정리
+  useEffect(() => () => {
+    resizeCleanupRef.current?.()
+    if (uploadTimerRef.current) clearInterval(uploadTimerRef.current)
+  }, [])
 
   // -----------------------------------------------
   // 실제 렌더링 너비: 리사이즈 중에는 localWidth, 아닐 때는 savedWidth
@@ -134,17 +146,18 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
     setProgress(10)
 
     // 진행률 시뮬레이션 (실제 스트리밍 대신 타이머 사용)
-    const timer = setInterval(() => {
+    // ref에 저장해 언마운트 시에도 정리 가능하게 함
+    uploadTimerRef.current = setInterval(() => {
       setProgress(p => p < 85 ? p + 5 : p)
     }, 300)
 
     try {
       const url = await api.uploadVideo(pageId, file)
-      clearInterval(timer)
+      if (uploadTimerRef.current) { clearInterval(uploadTimerRef.current); uploadTimerRef.current = null }
       setProgress(100)
       saveContent(url, savedWidth)
     } catch (e: unknown) {
-      clearInterval(timer)
+      if (uploadTimerRef.current) { clearInterval(uploadTimerRef.current); uploadTimerRef.current = null }
       setUploadError(e instanceof Error ? e.message : t.blocks.video.uploadError)
     } finally {
       setIsUploading(false)
@@ -186,6 +199,9 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
   function handleResizeStart(e: React.MouseEvent) {
     e.preventDefault()
     e.stopPropagation()
+    // 이미 리사이즈 중이면 중복 등록 방지
+    if (isResizingRef.current) return
+    isResizingRef.current = true
 
     // 리사이즈 시작 시점의 실제 컨테이너 너비, 부모 최대 너비 측정
     const startWidth = containerRef.current?.offsetWidth ?? (savedWidth ?? 560)
@@ -205,16 +221,23 @@ export default function VideoBlock({ block, pageId, readOnly = false }: VideoBlo
 
     // mouseup: 최종 너비를 스토어에 저장하고 리사이즈 종료
     function onMouseUp(ev: MouseEvent) {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
+      cleanup()
       const finalWidth = Math.min(maxWidth, Math.max(120, startWidth + (ev.clientX - startX)))
       setLocalWidth(finalWidth)
       setIsResizing(false)
       saveContent(src, finalWidth)
     }
 
+    function cleanup() {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      isResizingRef.current = false
+      resizeCleanupRef.current = null
+    }
+
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
+    resizeCleanupRef.current = cleanup
   }
 
   // ── src 없음: 업로드 UI 표시 ─────────────────

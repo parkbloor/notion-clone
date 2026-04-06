@@ -8,7 +8,8 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from typing import Optional
 
 from backend.routers.history import save_snapshot
 from backend.core import (
@@ -161,7 +162,11 @@ def create_page(body: CreatePageBody):
 
 
 @router.put("/pages/{page_id}")
-def save_page(page_id: str, page: PageModel):
+def save_page(
+    page_id: str,
+    page: PageModel,
+    categoryId: Optional[str] = Query(None),
+):
     """
     페이지 저장 (upsert)
 
@@ -189,7 +194,14 @@ def save_page(page_id: str, page: PageModel):
     )
 
     # 현재 카테고리 정보 (URL 경로에 포함됨)
+    # 인덱스에 없는 신규 페이지(로컬 폴백으로 생성된 경우)는 쿼리 파라미터 categoryId를 사용
+    # Python으로 치면: cat_id = index["categoryMap"].get(page_id) or query_categoryId
+    is_new_page = page_id not in folder_map
     cat_id = index.get("categoryMap", {}).get(page_id)
+    if not cat_id and is_new_page and categoryId:
+        validate_uuid(categoryId, "카테고리 ID")
+        cat_id = categoryId
+        index.setdefault("categoryMap", {})[page_id] = cat_id
     cat_folder = get_category_folder_name(cat_id, index)
 
     renamed = False

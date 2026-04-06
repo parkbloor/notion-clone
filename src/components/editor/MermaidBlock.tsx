@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useId } from 'react'
+import { useState, useEffect, useRef, useId, useCallback } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
@@ -41,14 +41,26 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Mermaid 렌더 시 고유 ID 생성 (React 18+ useId)
-  // Python으로 치면: self.render_id = f"mermaid-{uuid4().hex}"
+  // 컴포넌트 인스턴스 고유 prefix (useId 기반, 안정적)
+  // Python으로 치면: self._uid = f"mermaid-{uuid4().hex}"
   const uid = useId().replace(/:/g, '')
-  const renderId = `mermaid-render-${uid}`
+  // 렌더 호출마다 증가하는 카운터 → 각 렌더가 독립적인 DOM ID 사용
+  // 이전 렌더의 cleanupMermaidDom이 현재 렌더 중인 요소를 지우는 레이스 컨디션 방지
+  // Python으로 치면: self._render_counter = 0
+  const renderCounterRef = useRef(0)
+
+  // 특정 렌더 ID의 Mermaid 잔여 DOM 정리
+  // Python으로 치면: def cleanup_dom(id): doc.getElementById(id).remove()
+  const cleanupMermaidDom = useCallback((id: string) => {
+    document.getElementById(id)?.remove()
+    // Mermaid v11 내부적으로 'dmermaid-...' 형태의 래퍼 div도 생성
+    document.getElementById(`d${id}`)?.remove()
+  }, [])
 
   // -----------------------------------------------
   // Mermaid 코드 → SVG 비동기 변환
   // mermaid.render()는 Promise 반환 → async useEffect
+  // 각 호출마다 고유 ID를 사용해 동시 렌더 간 DOM 충돌 방지
   // Python으로 치면: async def render_mermaid(code): return await mermaid.render(id, code)
   // -----------------------------------------------
   useEffect(() => {
@@ -59,20 +71,11 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
     }
 
     let cancelled = false
-
-    // -----------------------------------------------
-    // Mermaid v11은 렌더링 실패 시 body에 잔여 요소를 남김
-    // → 렌더 전후로 해당 ID 요소 강제 삭제
-    // Python으로 치면: def cleanup(): doc.getElementById(id).remove()
-    // -----------------------------------------------
-    function cleanupMermaidDom() {
-      document.getElementById(renderId)?.remove()
-      // Mermaid v11 내부적으로 'dmermaid-...' 형태의 래퍼 div도 생성
-      document.getElementById(`d${renderId}`)?.remove()
-    }
+    // 이 렌더 호출 전용 ID — 다른 호출의 cleanup과 독립적으로 동작
+    const currentCount = ++renderCounterRef.current
+    const currentRenderId = `${uid}-r${currentCount}`
 
     async function renderDiagram() {
-      cleanupMermaidDom()
       try {
         // mermaid는 클라이언트 전용 → dynamic import
         const mermaid = (await import('mermaid')).default
@@ -81,24 +84,30 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
           theme: 'default',
           securityLevel: 'loose',
         })
-        const { svg } = await mermaid.render(renderId, code.trim())
+        const { svg } = await mermaid.render(currentRenderId, code.trim())
         if (!cancelled) {
           setSvgHtml(svg)
           setError('')
         }
       } catch (e) {
         // 실패 시에도 mermaid가 body에 남긴 오류 요소 정리 (화면 하단 노출 방지)
-        cleanupMermaidDom()
+        cleanupMermaidDom(currentRenderId)
         if (!cancelled) {
           setSvgHtml('')
           setError(e instanceof Error ? e.message.replace(/^Error:\s*/i, '') : t.blocks.mermaid.renderError)
         }
+      } finally {
+        // 렌더 완료 후 잔여 DOM 정리
+        cleanupMermaidDom(currentRenderId)
       }
     }
 
     renderDiagram()
-    return () => { cancelled = true }
-  }, [code, renderId])
+    return () => {
+      cancelled = true
+      cleanupMermaidDom(currentRenderId)
+    }
+  }, [code, uid, cleanupMermaidDom])
 
   // -----------------------------------------------
   // 편집 모드 진입 시 textarea 자동 포커스

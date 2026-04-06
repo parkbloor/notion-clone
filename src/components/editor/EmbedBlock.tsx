@@ -247,7 +247,10 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
             ? 'absolute inset-0 w-full h-full border-none'
             : 'w-full h-full border-none'
           }
-          // sandbox 속성은 너무 제한적이어서 제거 (YouTube 재생 막힘)
+          // YouTube/Vimeo는 sandbox 불가 (내부 스크립트 필요)
+          // 일반 URL은 sandbox로 부모 창 접근 및 스크립트 권한 제한
+          // Python으로 치면: if not is_video: iframe['sandbox'] = 'allow-scripts ...'
+          sandbox={isVideoEmbed ? undefined : 'allow-scripts allow-same-origin allow-forms allow-popups'}
         />
       </div>
 

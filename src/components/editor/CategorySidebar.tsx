@@ -213,6 +213,10 @@ export default function CategorySidebar({
     return Object.entries(countMap).sort((a, b) => b[1] - a[1])
   }, [pages])
 
+  // 즐겨찾기 페이지 목록 — 매 렌더마다 이중 filter 방지
+  // Python으로 치면: starred_pages = [p for p in pages if p.starred]
+  const starredPages = useMemo(() => pages.filter(p => p.starred), [pages])
+
   // 태그 브라우저 섹션 접힘 상태 (기본값 열림)
   // Python으로 치면: self.tag_section_open = True
   const [tagSectionOpen, setTagSectionOpen] = useState(true)
@@ -491,20 +495,20 @@ export default function CategorySidebar({
     )
   }
 
-  // 주기적 노트 페이지 제목 판별 (모듈 상수 사용)
-  // Python으로 치면: is_periodic_page = lambda t: any(t.startswith(p) for p in PERIODIC_PAGE_PREFIXES)
-  const isPeriodicPage = (title: string) => PERIODIC_PAGE_PREFIXES.some(p => title.startsWith(p))
-
   // 최상위 폴더 순서대로 정렬 — 주기적 노트 카테고리 제외 (계획 탭에서 관리)
-  // Python으로 치면: [cat for cat in ordered if cat.name not in PERIODIC_CAT_NAMES]
-  const orderedTopFolders = categoryOrder
-    .map(id => categories.find(c => c.id === id))
-    .filter(Boolean)
-    .filter(cat => !PERIODIC_CAT_NAMES.has((cat as Category).name)) as Category[]
+  // categoryById O(1) 조회 사용 (categories.find O(n) 제거)
+  // Python으로 치면: [cat_by_id[id] for id in order if id in cat_by_id and cat.name not in PERIODIC]
+  const orderedTopFolders = useMemo(() =>
+    categoryOrder
+      .map(id => categoryById[id])
+      .filter((cat): cat is Category => !!cat && !PERIODIC_CAT_NAMES.has(cat.name)),
+    [categoryOrder, categoryById]
+  )
 
   // 미분류 페이지 (categoryId가 null) — 주기적 노트 페이지 제외
+  // isPeriodicNote(L245)과 동일 함수이므로 재사용
   // Python으로 치면: [p for p in uncategorized if not is_periodic(p.title)]
-  const uncategorizedPages = getPagesInCat(null).filter(p => !isPeriodicPage(p.title))
+  const uncategorizedPages = getPagesInCat(null).filter(p => !isPeriodicNote(p.title))
 
   // ── 접힘 모드 렌더링 ────────────────────────────
   if (sidebarCollapsed) {
@@ -534,7 +538,8 @@ export default function CategorySidebar({
           </div>
 
           {/* 최상위 폴더 아이콘들 — CollapsedFolderIcon 컴포넌트로 hooks 규칙 준수 */}
-          <SortableContext items={categoryOrder} strategy={verticalListSortingStrategy}>
+          {/* items는 실제 렌더되는 목록과 일치해야 dnd-kit 오동작 방지 */}
+          <SortableContext items={orderedTopFolders.map(c => c.id)} strategy={verticalListSortingStrategy}>
             {orderedTopFolders.map(cat => (
               <CollapsedFolderIcon
                 key={cat.id}
@@ -865,7 +870,7 @@ export default function CategorySidebar({
               displayPages!.map(page => {
                 const catId = categoryMap[page.id] ?? null
                 const catName = catId
-                  ? (categories.find(c => c.id === catId)?.name ?? null)
+                  ? (categoryById[catId]?.name ?? null)
                   : (searchQuery ? t.sidebar.uncategorized : null)
                 return (
                   <DraggablePageRow
@@ -893,12 +898,12 @@ export default function CategorySidebar({
                 사이드바 상단에 ★ 고정 목록 표시
                 dnd-kit 중복 ID 방지를 위해 순수 버튼으로 렌더링 (드래그 불필요)
                 Python으로 치면: if starred_pages: render StarredSection() */}
-            {pages.filter(p => p.starred).length > 0 && (
+            {starredPages.length > 0 && (
               <>
                 <div className="px-2 py-0.5 text-[10px] text-yellow-500 font-medium uppercase tracking-wide flex items-center gap-1">
                   <span>★</span><span>{t.sidebar.favorites}</span>
                 </div>
-                {pages.filter(p => p.starred).map(page => (
+                {starredPages.map(page => (
                   <button
                     key={`star-${page.id}`}
                     type="button"
@@ -939,7 +944,8 @@ export default function CategorySidebar({
             )}
 
             {/* 폴더 트리 (인라인 페이지 포함, 최상위 정렬 가능) */}
-            <SortableContext items={categoryOrder} strategy={verticalListSortingStrategy}>
+            {/* items는 실제 렌더 목록과 일치해야 dnd-kit 오동작 방지 */}
+            <SortableContext items={orderedTopFolders.map(c => c.id)} strategy={verticalListSortingStrategy}>
               {orderedTopFolders.map(cat => renderFolder(cat.id, 0))}
             </SortableContext>
 

@@ -518,7 +518,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       // 드래그 중 그리드 스냅 적용 → 꼭지점이 항상 점과 일치
       // Python으로 치면: new_x = snap(clamp(start_x + dx, 0, max_x))
       const newX = snap(Math.max(0, Math.min(
-        canvasWidth - dragState.blockW - EDGE_PADDING,
+        canvasWidthRef.current - dragState.blockW - EDGE_PADDING,
         dragState.startBlockX + e.clientX - dragState.startMouseX
       )))
       const newY = snap(Math.max(0, dragState.startBlockY + e.clientY - dragState.startMouseY))
@@ -548,7 +548,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
-  }, [dragState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dragState]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // -----------------------------------------------
@@ -561,7 +561,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
     const onMouseMove = (e: MouseEvent) => {
       const dx = e.clientX - resizeState.startMouseX
       const dy = e.clientY - resizeState.startMouseY
-      const maxW = canvasWidth - resizeState.blockX - EDGE_PADDING
+      const maxW = canvasWidthRef.current - resizeState.blockX - EDGE_PADDING
       // 리사이즈도 그리드 스냅 적용 → 꼭지점이 점과 일치
       // Python으로 치면: new_w = snap(clamp(start_w + dx, MIN_W, max_w))
       const newW = resizeState.handle !== 'bottom'
@@ -587,7 +587,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
-  }, [resizeState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resizeState]) // eslint-disable-line react-hooks/exhaustive-deps
 
 
   // -----------------------------------------------
@@ -603,7 +603,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       // 박스가 캔버스 오른쪽/아래 경계를 넘지 않도록 clamp
       // Python으로 치면: new_x = clamp(start_x + dx, 0, canvas_w - box_w)
       const newX = snap(Math.max(0, Math.min(
-        canvasWidth - boxDragState.boxW - EDGE_PADDING,
+        canvasWidthRef.current - boxDragState.boxW - EDGE_PADDING,
         boxDragState.startBoxX + e.clientX - boxDragState.startMouseX
       )))
       const newY = snap(Math.max(0, boxDragState.startBoxY + e.clientY - boxDragState.startMouseY))
@@ -624,7 +624,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
-  }, [boxDragState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [boxDragState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
   // 가상 박스 그리기 마우스 이벤트 처리
@@ -640,7 +640,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
       // 캔버스 경계 내로 clamp (오른쪽/아래 여백 포함)
-      const curX = snap(Math.max(0, Math.min(canvasWidth - EDGE_PADDING, e.clientX - rect.left)))
+      const curX = snap(Math.max(0, Math.min(canvasWidthRef.current - EDGE_PADDING, e.clientX - rect.left)))
       const curY = snap(Math.max(0, e.clientY - rect.top))
       const updated = { ...drawingBoxRef.current!, curX, curY }
       setDrawingBox(updated)
@@ -691,7 +691,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       const dy = e.clientY - boxResizeState.startMouseY
       // 박스 우측이 캔버스 경계를 넘지 않도록 maxW 제한
       // Python으로 치면: max_w = canvas_w - box_x - EDGE_PADDING
-      const maxW = canvasWidth - boxResizeState.startX - EDGE_PADDING
+      const maxW = canvasWidthRef.current - boxResizeState.startX - EDGE_PADDING
       const newW = boxResizeState.handle !== 'bottom'
         ? snap(Math.max(40, Math.min(maxW, boxResizeState.startW + dx)))
         : boxResizeState.startW
@@ -715,7 +715,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
     }
-  }, [boxResizeState, canvasWidth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [boxResizeState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 드래그 핸들 mousedown
   function handleDragStart(

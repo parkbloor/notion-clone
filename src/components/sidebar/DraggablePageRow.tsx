@@ -143,8 +143,10 @@ export default function DraggablePageRow({
             // Python으로 치면: rect = e.currentTarget.get_bounding_client_rect()
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
             const menuW = 176
-            const safeX = Math.min(rect.right, window.innerWidth - menuW - 8)
-            setMenuAnchor({ x: safeX - menuW, y: rect.bottom + 4 })
+            // 메뉴를 버튼 우측 기준으로 배치하되 화면 오른쪽 끝 초과 방지
+            // Python으로 치면: x = max(0, min(rect.right - menu_w, screen_w - menu_w - 8))
+            const x = Math.max(0, Math.min(rect.right - menuW, window.innerWidth - menuW - 8))
+            setMenuAnchor({ x, y: rect.bottom + 4 })
             setMenuOpen(v => !v)
           }}
           className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-all text-xs"

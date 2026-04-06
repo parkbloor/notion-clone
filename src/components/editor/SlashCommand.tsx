@@ -95,6 +95,7 @@ export default function SlashCommand({
         { icon: '📑', name: t.slash.toc.label,           description: t.slash.toc.desc,           type: 'toc'            as BlockType },
         { icon: '📎', name: t.slash.file.label,          description: t.slash.file.desc,          type: 'file'           as BlockType },
         { icon: '🗓️', name: t.slash.dayPlanner.label,    description: t.slash.dayPlanner.desc,    type: 'dayplanner'     as BlockType },
+        { icon: '🗃️', name: t.slash.weekPlanner.label,   description: t.slash.weekPlanner.desc,   type: 'weekplanner'    as BlockType },
         { icon: '📆', name: t.slash.weeklyPlanner.label, description: t.slash.weeklyPlanner.desc, type: 'weeklyplanner'  as BlockType },
         { icon: '🔄', name: t.slash.routineMatrix.label, description: t.slash.routineMatrix.desc, type: 'routinematrix'  as BlockType },
         { icon: '📅', name: t.slash.monthly.label,       description: t.slash.monthly.desc,       type: 'monthlycalendar' as BlockType },

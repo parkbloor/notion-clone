@@ -75,14 +75,25 @@ function parseGantt(content: string): GanttData {
   return defaultData()
 }
 
+// ── 날짜 문자열 유효성 검사 ──────────────────
+// 유효하지 않은 날짜 문자열로 인한 NaN 전파 방지
+// Python으로 치면: def is_valid_date(s): datetime.fromisoformat(s) except ValueError: False
+function isValidDateStr(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(s + 'T00:00:00')
+  return !isNaN(d.getTime())
+}
+
 // ── 날짜 문자열 → Date 변환 ──────────────────
 // Python으로 치면: def to_date(s): return datetime.fromisoformat(s)
 function toDate(s: string): Date {
+  if (!isValidDateStr(s)) return new Date()
   return new Date(s + 'T00:00:00')
 }
 
 // ── 날짜 차이 (일수) ─────────────────────────
 // Python으로 치면: def diff_days(a, b): return (b - a).days
+// 음수 가능 (a > b 이면 음수) — 호출 측에서 범위 체크에 사용
 function diffDays(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000)
 }

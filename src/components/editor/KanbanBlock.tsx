@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useLocale } from '@/locales'
 import {
   DndContext,
@@ -315,6 +315,15 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
   // 드래그 중 카드가 현재 어느 열에 있는지 추적
   // Python으로 치면: self._active_col_id = None
   const activeColumnIdRef = useRef<string | null>(null)
+
+  // 드래그 중 외부 content prop 변경으로 인한 data 덮어쓰기 방지
+  // activeCard가 있으면 드래그 진행 중 → content 동기화 건너뜀
+  // Python으로 치면: @observe(content) def sync_content(): if not self.active_card: self.data = parse(content)
+  useEffect(() => {
+    if (activeCard) return
+    setData(parseContent(content))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content])
 
   // -----------------------------------------------
   // 변경사항 저장 — state 갱신 + onChange 호출 (백엔드 저장 트리거)

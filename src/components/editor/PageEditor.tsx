@@ -28,6 +28,8 @@ import LockModal from './LockModal'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
 import { groupBlocksIntoRows, getColumnFlexValues, hasCanvasLayout } from '@/lib/canvasLayout'
+import MagazineGrid from './MagazineGrid'
+import { createLayoutDescriptor } from '@/types/block'
 // ArrowLayer: 화살표 마크가 있는 단어 쌍을 SVG 곡선으로 연결하는 오버레이
 // Python으로 치면: from components import ArrowLayer
 import ArrowLayer from './ArrowLayer'
@@ -280,6 +282,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     pages,
     selectedBlockIds, toggleBlockSelection, selectBlockRange,
     clearBlockSelection, deleteSelectedBlocks, duplicateSelectedBlocks,
+    toggleMagazineMode, magazineModePages, layoutDescriptors, setLayoutDescriptor,
   } = usePageStore()
 
   // historyVersion 구독 → undo/redo 실행 시 버튼 활성화 상태 자동 갱신
@@ -971,6 +974,33 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             <span>{t.page.canvasLabel}</span>
           </button>
 
+          {/* 매거진 레이아웃 모드 토글 버튼
+              원고 모드 ↔ 잡지 레이아웃 모드 전환
+              Python으로 치면: magazine_btn.on_click = lambda: toggle_magazine_mode(page_id) */}
+          <button
+            type="button"
+            onClick={() => {
+              const isMagazine = !!magazineModePages[pageId]
+              if (!isMagazine) {
+                // 처음 진입 시 레이아웃 자동 생성
+                const existing = layoutDescriptors[pageId]
+                if (!existing) {
+                  // 테마 기본값으로 descriptor 초기화 (셀 배치는 MagazineGrid 내부에서 처리)
+                  const descriptor = createLayoutDescriptor(pageId)
+                  setLayoutDescriptor(pageId, descriptor)
+                }
+              }
+              toggleMagazineMode(pageId)
+            }}
+            title={!!magazineModePages[pageId] ? '원고 모드로 전환' : '잡지 레이아웃 모드로 전환'}
+            className={!!magazineModePages[pageId]
+              ? "flex items-center gap-1 px-2 py-1 text-xs text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-md transition-colors"
+              : "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
+          >
+            <span>📰</span>
+            <span>{!!magazineModePages[pageId] ? '원고' : '잡지'}</span>
+          </button>
+
           {/* 집중 모드 종료 버튼 (집중 모드 플러그인 ON + 집중 모드 활성 시만 표시) */}
           {/* Python으로 치면: if plugins.focus_mode and is_focus_mode: render_exit_btn() */}
           {plugins.focusMode && isFocusMode && (
@@ -1213,11 +1243,17 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         )}
 
         {/* ── 블록 목록 렌더링 ─────────────────────── */}
-        {/* canvasMode ON일 때만 캔버스 레이아웃 사용
-            OFF 시 일반 문서 모드로 복귀 — canvasX/Y/W/H는 메타데이터로 보존됨
-            다시 ON하면 이전 배치 그대로 복원
-            Python으로 치면: use_canvas = page.canvas_mode */}
-        {page.canvasMode ? (
+        {/* 매거진 레이아웃 모드 — LayoutDescriptor로 CSS Grid 배치
+            원고 데이터(blocks)는 그대로, 표현 방식만 변경
+            Python으로 치면: use_magazine = page_id in magazine_mode_pages */}
+        {!!magazineModePages[pageId] && layoutDescriptors[pageId] ? (
+          <MagazineGrid
+            pageId={pageId}
+            blocks={page.blocks}
+            descriptor={layoutDescriptors[pageId]}
+            readMode={readMode || !!page.isLocked}
+          />
+        ) : page.canvasMode ? (
           <CanvasPageEditor page={page} readMode={readMode || !!page.isLocked} editMode={true} />
         ) : hasCanvasLayout(page.blocks) ? (
 

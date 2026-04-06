@@ -85,12 +85,12 @@ function SlotBlockEditor({
   })
 
   // 마운트 직후 포커스 (새로 추가된 블록에만 적용)
+  // requestAnimationFrame: setTimeout(0)보다 안정적 — 브라우저 페인트 후 실행 보장
   // Python으로 치면: if focus_on_mount: asyncio.create_task(self.focus())
   useEffect(() => {
-    if (focusOnMount && editor) {
-      // setTimeout 0: React 렌더 완료 후 포커스 (flushSync 충돌 방지)
-      setTimeout(() => editor.commands.focus('end'), 0)
-    }
+    if (!focusOnMount || !editor) return
+    const rafId = requestAnimationFrame(() => editor.commands.focus('end'))
+    return () => cancelAnimationFrame(rafId)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor])
 

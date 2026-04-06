@@ -322,7 +322,8 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
       setZoom(z => Math.max(0.2, Math.min(4, z * factor)))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    // passive: false 옵션을 동일하게 전달해야 올바르게 제거됨
+    return () => el.removeEventListener('wheel', onWheel, { passive: false } as EventListenerOptions)
   }, [])
 
   // ── 언마운트 시 진행 중인 AI 스트림 취소 ──────────

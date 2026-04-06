@@ -86,8 +86,13 @@ export const api = {
   // 제목 변경으로 폴더 rename된 경우 → 업데이트된 Page 반환 (이미지 URL 갱신용)
   // rename 없으면 → null 반환
   // Python으로 치면: res = requests.put(url, json=page_data); return res.json()['page'] if renamed
-  savePage: async (pageId: string, page: Page): Promise<Page | null> => {
-    const res = await fetch(`${BASE_URL}/api/pages/${pageId}`, {
+  // categoryId: 신규 페이지(로컬 폴백으로 생성된 경우)를 카테고리 폴더에 배치
+  // Python으로 치면: requests.put(url, json=page_data, params={'categoryId': cat_id})
+  savePage: async (pageId: string, page: Page, categoryId?: string | null): Promise<Page | null> => {
+    const url = categoryId
+      ? `${BASE_URL}/api/pages/${pageId}?categoryId=${encodeURIComponent(categoryId)}`
+      : `${BASE_URL}/api/pages/${pageId}`
+    const res = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(serializePage(page)),

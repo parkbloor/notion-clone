@@ -18,8 +18,8 @@ import { X, ChevronLeft, ChevronRight, CalendarDays, CalendarRange, Clock, Plus 
 // Python으로 치면: ViewTab = Literal['month', 'week', 'day']
 type ViewTab = 'month' | 'week' | 'day'
 
-// ── 요일 레이블 ──────────────────────────────────
-const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+// ── 요일 레이블 (월요일 시작 — WeeklyPlannerBlock과 통일) ────────
+const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일']
 
 // ── 한 시간 슬롯의 픽셀 높이 ───────────────────
 // 타임 블록 위치·높이 계산의 기준값
@@ -32,23 +32,28 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-// ── 월 달력 그리드 셀 배열 생성 ─────────────────
+// ── 월 달력 그리드 셀 배열 생성 (월요일 시작) ───────────────────
 // 앞뒤 빈 칸(null) 포함한 7열 고정 그리드
 // Python으로 치면: def make_cal_grid(year, month) -> list[date|None]: ...
 function makeCalGrid(year: number, month: number): (Date | null)[] {
-  const firstDay = new Date(year, month, 1).getDay()
+  const rawDay = new Date(year, month, 1).getDay()  // 0=일 ~ 6=토
+  // 월요일 시작 오프셋: 일=6, 월=0, 화=1, ..., 토=5
+  const offset = rawDay === 0 ? 6 : rawDay - 1
   const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const cells: (Date | null)[] = Array(firstDay).fill(null)
+  const cells: (Date | null)[] = Array(offset).fill(null)
   for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d))
   while (cells.length % 7 !== 0) cells.push(null)
   return cells
 }
 
-// ── 해당 주의 날짜 7개 반환 (일요일 시작) ─────────
-// Python으로 치면: def week_dates(anchor): return [anchor - anchor.weekday() + i for i in range(7)]
+// ── 해당 주의 날짜 7개 반환 (월요일 시작 — WeeklyPlannerBlock과 통일) ──
+// Python으로 치면: def week_dates(anchor): return [monday_of(anchor) + timedelta(i) for i in range(7)]
 function getWeekDates(anchor: Date): Date[] {
   const start = new Date(anchor)
-  start.setDate(anchor.getDate() - anchor.getDay())
+  const dow = anchor.getDay()
+  // 월요일 시작: 일=−6, 월=0, 화=−1, ..., 토=−5
+  const diff = dow === 0 ? -6 : 1 - dow
+  start.setDate(anchor.getDate() + diff)
   return Array.from({ length: 7 }, (_, i) => {
     const d = new Date(start)
     d.setDate(start.getDate() + i)
@@ -222,7 +227,9 @@ export default function CalendarOverlay({ onClose }: CalendarOverlayProps) {
         return `${s.getFullYear()}년 ${s.getMonth() + 1}월 ${s.getDate()}–${e.getDate()}일`
       return `${s.getMonth() + 1}월 ${s.getDate()}일 – ${e.getMonth() + 1}월 ${e.getDate()}일`
     }
-    return `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월 ${anchor.getDate()}일 (${WEEKDAYS[anchor.getDay()]})`
+    // 월요일 시작 WEEKDAYS 인덱스: 일=6, 월=0, ..., 토=5
+    const dowIdx = anchor.getDay() === 0 ? 6 : anchor.getDay() - 1
+    return `${anchor.getFullYear()}년 ${anchor.getMonth() + 1}월 ${anchor.getDate()}일 (${WEEKDAYS[dowIdx]})`
   }
 
   const todayStr = toDateStr(new Date())
@@ -436,7 +443,8 @@ export default function CalendarOverlay({ onClose }: CalendarOverlayProps) {
                 {WEEKDAYS.map((d, i) => (
                   <div key={d} className={[
                     'text-center text-[11px] font-medium py-2',
-                    i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400',
+                    // 월요일 시작: 토=index 5(파랑), 일=index 6(빨강)
+                    i === 5 ? 'text-blue-400' : i === 6 ? 'text-red-400' : 'text-gray-400',
                   ].join(' ')}>{d}</div>
                 ))}
               </div>
@@ -462,9 +470,10 @@ export default function CalendarOverlay({ onClose }: CalendarOverlayProps) {
                           <div className={[
                             'text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 select-none',
                             isToday    ? 'bg-blue-500 text-white' : '',
-                            !isToday && colIdx === 0 ? 'text-red-400' : '',
-                            !isToday && colIdx === 6 ? 'text-blue-400' : '',
-                            !isToday && colIdx > 0 && colIdx < 6 ? 'text-gray-600' : '',
+                            // 월요일 시작: 토=colIdx 5(파랑), 일=colIdx 6(빨강)
+                            !isToday && colIdx === 5 ? 'text-blue-400' : '',
+                            !isToday && colIdx === 6 ? 'text-red-400' : '',
+                            !isToday && colIdx < 5 ? 'text-gray-600' : '',
                           ].join(' ')}>{date.getDate()}</div>
                           {pagesOnDay.slice(0, 3).map(page => {
                             const timeProp = page.properties?.find(p => p.type === 'time')?.value
@@ -527,7 +536,8 @@ export default function CalendarOverlay({ onClose }: CalendarOverlayProps) {
                     <div key={i} className="border-r border-gray-100 last:border-r-0">
                       {/* 요일 + 날짜 */}
                       <div className="text-center py-1.5">
-                        <div className={['text-[10px] font-medium', i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-500'].join(' ')}>
+                        {/* 월요일 시작: 토=index 5(파랑), 일=index 6(빨강) */}
+                        <div className={['text-[10px] font-medium', i === 5 ? 'text-blue-400' : i === 6 ? 'text-red-400' : 'text-gray-500'].join(' ')}>
                           {WEEKDAYS[i]}
                         </div>
                         <button

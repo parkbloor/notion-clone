@@ -113,11 +113,6 @@ const CHART_SYSTEM_PROMPT = `당신은 데이터 시각화 전문가입니다.
 - series color는 hex 코드 (예: "#3b82f6")
 - 숫자 데이터는 정수 또는 소수점 1자리`
 
-// ── 모듈 레벨: 마지막 활성 ChartBlock ID ────────
-// GlobalAIChatButton의 'ai-apply-chart' 이벤트를 처리할 블록 결정
-// Python으로 치면: _active_chart_id: str | None = None
-let _activeChartBlockId: string | null = null
-
 export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   const t = useLocale()
   const { updateBlock } = usePageStore()
@@ -146,6 +141,10 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   // isAiTarget: 전역 AI가 이 블록을 선택했을 때 링 + 배지 표시
   // Python으로 치면: self.is_ai_target = False
   const [isAiTarget, setIsAiTarget] = useState(false)
+  // isAiTargetRef: 이벤트 핸들러에서 최신 isAiTarget 참조용 (stale closure 방지)
+  // 모듈 전역 _activeChartBlockId 대신 각 인스턴스가 독립적으로 관리
+  // Python으로 치면: self._is_ai_target_ref = threading.local()
+  const isAiTargetRef = useRef(false)
 
   // applyChartRef: 전역 AI 이벤트에서 최신 applyAiChart 참조 (stale closure 방지)
   // Python으로 치면: self._apply_ref = WeakRef(self.apply_ai_chart)
@@ -287,18 +286,20 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
   }
 
   // ── 전역 AI → 차트 적용 연동 ─────────────────────
-  // 매 렌더마다 최신 applyAiChart로 ref 동기화 (stale closure 방지)
+  // 매 렌더마다 최신 applyAiChart, isAiTarget 값으로 ref 동기화 (stale closure 방지)
   // Python으로 치면: def on_render(self): self._apply_ref.current = self.apply_ai_chart
   applyChartRef.current = applyAiChart
+  isAiTargetRef.current = isAiTarget
 
-  // 마운트 시 전역 활성 차트로 등록 + 이벤트 리스너 등록
+  // 마운트 시 이벤트 리스너 등록
   // GlobalAIChatButton의 📊 모드 '적용' 버튼이 'ai-apply-chart' 이벤트 발행
+  // 모듈 전역 변수 대신 isAiTargetRef로 활성 블록 여부 판단 → 인스턴스 간 충돌 없음
   // + AI 블록 선택/해제 인디케이터
-  // Python으로 치면: def on_mount(self): global _active; _active = self; window.on(...)
+  // Python으로 치면: def on_mount(self): window.on('ai-apply-chart', self._handler)
   useEffect(() => {
-    _activeChartBlockId = block.id
     function handleGlobalChart(e: Event) {
-      if (_activeChartBlockId !== block.id) return
+      // 이 블록이 AI 대상으로 선택된 경우에만 적용
+      if (!isAiTargetRef.current) return
       applyChartRef.current((e as CustomEvent<string>).detail)
     }
     function handleSelect(e: Event) {
@@ -313,7 +314,6 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
       window.removeEventListener('ai-apply-chart', handleGlobalChart)
       window.removeEventListener('ai-block-select', handleSelect)
       window.removeEventListener('ai-block-deselect', handleDeselect)
-      if (_activeChartBlockId === block.id) _activeChartBlockId = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [block.id])

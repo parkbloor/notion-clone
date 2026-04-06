@@ -42,6 +42,12 @@ export const usePageStore = create<PageStore>()(
     activeTagFilter: null,
     currentVaultName: '',
 
+    // Magazine Layout 초기 상태
+    // Python으로 치면: self.layout_descriptors = {}
+    layoutDescriptors: {},
+    // Python으로 치면: self.magazine_mode_pages = set()
+    magazineModePages: {},
+
     // 일괄 선택된 블록 ID 목록
     // Python으로 치면: self.selected_block_ids = []
     selectedBlockIds: [],
@@ -83,6 +89,8 @@ export const usePageStore = create<PageStore>()(
         state.activeTagFilter = null
         state.currentVaultName = ''
         state.selectedBlockIds = []
+        state.layoutDescriptors = {}
+        state.magazineModePages = {}
       })
     },
 
@@ -185,12 +193,16 @@ export const usePageStore = create<PageStore>()(
         })
         await api.setCurrentPage(serverPage.id).catch(() => {})
       } catch {
-        // 서버가 꺼져있으면 로컬에만 생성 (카테고리 없이)
-        // Python으로 치면: page = Page.create(title); self.pages.append(page)
+        // 서버가 꺼져있으면 로컬에만 생성 — categoryId는 categoryMap에 보존
+        // 이후 scheduleSave 호출 시 categoryId를 쿼리파라미터로 전달 → 서버 복구 시 올바른 폴더에 저장
+        // Python으로 치면: page = Page.create(title); self.category_map[page.id] = category_id
         const newPage = createPage(title)
         set((state) => {
           state.pages.push(newPage)
           state.currentPageId = newPage.id
+          if (categoryId) {
+            state.categoryMap[newPage.id] = categoryId
+          }
         })
         toast.warning('서버 연결 실패로 로컬에만 메모가 생성됐습니다.', { duration: 3000 })
       }
@@ -1183,6 +1195,69 @@ export const usePageStore = create<PageStore>()(
       } catch {
         toast.error('휴지통 비우기에 실패했습니다.')
       }
+    },
+
+    // ── Magazine Layout 액션 ──────────────────────
+
+    // 매거진 모드 토글 — 원고 모드 ↔ 레이아웃 모드 전환
+    // Python으로 치면: def toggle_magazine_mode(self, page_id): self.magazine_mode_pages ^= {page_id}
+    toggleMagazineMode: (pageId) => {
+      set((state) => {
+        if (state.magazineModePages[pageId]) {
+          delete state.magazineModePages[pageId]
+        } else {
+          state.magazineModePages[pageId] = true
+        }
+      })
+    },
+
+    // 레이아웃 디스크립터 저장 (AI 생성 결과 or 사용자 편집 완료 시)
+    // Python으로 치면: def set_layout_descriptor(self, page_id, descriptor): ...
+    setLayoutDescriptor: (pageId, descriptor) => {
+      set((state) => {
+        state.layoutDescriptors[pageId] = {
+          ...descriptor,
+          updatedAt: new Date().toISOString(),
+        }
+      })
+    },
+
+    // 특정 셀만 업데이트 (드래그로 이동 or 리사이즈 후)
+    // Python으로 치면: def update_layout_cell(self, page_id, cell_id, update): ...
+    updateLayoutCell: (pageId, cellId, update) => {
+      set((state) => {
+        const descriptor = state.layoutDescriptors[pageId]
+        if (!descriptor) return
+        const cellIdx = descriptor.cells.findIndex(c => c.id === cellId)
+        if (cellIdx === -1) return
+        descriptor.cells[cellIdx] = { ...descriptor.cells[cellIdx], ...update }
+        descriptor.updatedAt = new Date().toISOString()
+      })
+    },
+
+    // 레이아웃 테마 부분 업데이트
+    // Python으로 치면: def update_layout_theme(self, page_id, theme_patch): ...
+    updateLayoutTheme: (pageId, theme) => {
+      set((state) => {
+        const descriptor = state.layoutDescriptors[pageId]
+        if (!descriptor) return
+        descriptor.theme = { ...descriptor.theme, ...theme }
+        descriptor.updatedAt = new Date().toISOString()
+      })
+    },
+
+    // 레이아웃 초기화 — locked 셀은 유지, 나머지 제거
+    // AI 재생성 요청 전에 호출
+    // Python으로 치면: def clear_layout(self, page_id, keep_locked=True): ...
+    clearLayout: (pageId, keepLocked = true) => {
+      set((state) => {
+        const descriptor = state.layoutDescriptors[pageId]
+        if (!descriptor) return
+        descriptor.cells = keepLocked
+          ? descriptor.cells.filter(c => c.locked)
+          : []
+        descriptor.updatedAt = new Date().toISOString()
+      })
     },
 
   }))

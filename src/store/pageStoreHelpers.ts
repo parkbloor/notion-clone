@@ -34,10 +34,14 @@ export function scheduleSave(
   saveTimers.set(pageId, setTimeout(async () => {
     saveTimers.delete(pageId)
     setState((state) => { state.saveStatus = 'saving' })
-    const page = getState().pages.find(p => p.id === pageId)
+    const state0 = getState()
+    const page = state0.pages.find(p => p.id === pageId)
+    // 신규 페이지(로컬 폴백으로 생성된 경우) categoryId 전달 → 서버가 카테고리 폴더에 배치
+    // Python으로 치면: cat_id = state.category_map.get(page_id)
+    const categoryId = state0.categoryMap?.[pageId] ?? null
     if (page) {
       try {
-        const updatedPage = await api.savePage(pageId, page)
+        const updatedPage = await api.savePage(pageId, page, categoryId)
         // 백엔드가 이미지 URL 등을 업데이트한 page를 반환 → store에 반영
         if (updatedPage) {
           setState((state) => {
@@ -51,6 +55,11 @@ export function scheduleSave(
                 if (!localBlock) return serverBlock
                 return {
                   ...serverBlock,
+                  // content는 로컬 우선 — 서버 저장 응답 대기 중 추가 편집이 있으면
+                  // serverBlock.content(구버전)가 localBlock.content(최신)를 덮어쓰는
+                  // 레이스 컨디션을 방지한다.
+                  // Python으로 치면: merged['content'] = local.content or server.content
+                  content: localBlock.content ?? serverBlock.content,
                   backgroundColor: localBlock.backgroundColor,
                   canvasX: localBlock.canvasX,
                   canvasY: localBlock.canvasY,
@@ -97,11 +106,13 @@ export async function saveNow(
   // 기존 디바운스 타이머 취소 (중복 저장 방지)
   const existing = saveTimers.get(pageId)
   if (existing) { clearTimeout(existing); saveTimers.delete(pageId) }
-  const page = getState().pages.find(p => p.id === pageId)
+  const state0 = getState()
+  const page = state0.pages.find(p => p.id === pageId)
   if (!page) return
+  const categoryId = state0.categoryMap?.[pageId] ?? null
   setState((state) => { state.saveStatus = 'saving' })
   try {
-    const updatedPage = await api.savePage(pageId, page)
+    const updatedPage = await api.savePage(pageId, page, categoryId)
     if (updatedPage) {
       setState((state) => {
         const idx = state.pages.findIndex(p => p.id === pageId)
