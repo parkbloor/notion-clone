@@ -14,6 +14,7 @@ import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
+import { useSettingsStore } from '@/store/settingsStore'
 import { useLocale } from '@/locales'
 
 // ── 날짜 유틸 ─────────────────────────────────
@@ -52,8 +53,11 @@ interface Props { block: Block; pageId: string }
 
 export default function RoutineMatrixBlock({ block, pageId }: Props) {
   const t = useLocale()
-  const updateBlock = usePageStore(s => s.updateBlock)
-  const pages       = usePageStore(s => s.pages)
+  const updateBlock    = usePageStore(s => s.updateBlock)
+  const pages          = usePageStore(s => s.pages)
+  // 루틴 프리셋을 settingsStore에서 직접 읽음 (block.content와 분리됨)
+  // Python으로 치면: routines = settings_store.planner_routines
+  const plannerRoutines = useSettingsStore(s => s.plannerRoutines)
 
   // ── 콘텐츠 파싱 ──────────────────────────────
   // Python으로 치면: data = json.loads(block.content) if block.content else {}
@@ -90,13 +94,13 @@ export default function RoutineMatrixBlock({ block, pageId }: Props) {
       .replace('{year}', String(s.getFullYear()))
       .replace('{start}', `${s.getMonth()+1}/${s.getDate()}`)
       .replace('{end}', `${e.getMonth()+1}/${e.getDate()}`)
-  }, [data.weekStart])
+  }, [data.weekStart, t])
 
   // ── 루틴 달성 매트릭스 집계 ───────────────────
-  // 모든 페이지의 DayPlannerBlock 스캔 → 이번 주 날짜에 해당하는 루틴 완료 여부 수집
-  // Python으로 치면: def build_matrix(pages, week_dates) -> dict: ...
+  // 루틴 목록: settingsStore.plannerRoutines
+  // 이벤트: 모든 DayPlannerBlock의 eventsByDate에서 이번 주 날짜 데이터 수집
+  // Python으로 치면: def build_matrix(pages, week_dates, routines) -> dict: ...
   const matrix = useMemo(() => {
-    const titlesSet = new Set<string>()
     // { routineTitle: { date: true(완료) | false(미완료) | undefined(데이터 없음) } }
     const map: Record<string, Record<string, boolean | undefined>> = {}
 
@@ -105,24 +109,24 @@ export default function RoutineMatrixBlock({ block, pageId }: Props) {
         if (b.type !== 'dayplanner') return
         try {
           const d = JSON.parse(b.content || '{}') as PlannerData
-          if (!weekDates.includes(d.date)) return
-          // 루틴 제목 목록 수집
-          d.routines?.forEach(r => titlesSet.add(r.title))
-          // 이벤트 중 루틴과 제목+시작시간이 일치하는 것 → done 여부 기록
-          d.events?.forEach(ev => {
-            const matched = d.routines?.find(r => r.title === ev.title && r.start === ev.start)
-            if (!matched) return
-            if (!map[matched.title]) map[matched.title] = {}
-            // 같은 날 여러 기록이 있으면 완료 우선
-            const prev = map[matched.title][d.date]
-            map[matched.title][d.date] = prev === true ? true : ev.done
+          // 이번 주 날짜별로 루틴 완료 여부 수집
+          weekDates.forEach(date => {
+            const dayEvents = d.eventsByDate?.[date] ?? []
+            dayEvents.forEach(ev => {
+              const matched = plannerRoutines.find(r => r.title === ev.title && r.start === ev.start)
+              if (!matched) return
+              if (!map[matched.title]) map[matched.title] = {}
+              const prev = map[matched.title][date]
+              map[matched.title][date] = prev === true ? true : ev.done
+            })
           })
         } catch {}
       })
     })
 
-    return { titles: Array.from(titlesSet), map }
-  }, [pages, weekDates])
+    const titles = plannerRoutines.map(r => r.title)
+    return { titles, map }
+  }, [pages, weekDates, plannerRoutines])
 
   return (
     <div

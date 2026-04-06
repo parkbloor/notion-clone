@@ -14,7 +14,8 @@
 import { useState, useMemo, useCallback } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { X, ChevronLeft, ChevronRight, Plus, Check, Clock } from 'lucide-react'
-import { PlanEvent, PlannerData } from './DayPlannerBlock'
+import { PlanEvent } from '@/types/block'
+import { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
 
 // ── 오늘 날짜 문자열 ─────────────────────────
@@ -100,8 +101,9 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
         if (block.type !== 'dayplanner') continue
         try {
           const data: PlannerData = JSON.parse(block.content || '{}')
-          if (data.date !== date) continue
-          for (const ev of data.events ?? []) {
+          // 새 구조(eventsByDate)와 구버전(date+events) 모두 대응
+          const dayEvents: PlanEvent[] = data.eventsByDate?.[date] ?? []
+          for (const ev of dayEvents) {
             result.push({
               event: ev,
               pageId: page.id,
@@ -125,10 +127,15 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
     if (!block) return
     try {
       const data: PlannerData = JSON.parse(block.content || '{}')
-      const events = data.events.map(e => e.id === eventId ? { ...e, done: !e.done } : e)
-      updateBlock(pageId, blockId, JSON.stringify({ ...data, events }))
+      const dayEvents = (data.eventsByDate?.[date] ?? []).map(
+        e => e.id === eventId ? { ...e, done: !e.done } : e
+      )
+      updateBlock(pageId, blockId, JSON.stringify({
+        eventsByDate: { ...(data.eventsByDate ?? {}), [date]: dayEvents },
+        reviewByDate: data.reviewByDate ?? {},
+      }))
     } catch { /* 무시 */ }
-  }, [pages, updateBlock])
+  }, [pages, date, updateBlock])
 
   // ── 빠른 추가: 현재 페이지의 dayplanner 블록에 이벤트 추가 ──
   // 현재 페이지에 dayplanner 블록이 없으면 자동 생성
@@ -144,40 +151,34 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       done:  false,
     }
 
-    // 현재 페이지에서 오늘 날짜의 dayplanner 블록 찾기
+    // 현재 페이지에서 dayplanner 블록 찾기 (날짜 무관 — 블록 타입으로 검색)
     const page = pages.find(p => p.id === currentPageId)
-    const existingBlock = page?.blocks?.find(b => {
-      if (b.type !== 'dayplanner') return false
-      try {
-        const d: PlannerData = JSON.parse(b.content || '{}')
-        return d.date === date
-      } catch { return false }
-    })
+    const existingBlock = page?.blocks?.find(b => b.type === 'dayplanner')
 
     if (existingBlock && currentPageId) {
-      // 기존 블록에 이벤트 추가
+      // 기존 블록에 이벤트 추가 (새 eventsByDate 구조)
       try {
         const data: PlannerData = JSON.parse(existingBlock.content || '{}')
+        const dayEvs = data.eventsByDate?.[date] ?? []
         updateBlock(currentPageId, existingBlock.id, JSON.stringify({
-          ...data,
-          events: [...data.events, newEvent],
+          eventsByDate: { ...(data.eventsByDate ?? {}), [date]: [...dayEvs, newEvent] },
+          reviewByDate: data.reviewByDate ?? {},
         }))
       } catch { /* 무시 */ }
     } else if (currentPageId) {
-      // 새 dayplanner 블록 추가: addBlock → 마지막 블록 ID 추적 → type + content 설정
+      // 새 dayplanner 블록 추가
       addBlock(currentPageId)
-      // addBlock은 동기적으로 스토어를 업데이트하므로 즉시 마지막 블록 참조 가능
       const newBlocks = usePageStore.getState().pages.find(p => p.id === currentPageId)?.blocks ?? []
       const newBlockId = newBlocks[newBlocks.length - 1]?.id
       if (newBlockId) {
         updateBlockType(currentPageId, newBlockId, 'dayplanner')
-        updateBlock(currentPageId, newBlockId, JSON.stringify({ date, events: [newEvent] }))
+        updateBlock(currentPageId, newBlockId, JSON.stringify({ eventsByDate: { [date]: [newEvent] } }))
       }
     }
 
     setFormTitle('')
     setShowForm(false)
-  }, [formTitle, formStart, formEnd, formColor, date, pages, currentPageId, updateBlock, addBlock])
+  }, [formTitle, formStart, formEnd, formColor, date, pages, currentPageId, updateBlock, updateBlockType, addBlock])
 
   // ── 현재 시각 기준 진행 중 이벤트 판별 ──────
   // Python으로 치면: def is_ongoing(event): return start <= now <= end
@@ -187,7 +188,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
     const s      = ev.start.split(':').map(Number)
     const e      = ev.end.split(':').map(Number)
     if (s.length < 2 || e.length < 2) return false
-    return (s[0]*60+s[1]) <= nowMin && nowMin <= (e[0]*60+e[1])
+    return (s[0]*60+s[1]) <= nowMin && nowMin < (e[0]*60+e[1])
   }
 
   const isToday  = date === todayStr()

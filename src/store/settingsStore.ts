@@ -10,6 +10,7 @@ import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import { getFontPreset, DEFAULT_FONT_ID } from '@/lib/fonts'
 import { PRESET_VARS, DEFAULT_VARS } from '@/lib/themeVars'
+import type { Routine } from '@/types/block'
 
 // -----------------------------------------------
 // 커스텀 레이아웃 템플릿 저장 포맷
@@ -92,20 +93,52 @@ export interface SettingsStore {
   weatherLocation: string
   setWeatherLocation: (loc: string) => void
 
+  // ── Day Planner 타임라인 설정 ────────────────
+  // plannerStartHour: 타임라인 시작 시각 (기본 0 → 00:00)
+  // plannerSnapMin: 드래그 스냅 간격 분 (기본 15)
+  // plannerZoom: 1시간당 픽셀 높이 (32|48|64|96, 기본 64)
+  // Python으로 치면: self.planner_start_hour: int = 0; self.planner_snap_min: int = 15; self.planner_zoom: int = 64
+  plannerStartHour: number
+  plannerSnapMin:   number
+  plannerZoom:      number
+  // weekStartDay: 주간 뷰 시작 요일 (0=일, 1=월(기본), 6=토)
+  // plannerNotifyBefore: 이벤트 시작 N분 전 데스크탑 알림 (0=알림 없음, 기본 5)
+  // Python으로 치면: self.week_start_day: int = 1; self.planner_notify_before: int = 5
+  weekStartDay:          number
+  plannerNotifyBefore:   number
+  // plannerRoutines: 루틴 프리셋 목록 — settingsStore 영속 저장 (block.content와 분리)
+  // Python으로 치면: self.planner_routines: list[Routine] = []
+  plannerRoutines:    Routine[]
+  // plannerAutoApply: 빈 날 이동 시 루틴 자동 적용 여부
+  // Python으로 치면: self.planner_auto_apply: bool = True
+  plannerAutoApply:   boolean
+  setPlannerStartHour:   (h: number) => void
+  setPlannerSnapMin:     (m: number) => void
+  setPlannerZoom:        (z: number) => void
+  setWeekStartDay:       (d: number) => void
+  setPlannerNotifyBefore:(m: number) => void
+  setPlannerRoutines:    (r: Routine[]) => void
+  setPlannerAutoApply:   (v: boolean) => void
+
   // ── AI 설정 ─────────────────────────────────
   // 제공자: 'openai' | 'claude' | 'ollama'
   // Python으로 치면: self.ai_provider: str = 'openai'
   aiProvider: string
   // 모델 ID (예: 'gpt-4o-mini', 'claude-sonnet-4-6', 'llama3.2')
   aiModel: string
-  // API 키 — localStorage에 저장 (vault 밖이므로 git 유출 없음)
-  aiApiKey: string
+  // API 키 — provider별로 분리 저장 (단일 aiApiKey는 하위호환용으로 유지)
+  // Python으로 치면: self.openai_api_key: str = ''; self.anthropic_api_key: str = ''
+  aiApiKey: string        // deprecated: 하위호환용 (기존 설정 마이그레이션에 사용)
+  openaiApiKey: string    // OpenAI 전용 키
+  anthropicApiKey: string // Claude(Anthropic) 전용 키
   // Ollama 전용 서버 URL (기본값: http://localhost:11434)
   // Python으로 치면: self.ollama_url: str = 'http://localhost:11434'
   ollamaUrl: string
   setAiProvider: (provider: string) => void
   setAiModel: (model: string) => void
-  setAiApiKey: (key: string) => void
+  setAiApiKey: (key: string) => void        // deprecated: 하위호환용
+  setOpenaiApiKey: (key: string) => void
+  setAnthropicApiKey: (key: string) => void
   setOllamaUrl: (url: string) => void
 
   // ── 카테고리 사이드바 접힘 여부 (localStorage에 영속) ──
@@ -294,9 +327,18 @@ export const useSettingsStore = create<SettingsStore>()(
       // Python으로 치면: self.locale = 'ko'
       locale: 'ko',
       weatherLocation: '',
+      plannerStartHour: 0,
+      plannerSnapMin:   15,
+      plannerZoom:      64,
+      weekStartDay:          1,
+      plannerNotifyBefore:   5,
+      plannerRoutines:    [],
+      plannerAutoApply:   true,
       aiProvider: 'openai',
       aiModel: 'gpt-4o-mini',
       aiApiKey: '',
+      openaiApiKey: '',
+      anthropicApiKey: '',
       ollamaUrl: 'http://localhost:11434',
 
       // ── 테마 변경 ────────────────────────────
@@ -404,7 +446,16 @@ export const useSettingsStore = create<SettingsStore>()(
 
       // ── 날씨 위치 변경 ───────────────────────
       // Python으로 치면: def set_weather_location(self, loc): self.weather_location = loc
-      setWeatherLocation: (loc) => { set((state) => { state.weatherLocation = loc }) },
+      setWeatherLocation:    (loc) => { set((state) => { state.weatherLocation    = loc }) },
+      setPlannerStartHour:   (h)   => { set((state) => { state.plannerStartHour   = h   }) },
+      setPlannerSnapMin:     (m)   => { set((state) => { state.plannerSnapMin     = m   }) },
+      setPlannerZoom:        (z)   => { set((state) => { state.plannerZoom        = z   }) },
+      setWeekStartDay:          (d) => { set((state) => { state.weekStartDay          = d }) },
+      setPlannerNotifyBefore:   (m) => { set((state) => { state.plannerNotifyBefore   = m }) },
+      // 루틴 프리셋 전체 교체 (추가/수정/삭제 모두 이 setter로 처리)
+      // Python으로 치면: def set_planner_routines(self, r): self.planner_routines = r
+      setPlannerRoutines:    (r) => { set((state) => { state.plannerRoutines    = r }) },
+      setPlannerAutoApply:   (v) => { set((state) => { state.plannerAutoApply   = v }) },
 
       // ── 언어 변경 ────────────────────────────
       // Python으로 치면: def set_locale(self, l): self.locale = l
@@ -412,10 +463,12 @@ export const useSettingsStore = create<SettingsStore>()(
 
       // ── AI 설정 변경 ─────────────────────────
       // Python으로 치면: def set_ai_provider(self, p): self.ai_provider = p
-      setAiProvider: (provider) => { set((state) => { state.aiProvider = provider }) },
-      setAiModel:    (model)    => { set((state) => { state.aiModel = model }) },
-      setAiApiKey:   (key)      => { set((state) => { state.aiApiKey = key }) },
-      setOllamaUrl:  (url)      => { set((state) => { state.ollamaUrl = url }) },
+      setAiProvider:      (provider) => { set((state) => { state.aiProvider = provider }) },
+      setAiModel:         (model)    => { set((state) => { state.aiModel = model }) },
+      setAiApiKey:        (key)      => { set((state) => { state.aiApiKey = key }) },
+      setOpenaiApiKey:    (key)      => { set((state) => { state.openaiApiKey = key }) },
+      setAnthropicApiKey: (key)      => { set((state) => { state.anthropicApiKey = key }) },
+      setOllamaUrl:       (url)      => { set((state) => { state.ollamaUrl = url }) },
     })),
     {
       // localStorage 키 이름

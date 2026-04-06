@@ -82,6 +82,8 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
   // Python으로 치면: global_location = settings_store.weather_location
   const globalLocation   = useSettingsStore(s => s.weatherLocation)
   const setGlobalLocation = useSettingsStore(s => s.setWeatherLocation)
+  // 루틴 프리셋을 settingsStore에서 직접 읽음 (block.content와 분리됨)
+  const plannerRoutines  = useSettingsStore(s => s.plannerRoutines)
 
   // ── 콘텐츠 파싱 ──────────────────────────────
   const data: WeeklyPlannerData = useMemo(() => {
@@ -152,6 +154,14 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
   // 입력창 초기값: 블록 저장값 → 전역 설정값 → 빈 문자열 우선순위
   // Python으로 치면: location_input = data.location or global_location or ''
   const [locationInput,   setLocationInput]   = useState(data.location || globalLocation || '')
+
+  // data.location 또는 globalLocation이 외부에서 변경될 때 입력창 동기화
+  // (useState 초기값은 최초 마운트에만 적용되므로 useEffect로 보완)
+  // Python으로 치면: @watch('data.location', 'global_location') def sync_input(): location_input = ...
+  useEffect(() => {
+    if (!showLocInput) setLocationInput(data.location || globalLocation || '')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.location, globalLocation])
   const [showLocInput,    setShowLocInput]     = useState(false)
   const [fetchError,      setFetchError]       = useState('')
 
@@ -210,8 +220,8 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
   // 모든 페이지의 DayPlannerBlock을 스캔해 이번 주 루틴 완료 여부 집계
   // Python으로 치면: def build_routine_matrix(pages, week_dates): ...
   const routineMatrix = useMemo(() => {
-    const titlesSet = new Set<string>()
-    // { routineTitle: { date: true|false|null } }
+    // 루틴 목록: settingsStore에서 직접 읽음
+    // 이벤트: eventsByDate에서 이번 주 날짜 데이터 수집
     const map: Record<string, Record<string, boolean | null>> = {}
 
     pages.forEach(page => {
@@ -219,21 +229,21 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
         if (b.type !== 'dayplanner') return
         try {
           const d = JSON.parse(b.content || '{}') as PlannerData
-          if (!weekDates.includes(d.date)) return
-          // 루틴 제목 수집
-          d.routines?.forEach(r => titlesSet.add(r.title))
-          // 이벤트 중 루틴과 제목+시작시간이 일치하는 것 → 완료 여부 기록
-          d.events?.forEach(ev => {
-            const matched = d.routines?.find(r => r.title === ev.title && r.start === ev.start)
-            if (!matched) return
-            if (!map[matched.title]) map[matched.title] = {}
-            map[matched.title][d.date] = ev.done
+          weekDates.forEach(date => {
+            const dayEvents = d.eventsByDate?.[date] ?? []
+            dayEvents.forEach(ev => {
+              const matched = plannerRoutines.find(r => r.title === ev.title && r.start === ev.start)
+              if (!matched) return
+              if (!map[matched.title]) map[matched.title] = {}
+              map[matched.title][date] = ev.done
+            })
           })
         } catch {}
       })
     })
-    return { titles: Array.from(titlesSet), map }
-  }, [pages, weekDates])
+    const titles = plannerRoutines.map(r => r.title)
+    return { titles, map }
+  }, [pages, weekDates, plannerRoutines])
 
   // ── 인라인 입력 상태 ──────────────────────────
   const [addingDay,    setAddingDay]    = useState<string | null>(null)

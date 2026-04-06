@@ -26,7 +26,9 @@ export default function EditorTab() {
   // Python으로 치면: t = get_locale()
   const t = useLocale()
   const { fontFamily, fontSize, lineHeight, editorMaxWidth, setFontFamily, setFontSize, setLineHeight,
-          weatherLocation, setWeatherLocation } = useSettingsStore()
+          weatherLocation, setWeatherLocation,
+          plannerStartHour, plannerSnapMin, plannerZoom, weekStartDay, plannerNotifyBefore,
+          setPlannerStartHour, setPlannerSnapMin, setPlannerZoom, setWeekStartDay, setPlannerNotifyBefore } = useSettingsStore()
 
   // 날씨 위치 입력 로컬 상태 (저장 버튼 누를 때까지 임시 보관)
   // Python으로 치면: self._loc_input: str = weather_location
@@ -204,6 +206,85 @@ export default function EditorTab() {
             </button>
           </p>
         )}
+      </section>
+
+      {/* ── Day Planner 타임라인 설정 ────────────── */}
+      <section>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">🗓️ Day Planner 설정</h3>
+        <p className="text-xs text-gray-400 mb-3">
+          타임라인 시작 시각과 드래그 스냅 간격을 조정합니다.
+        </p>
+        <div className="flex flex-col gap-3">
+          {/* 시작 시각 */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">타임라인 시작 시각</label>
+            <select
+              value={plannerStartHour}
+              onChange={e => setPlannerStartHour(Number(e.target.value))}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+            >
+              {Array.from({ length: 13 }, (_, i) => (
+                <option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>
+              ))}
+            </select>
+          </div>
+          {/* 스냅 간격 */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">드래그 스냅 간격</label>
+            <select
+              value={plannerSnapMin}
+              onChange={e => setPlannerSnapMin(Number(e.target.value))}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+            >
+              <option value={5}>5분</option>
+              <option value={10}>10분</option>
+              <option value={15}>15분</option>
+              <option value={30}>30분</option>
+            </select>
+          </div>
+          {/* 타임라인 줌 레벨 */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">타임라인 줌</label>
+            <select
+              value={plannerZoom}
+              onChange={e => setPlannerZoom(Number(e.target.value))}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+            >
+              <option value={32}>좁게 (32px/h)</option>
+              <option value={48}>약간 좁게 (48px/h)</option>
+              <option value={64}>기본 (64px/h)</option>
+              <option value={96}>넓게 (96px/h)</option>
+            </select>
+          </div>
+          {/* 주간 뷰 시작 요일 */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">주간 시작 요일</label>
+            <select
+              value={weekStartDay}
+              onChange={e => setWeekStartDay(Number(e.target.value))}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+            >
+              <option value={0}>일요일</option>
+              <option value={1}>월요일 (기본)</option>
+              <option value={6}>토요일</option>
+            </select>
+          </div>
+          {/* 데스크탑 알림 — 이벤트 시작 N분 전 */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">일정 사전 알림</label>
+            <select
+              value={plannerNotifyBefore}
+              onChange={e => setPlannerNotifyBefore(Number(e.target.value))}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+            >
+              <option value={0}>알림 없음</option>
+              <option value={5}>5분 전</option>
+              <option value={10}>10분 전</option>
+              <option value={15}>15분 전</option>
+              <option value={30}>30분 전</option>
+            </select>
+          </div>
+        </div>
       </section>
 
       {/* ── 미리보기 ─────────────────────────────── */}

@@ -13,6 +13,7 @@
 import { useMemo, useCallback } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import { ChevronLeft, ChevronRight, Plus, Trash2, CheckSquare, Square } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
@@ -78,7 +79,7 @@ interface Props {
 }
 
 // =============================================
-export default function QuarterlyPlannerBlock({ block, readMode, onUpdate }: Props) {
+export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdate }: Props) {
   const t = useLocale()
 
   // ── content 파싱 ───────────────────────────
@@ -103,10 +104,17 @@ export default function QuarterlyPlannerBlock({ block, readMode, onUpdate }: Pro
   }, [block.content])
 
   // ── 저장 헬퍼 ─────────────────────────────
+  // onUpdate가 있으면 사용, 없으면 pageId+updateBlock으로 직접 저장
+  // Python으로 치면: def save(patch): (on_update or update_block)({ ...data, ...patch })
+  const updateBlock = usePageStore(s => s.updateBlock)
   const save = useCallback((patch: Partial<QuarterlyData>) => {
-    onUpdate?.(JSON.stringify({ ...data, ...patch }))
-  }, [data, onUpdate])
+    const json = JSON.stringify({ ...data, ...patch })
+    if (onUpdate) onUpdate(json)
+    else if (block.id && pageId) updateBlock(pageId, block.id, json)
+  }, [data, onUpdate, updateBlock, block.id, pageId])
 
+  // 루틴 프리셋 — settingsStore에서 직접 읽음
+  const plannerRoutines = useSettingsStore(s => s.plannerRoutines)
   const { pages, setCurrentPage } = usePageStore()
 
   // ── 분기 네비게이션 ────────────────────────
@@ -176,13 +184,14 @@ export default function QuarterlyPlannerBlock({ block, readMode, onUpdate }: Pro
             if (b.type !== 'dayplanner') continue
             try {
               const pd: PlannerData = JSON.parse(b.content || '{}')
-              if (pd.date !== dateStr) continue
-              const routineCount = pd.routines?.length ?? 0
+              const dayEvents = pd.eventsByDate?.[dateStr] ?? []
+              if (!dayEvents.length && !pd.eventsByDate?.[dateStr]) continue
+              const routineCount = plannerRoutines.length
               if (routineCount === 0) { ratio = 0; break }
               // 루틴과 제목+시작시간이 일치하는 이벤트 중 done인 것 카운트
-              const doneCount = pd.events?.filter(ev =>
-                pd.routines?.some(r => r.title === ev.title && r.start === ev.start) && ev.done
-              ).length ?? 0
+              const doneCount = dayEvents.filter(ev =>
+                plannerRoutines.some(r => r.title === ev.title && r.start === ev.start) && ev.done
+              ).length
               ratio = doneCount / routineCount
               break
             } catch { /* skip */ }

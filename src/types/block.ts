@@ -42,6 +42,7 @@ export type BlockType =
   | 'toc'          // 인라인 목차 블록 (페이지 내 헤딩 목록 자동 생성)
   | 'file'         // 파일 첨부 블록 (PDF / docx / zip 등 일반 파일)
   | 'dayplanner'       // Day Planner 블록 — 인라인 타임라인 일정표
+  | 'weekplanner'      // Week Planner 블록 — 멀티데이 주간 타임라인 그리드
   | 'weeklyplanner'   // Weekly Planner 블록 — 주간 캘린더 + 날씨 + 루틴 달성 매트릭스
   | 'routinematrix'   // 루틴 달성 매트릭스 블록 — 주간 루틴 꾸준함 시각화
   | 'monthlycalendar'   // 월간 캘린더 블록 — 달력 그리드 + 일간 노트 연결 + 메모
@@ -173,6 +174,172 @@ export interface CanvasBox {
   label?: string  // 박스 레이블 (선택)
 }
 
+
+// -----------------------------------------------
+// Magazine Layout 시스템 타입
+// 원고(Content)와 레이아웃(Form)의 분리 구조
+// 원고 블록 배열은 그대로 유지하고, 레이아웃 배치 정보만 별도 관리
+// Python으로 치면: @dataclass class LayoutDescriptor / LayoutCell / LayoutTheme
+// -----------------------------------------------
+
+// 셀별 스타일 오버라이드 — CSS Grid 셀에 적용되는 추가 스타일
+// Python으로 치면: @dataclass class CellStyle: ...
+export interface CellStyle {
+  backgroundColor?: string    // 셀 배경색
+  padding?: number            // 셀 내부 여백 (px)
+  borderRadius?: number       // 셀 모서리 둥글기 (px)
+  overflow?: 'hidden' | 'visible' | 'auto'
+}
+
+// 블록의 역할 분류 — AI 분석기가 각 블록에 할당하는 역할
+// Python으로 치면: BlockRole = Literal['headline', 'hero_image', ...]
+export type BlockRole =
+  | 'headline'      // H1 — 가장 큰 제목
+  | 'subheadline'   // H2 — 소제목
+  | 'hero_image'    // 첫 번째 or 가장 큰 이미지 — 메인 비주얼
+  | 'body_text'     // 긴 텍스트 (200자 이상) — 본문
+  | 'caption'       // 이미지 바로 뒤 짧은 텍스트 — 캡션
+  | 'pull_quote'    // blockquote — 강조 인용구
+  | 'data_table'    // 표 — 데이터 시각화
+  | 'sidebar_text'  // 짧은 텍스트 (200자 미만) — 사이드바
+  | 'visual'        // 차트/마인드맵/다이어그램 — 시각 자료
+
+// 그리드 셀 하나 — blockId로 원고 블록과 연결
+// Python으로 치면: @dataclass class LayoutCell: ...
+export interface LayoutCell {
+  id: string
+  blockId: string             // 원고 Block.id와 연결 (단일 진실 소스)
+  col: [number, number]       // [colStart, colEnd] 1-based, 12컬럼 기준
+  row: [number, number]       // [rowStart, rowEnd] 1-based
+  style?: CellStyle           // 셀별 스타일 오버라이드
+  locked: boolean             // true이면 AI 재생성 시 이 셀 위치/크기 보호
+  userEdited: boolean         // true이면 AI 재생성 시 건드리지 않음
+  role?: BlockRole            // AI 분석기가 할당한 역할 (참고용)
+}
+
+// 잡지 레이아웃 테마 — 폰트 페어링 + 색상 + 간격 프리셋
+// Python으로 치면: @dataclass class LayoutTheme: ...
+export interface LayoutTheme {
+  fontPair: 'editorial' | 'modern' | 'classic' | 'minimal'
+  // editorial: Playfair Display + Source Serif
+  // modern:    Neue Haas Grotesk + Inter
+  // classic:   Garamond + Gill Sans
+  // minimal:   Inter + Inter (단일 폰트)
+  accentColor: string         // 강조색 (hex)
+  columnGap: number           // 컬럼 간격 (px, 기본 16)
+  rowGap: number              // 행 간격 (px, 기본 16)
+  baselineGrid: number        // 베이스라인 그리드 단위 (px, 기본 8)
+  padding: number             // 섹션 외부 여백 (px, 기본 24)
+}
+
+// 레이아웃 디스크립터 — 페이지 하나의 레이아웃 전체 정보
+// 원고 블록 배열과 독립적으로 저장 — 원고 수정 시 레이아웃 구조 유지
+// Python으로 치면: @dataclass class LayoutDescriptor: ...
+export interface LayoutDescriptor {
+  id: string
+  pageId: string              // 연결된 페이지 ID
+  gridCols: number            // 그리드 컬럼 수 (기본 12)
+  cells: LayoutCell[]         // 각 블록의 배치 정보
+  theme: LayoutTheme          // 테마 설정
+  createdBy: 'ai' | 'user' | 'template'  // 생성 주체
+  templateId?: string         // 사용한 프리셋 템플릿 ID
+  version: number             // undo/redo용 버전 번호
+  createdAt: string           // 생성 시각
+  updatedAt: string           // 마지막 수정 시각
+}
+
+// 프리셋 템플릿 정의 — AI 매칭 또는 사용자 직접 선택
+// Python으로 치면: @dataclass class LayoutTemplate: ...
+export interface LayoutTemplate {
+  id: string
+  name: string                // 예: "잡지 스프레드형"
+  nameEn: string              // 예: "Magazine Spread"
+  description: string
+  thumbnail?: string          // 미리보기 이미지 URL
+  // 블록 역할 → 셀 위치 매핑 규칙
+  // Python으로 치면: role_map: dict[BlockRole, tuple[col, row]]
+  roleMap: Partial<Record<BlockRole, { col: [number, number]; row: [number, number] }>>
+  // 이 템플릿이 적합한 콘텐츠 조합 조건
+  // Python으로 치면: conditions: list[str]
+  conditions: {
+    minImages?: number
+    maxImages?: number
+    minTextBlocks?: number
+    hasTable?: boolean
+    hasQuote?: boolean
+  }
+}
+
+// 기본 레이아웃 테마
+// Python으로 치면: DEFAULT_LAYOUT_THEME = LayoutTheme(...)
+export const DEFAULT_LAYOUT_THEME: LayoutTheme = {
+  fontPair: 'modern',
+  accentColor: '#3b82f6',
+  columnGap: 16,
+  rowGap: 16,
+  baselineGrid: 8,
+  padding: 24,
+}
+
+// 새 LayoutDescriptor 생성 헬퍼
+// Python으로 치면: LayoutDescriptor.create(page_id) 클래스 메서드
+export function createLayoutDescriptor(pageId: string): LayoutDescriptor {
+  const now = new Date().toISOString()
+  return {
+    id: crypto.randomUUID(),
+    pageId,
+    gridCols: 12,
+    cells: [],
+    theme: { ...DEFAULT_LAYOUT_THEME },
+    createdBy: 'user',
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+// -----------------------------------------------
+// DayPlanner 공유 타입
+// DayPlannerBlock + settingsStore 양쪽에서 사용
+// Python으로 치면: @dataclass class PlanEvent / Routine
+// -----------------------------------------------
+
+// 이벤트 내 서브태스크 항목
+// Python으로 치면: @dataclass class SubTask: id, text, done
+export interface SubTask {
+  id:   string
+  text: string
+  done: boolean
+}
+
+// 하루 일정 이벤트 하나
+// Python으로 치면: @dataclass class PlanEvent: id, title, start, end, color, done, clockIn, clockOut, elapsed, log, subtasks, energy
+export interface PlanEvent {
+  id:       string
+  title:    string
+  start:    string    // 'HH:MM'
+  end:      string    // 'HH:MM'
+  color:    string    // EVENT_COLORS id
+  done:     boolean
+  clockIn?:  string   // 실제 작업 시작 시각 'HH:MM:SS'
+  clockOut?: string   // 실제 작업 종료 시각 'HH:MM:SS'
+  elapsed?:  number   // 누적 실제 작업 분
+  log?:      string   // 실제 수행 기록 (자유 텍스트)
+  subtasks?: SubTask[] // 서브태스크 체크리스트
+  energy?:   number   // 집중도/에너지 레벨 (1~5)
+}
+
+// 반복 루틴 프리셋
+// days: 0=일 1=월 2=화 3=수 4=목 5=금 6=토, 빈 배열 = 매일
+// Python으로 치면: @dataclass class Routine: id, title, start, end, color, days
+export interface Routine {
+  id:    string
+  title: string
+  start: string    // 'HH:MM'
+  end:   string    // 'HH:MM'
+  color: string
+  days:  number[]  // 요일 배열
+}
 
 // -----------------------------------------------
 // 새 블록 생성 헬퍼 함수

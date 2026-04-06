@@ -78,6 +78,7 @@ a = Analysis(
             'backend.routers.trash',
             'backend.routers.history',
             'backend.routers.cloud_sync',
+            'backend.routers.planner',
             'requests',
             'requests.adapters',
             'requests.auth',

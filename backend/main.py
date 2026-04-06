@@ -25,7 +25,7 @@ from backend.core import (
     get_cat_dir, get_page_dir, get_trash_dir, load_index, load_trash_index,
     resolve_trash_name, save_index, save_trash_index, now_iso,
 )
-from backend.routers import categories, cloud_sync, export_import, history, pages, search, system, templates, ai, trash
+from backend.routers import categories, cloud_sync, export_import, history, pages, planner, search, system, templates, ai, trash
 
 # ── 로깅 설정 ──────────────────────────────────
 # Python으로 치면: logging.basicConfig(); handler = MemoryLogHandler()
@@ -211,6 +211,7 @@ app.include_router(ai.router)
 app.include_router(trash.router)
 app.include_router(history.router)
 app.include_router(cloud_sync.router)
+app.include_router(planner.router)
 
 
 # ── PyInstaller 번들 진입점 ─────────────────────────
