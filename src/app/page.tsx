@@ -8,6 +8,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
+import { saveTimers } from '@/store/pageStoreHelpers'
 import { useSettingsStore, applyTheme, applyEditorStyle, applyThemePreset } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
 import PageEditor from '@/components/editor/PageEditor'
@@ -558,6 +559,26 @@ export default function Home() {
   // -----------------------------------------------
   useEffect(() => {
     loadFromServer()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------
+  // 탭 숨김/페이지 닫기 시 미저장 데이터 즉시 flush
+  // HMR 전체 리로드 or 탭 닫기 시 500ms 디바운스 타이머 만료 전
+  // 데이터가 유실되는 것을 방지 (DayPlannerBlock 등 이벤트 데이터 보호)
+  // Python으로 치면: window.on('beforeunload', lambda: flush_all_saves())
+  // -----------------------------------------------
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        // saveTimers에 대기 중인 pageId를 즉시 flush
+        // Python으로 치면: for page_id in pending_timers: save_now(page_id)
+        Array.from(saveTimers.keys()).forEach(pageId => {
+          usePageStore.getState().savePageNow(pageId).catch(() => {})
+        })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------

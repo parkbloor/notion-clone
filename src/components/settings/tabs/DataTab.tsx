@@ -41,8 +41,8 @@ export default function DataTab() {
       // state 키 안에 실제 값이 들어있는 Zustand persist 포맷
       // Python으로 치면: state = parsed.get('state', parsed)
       const state = parsed?.state ?? parsed
-      // API 키는 보안상 내보내기에서 제외
-      const { aiApiKey: _omit, ...safeState } = state
+      // API 키는 보안상 내보내기에서 제외 (구 aiApiKey + 현재 openaiApiKey / anthropicApiKey)
+      const { aiApiKey: _a, openaiApiKey: _b, anthropicApiKey: _c, ...safeState } = state
       return { ...parsed, state: safeState }
     } catch {
       return null

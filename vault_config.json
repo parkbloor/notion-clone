@@ -1,12 +1,13 @@
 {
-  "vaults_root": "E:\\그림영상학습폴더\\Memo_Vault",
+  "vaults_root": "E:\\Memo Clip\\Memo_Vault",
   "current_vault": "생활 기록",
   "recent_vaults": [
     "생활 기록",
+    "그림강의노트",
+    "vault",
     "만화 연출, 컷, 콘티",
     "유튜브 영상 정리",
     "서사학",
-    "vault",
     "강의(서사학, 철학)",
     "시나리오 ai 만들기",
     "철학",

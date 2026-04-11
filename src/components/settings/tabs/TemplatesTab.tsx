@@ -7,12 +7,61 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { templateApi, Template } from '@/lib/api'
 import { isGridTemplate } from '@/lib/templateGrid'
 import TemplateEditorModal from '@/components/editor/TemplateEditorModal'
 import { useLocale } from '@/locales'
+import { useSettingsStore } from '@/store/settingsStore'
+
+// ── 특수 블록 메타데이터 ────────────────────────────────────────────────
+// 버튼 바 + 도움말 모달에서 공통으로 사용
+// Python으로 치면: SPECIAL_BLOCKS = [{'syntax': ':::dayplanner', ...}, ...]
+const SPECIAL_BLOCKS = [
+  {
+    syntax: ':::dayplanner',
+    label: 'Day Planner',
+    icon: '⏰',
+    badge: '일간',
+    desc: '시간대별 타임라인 블록. 이벤트 드래그, 루틴 자동 적용 지원.',
+  },
+  {
+    syntax: ':::weeklyplanner',
+    label: 'Weekly Planner',
+    icon: '📅',
+    badge: '주간',
+    desc: '한 주의 날씨 + 요일별 태스크를 한눈에 볼 수 있는 주간 캘린더.',
+  },
+  {
+    syntax: ':::routinematrix',
+    label: 'Routine Matrix',
+    icon: '🔄',
+    badge: '주간',
+    desc: 'Day Planner에서 설정한 루틴의 달성 현황을 주간 단위로 시각화.',
+  },
+  {
+    syntax: ':::monthlycalendar',
+    label: 'Monthly Calendar',
+    icon: '🗓️',
+    badge: '월간',
+    desc: '월간 달력 그리드. 날짜 클릭 시 해당 일간 노트로 바로 이동.',
+  },
+  {
+    syntax: ':::quarterlyplanner',
+    label: 'Quarterly Planner',
+    icon: '📊',
+    badge: '분기',
+    desc: '분기 OKR 플래너. Objective + Key Results 구조로 목표 관리.',
+  },
+  {
+    syntax: ':::yearlyplanner',
+    label: 'Yearly Planner',
+    icon: '🌟',
+    badge: '연간',
+    desc: '연간 목표와 월별 하이라이트를 한 페이지에서 관리.',
+  },
+] as const
 
 // ── 새 템플릿 초기값 ──────────────────────────
 // Python으로 치면: EMPTY_FORM = {'name': '', 'icon': '📄', ...}
@@ -26,6 +75,34 @@ const EMPTY_FORM: Omit<Template, 'id'> = {
 export default function TemplatesTab() {
   // 로케일 훅 — Python으로 치면: t = get_translation()
   const t = useLocale()
+
+  // 주기 노트 기본 템플릿 설정 — Python으로 치면: self.periodic_settings = store.periodic_note_templates
+  const periodicNoteTemplates  = useSettingsStore(s => s.periodicNoteTemplates)
+  const setPeriodicNoteTemplate = useSettingsStore(s => s.setPeriodicNoteTemplate)
+
+  // 도움말 모달 열림 여부 — Python으로 치면: self.help_open = False
+  const [helpOpen, setHelpOpen] = useState(false)
+
+  // textarea ref — 커서 위치에 특수 블록 삽입 시 사용
+  // Python으로 치면: self.textarea_ref = None
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 현재 활성 textarea의 커서 위치에 텍스트 삽입
+  // Python으로 치면: def insert_at_cursor(self, text): ... textarea.setSelectionRange(...)
+  function insertAtCursor(syntax: string) {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart ?? el.value.length
+    const end   = el.selectionEnd   ?? el.value.length
+    const insert = `${syntax}\n`
+    const newVal = el.value.slice(0, start) + insert + el.value.slice(end)
+    setForm(f => ({ ...f, content: newVal }))
+    // 커서를 삽입 텍스트 끝으로 이동 (다음 프레임에서 실행)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + insert.length, start + insert.length)
+    })
+  }
 
   // 서버에서 불러온 템플릿 목록
   // Python으로 치면: self.templates: list[Template] = []
@@ -144,8 +221,104 @@ export default function TemplatesTab() {
     setEditingVisualTemplate(undefined)
   }
 
+  // ── 버튼 바 공통 렌더러 ──────────────────────────────────────────────
+  // 새 템플릿 폼 + 인라인 편집 폼 양쪽에서 동일하게 사용
+  // Python으로 치면: def render_block_toolbar(self): ...
+  function BlockToolbar() {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+        <span className="text-xs text-gray-400 mr-0.5">{t.settings.templates.blockInsertLabel}:</span>
+        {SPECIAL_BLOCKS.map(b => (
+          <button
+            key={b.syntax}
+            type="button"
+            onClick={() => insertAtCursor(b.syntax)}
+            title={b.desc}
+            className="flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-100 hover:bg-blue-100 hover:text-blue-700 text-gray-600 rounded-md transition-colors font-mono"
+          >
+            <span>{b.icon}</span>
+            <span>{b.label}</span>
+          </button>
+        ))}
+        {/* ? 도움말 버튼 */}
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          title={t.settings.templates.blockHelpBtn}
+          className="ml-auto w-5 h-5 flex items-center justify-center text-xs text-gray-400 hover:text-blue-500 border border-gray-300 hover:border-blue-400 rounded-full transition-colors"
+        >
+          ?
+        </button>
+      </div>
+    )
+  }
+
   return (
     <>
+    {/* 특수 블록 도움말 모달 */}
+    {/* Python으로 치면: if help_open: render(HelpModal) */}
+    {helpOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+        onClick={() => setHelpOpen(false)}
+      >
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* 모달 헤더 */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800">{t.settings.templates.blockHelpTitle}</h3>
+              <p className="text-xs text-gray-400 mt-0.5">{t.settings.templates.blockHelpDesc}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHelpOpen(false)}
+              className="text-gray-400 hover:text-gray-600 text-lg leading-none ml-4"
+            >
+              ✕
+            </button>
+          </div>
+          {/* 블록 목록 */}
+          <div className="p-4 space-y-2 max-h-96 overflow-y-auto">
+            {SPECIAL_BLOCKS.map(b => (
+              <div key={b.syntax} className="flex gap-3 p-3 rounded-xl bg-gray-50 hover:bg-blue-50 transition-colors">
+                {/* 아이콘 */}
+                <div className="text-2xl shrink-0 w-8 text-center">{b.icon}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* 문법 */}
+                    <code className="text-xs font-mono bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">
+                      {b.syntax}
+                    </code>
+                    {/* 용도 배지 */}
+                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-md">
+                      {b.badge}
+                    </span>
+                    {/* 이름 */}
+                    <span className="text-xs font-medium text-gray-700">{b.label}</span>
+                  </div>
+                  {/* 설명 */}
+                  <p className="text-xs text-gray-500 mt-1">{b.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* 모달 푸터 */}
+          <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setHelpOpen(false)}
+              className="px-4 py-1.5 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+            >
+              {t.settings.templates.blockHelpClose}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* 비주얼 그리드 템플릿 에디터 모달 */}
     {/* Python으로 치면: if visual_editor_open: render(TemplateEditorModal) */}
     {visualEditorOpen && (
@@ -229,10 +402,13 @@ export default function TemplatesTab() {
           {/* 마크다운 내용 입력 — 핵심 영역 */}
           {/* Python으로 치면: self.content_textarea = QTextEdit() */}
           <div>
-            <p className="text-xs text-gray-500 mb-1">
+            <p className="text-xs text-gray-500 mb-1.5">
               {t.settings.templates.contentDesc} — <span className="font-mono text-gray-400"># 제목1 / ## 제목2 / - 항목 / - [ ] 할일 / --- 구분선</span>
             </p>
+            {/* 특수 블록 삽입 버튼 바 */}
+            <BlockToolbar />
             <textarea
+              ref={textareaRef}
               value={form.content}
               onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
               placeholder={`## 📅 날짜\n\n## 👥 참석자\n- \n\n## 📌 안건\n- \n\n## ✅ 결정사항\n- \n\n## 🎯 액션아이템\n- [ ] `}
@@ -316,10 +492,12 @@ export default function TemplatesTab() {
                     {t.settings.templates.edit}
                   </button>
                 )}
+                {/* 비주얼 에디터 열린 중이거나 다른 항목 편집 중일 때 삭제 비활성 */}
                 <button
                   type="button"
                   onClick={() => handleDelete(tmpl.id, tmpl.name)}
-                  className="px-2.5 py-1 text-xs text-red-500 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
+                  disabled={visualEditorOpen || (editingId !== null && editingId !== tmpl.id)}
+                  className="px-2.5 py-1 text-xs text-red-500 bg-red-50 rounded-md hover:bg-red-100 transition-colors disabled:opacity-30"
                 >
                   {t.common.delete}
                 </button>
@@ -352,7 +530,10 @@ export default function TemplatesTab() {
                   placeholder={t.settings.templates.descPlaceholder}
                   className="w-full text-xs border border-gray-300 rounded-lg px-3 py-1.5 bg-white outline-none focus:border-blue-400"
                 />
+                {/* 특수 블록 삽입 버튼 바 */}
+                <BlockToolbar />
                 <textarea
+                  ref={textareaRef}
                   value={form.content}
                   onChange={e => setForm(f => ({ ...f, content: e.target.value }))}
                   rows={10}
@@ -380,6 +561,53 @@ export default function TemplatesTab() {
             )}
           </div>
         ))}
+      </div>
+
+      {/* ── 주기 노트 기본 템플릿 섹션 ──────────────────── */}
+      {/* Python으로 치면: render PeriodicNoteTemplateSection(templates, periodic_note_templates) */}
+      <div className="border-t border-gray-100 pt-5 mt-2 space-y-3">
+        <div>
+          <h4 className="text-sm font-semibold text-gray-700">{t.settings.templates.periodicSection}</h4>
+          <p className="text-xs text-gray-400 mt-0.5">{t.settings.templates.periodicDesc}</p>
+        </div>
+
+        {/* 일간 / 주간 / 월간 / 분기 / 연간 각 행 */}
+        {(['daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as const).map(kind => {
+          // 각 kind에 맞는 레이블 — Python: label = {'daily':..., ...}[kind]
+          const label = kind === 'daily'   ? t.settings.templates.periodicDaily
+            : kind === 'weekly'            ? t.settings.templates.periodicWeekly
+            : kind === 'monthly'           ? t.settings.templates.periodicMonthly
+            : kind === 'quarterly'         ? t.settings.templates.periodicQuarterly
+            : t.settings.templates.periodicYearly
+
+          const currentId = periodicNoteTemplates[kind]
+
+          return (
+            <div key={kind} className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
+              {/* 템플릿 선택 셀렉트 — Python으로 치면: <select> tag */}
+              <select
+                value={currentId}
+                onChange={e => setPeriodicNoteTemplate(kind, e.target.value)}
+                className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:border-blue-400 text-gray-700"
+              >
+                <option value="">{t.settings.templates.periodicNone}</option>
+                {/* 마크다운 템플릿만 표시 (그리드 템플릿은 주기 노트에 적용 불가) */}
+                {templates.filter(tmpl => !isGridTemplate(tmpl.content)).map(tmpl => (
+                  <option key={tmpl.id} value={tmpl.id}>
+                    {tmpl.icon} {tmpl.name}
+                  </option>
+                ))}
+              </select>
+              {/* 현재 기본값 뱃지 */}
+              {currentId && (
+                <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-600 rounded-md shrink-0">
+                  {t.settings.templates.periodicActive}
+                </span>
+              )}
+            </div>
+          )
+        })}
       </div>
 
     </div>

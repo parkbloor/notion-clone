@@ -141,10 +141,12 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  // 폴더 탐색기 열기
+  // 폴더 탐색기 열기 — res.ok 체크 추가 (오류 응답 시 setter 호출 방지)
+  // Python으로 치면: def browse(setter): path = api.browse(); if path: setter(path)
   const handleBrowse = async (setter: (v: string) => void) => {
     try {
       const res = await fetch(BASE_URL + '/api/settings/browse-folder')
+      if (!res.ok) return
       const data = await res.json()
       if (data.path) setter(data.path)
     } catch {}
@@ -220,7 +222,7 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       <div>
         <h3 className="text-sm font-semibold text-gray-700 mb-1">{s.title}</h3>
         <p className="text-xs text-gray-400 mb-6">{s.titleDesc}</p>

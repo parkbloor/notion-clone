@@ -210,14 +210,14 @@ export default function EditorTab() {
 
       {/* ── Day Planner 타임라인 설정 ────────────── */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">🗓️ Day Planner 설정</h3>
+        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.editor.dayPlannerSection}</h3>
         <p className="text-xs text-gray-400 mb-3">
-          타임라인 시작 시각과 드래그 스냅 간격을 조정합니다.
+          {t.settings.editor.dayPlannerDesc}
         </p>
         <div className="flex flex-col gap-3">
           {/* 시작 시각 */}
           <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28 shrink-0">타임라인 시작 시각</label>
+            <label className="text-xs text-gray-600 w-28 shrink-0">{t.settings.editor.plannerStartHour}</label>
             <select
               value={plannerStartHour}
               onChange={e => setPlannerStartHour(Number(e.target.value))}
@@ -230,58 +230,58 @@ export default function EditorTab() {
           </div>
           {/* 스냅 간격 */}
           <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28 shrink-0">드래그 스냅 간격</label>
+            <label className="text-xs text-gray-600 w-28 shrink-0">{t.settings.editor.plannerSnapMin}</label>
             <select
               value={plannerSnapMin}
               onChange={e => setPlannerSnapMin(Number(e.target.value))}
               className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
             >
-              <option value={5}>5분</option>
-              <option value={10}>10분</option>
-              <option value={15}>15분</option>
-              <option value={30}>30분</option>
+              <option value={5}>{t.settings.editor.plannerSnapMin5}</option>
+              <option value={10}>{t.settings.editor.plannerSnapMin10}</option>
+              <option value={15}>{t.settings.editor.plannerSnapMin15}</option>
+              <option value={30}>{t.settings.editor.plannerSnapMin30}</option>
             </select>
           </div>
           {/* 타임라인 줌 레벨 */}
           <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28 shrink-0">타임라인 줌</label>
+            <label className="text-xs text-gray-600 w-28 shrink-0">{t.settings.editor.plannerZoom}</label>
             <select
               value={plannerZoom}
               onChange={e => setPlannerZoom(Number(e.target.value))}
               className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
             >
-              <option value={32}>좁게 (32px/h)</option>
-              <option value={48}>약간 좁게 (48px/h)</option>
-              <option value={64}>기본 (64px/h)</option>
-              <option value={96}>넓게 (96px/h)</option>
+              <option value={32}>{t.settings.editor.plannerZoomNarrow} (32px/h)</option>
+              <option value={48}>{t.settings.editor.plannerZoomSlightlyNarrow} (48px/h)</option>
+              <option value={64}>{t.settings.editor.plannerZoomDefault} (64px/h)</option>
+              <option value={96}>{t.settings.editor.plannerZoomWide} (96px/h)</option>
             </select>
           </div>
           {/* 주간 뷰 시작 요일 */}
           <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28 shrink-0">주간 시작 요일</label>
+            <label className="text-xs text-gray-600 w-28 shrink-0">{t.settings.editor.weekStartDay}</label>
             <select
               value={weekStartDay}
               onChange={e => setWeekStartDay(Number(e.target.value))}
               className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
             >
-              <option value={0}>일요일</option>
-              <option value={1}>월요일 (기본)</option>
-              <option value={6}>토요일</option>
+              <option value={0}>{t.settings.editor.weekStartSunday}</option>
+              <option value={1}>{t.settings.editor.weekStartMonday}</option>
+              <option value={6}>{t.settings.editor.weekStartSaturday}</option>
             </select>
           </div>
           {/* 데스크탑 알림 — 이벤트 시작 N분 전 */}
           <div className="flex items-center gap-3">
-            <label className="text-xs text-gray-600 w-28 shrink-0">일정 사전 알림</label>
+            <label className="text-xs text-gray-600 w-28 shrink-0">{t.settings.editor.plannerNotifyBefore}</label>
             <select
               value={plannerNotifyBefore}
               onChange={e => setPlannerNotifyBefore(Number(e.target.value))}
               className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
             >
-              <option value={0}>알림 없음</option>
-              <option value={5}>5분 전</option>
-              <option value={10}>10분 전</option>
-              <option value={15}>15분 전</option>
-              <option value={30}>30분 전</option>
+              <option value={0}>{t.settings.editor.plannerNotifyNone}</option>
+              <option value={5}>{t.settings.editor.plannerNotify5}</option>
+              <option value={10}>{t.settings.editor.plannerNotify10}</option>
+              <option value={15}>{t.settings.editor.plannerNotify15}</option>
+              <option value={30}>{t.settings.editor.plannerNotify30}</option>
             </select>
           </div>
         </div>

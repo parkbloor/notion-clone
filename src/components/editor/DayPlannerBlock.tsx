@@ -746,6 +746,9 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   const t = useLocale()
 
   const updateBlock    = usePageStore(s => s.updateBlock)
+  // 이벤트 변경 후 즉시 서버 저장 — HMR 리로드나 탭 닫기 시 유실 방지
+  // Python으로 치면: save_page_now = store.save_page_now
+  const savePageNow    = usePageStore(s => s.savePageNow)
   // 전역 날씨 위치 — settingsStore에서 영속 저장된 도시명
   // Python으로 치면: weather_location = settings_store.weather_location
   const weatherLocation    = useSettingsStore(s => s.weatherLocation)
@@ -796,7 +799,18 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // 3) block.content는 90일 이내 데이터만 저장
   // Python으로 치면: def save_events(date, evs): archive_old(); block.content = json.dumps(recent)
   const save = useCallback((date: string, evs: PlanEvent[]) => {
-    const next = { ...data.eventsByDate, [date]: evs }
+    // 스테일 클로저 방지: 스토어에서 최신 데이터를 직접 읽음
+    // saveReview 등 다른 비동기 저장과 레이스 컨디션 시 reviewByDate가 유실되는 버그 방지
+    // Python으로 치면: latest = store.get_block_content(page_id, block_id)
+    const latestData: PlannerData = (() => {
+      try {
+        return JSON.parse(
+          usePageStore.getState().pages.find(p => p.id === pageId)?.blocks.find(b => b.id === block.id)?.content || '{}'
+        )
+      } catch { return { eventsByDate: {}, reviewByDate: {} } }
+    })()
+
+    const next = { ...latestData.eventsByDate, [date]: evs }
 
     // 90일 기준 날짜 계산
     const cutoff = (() => {
@@ -822,8 +836,11 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       }).catch(() => {})
     }
 
-    updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: toKeep, reviewByDate: data.reviewByDate ?? {} }))
-  }, [data, updateBlock, pageId, block.id])
+    updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: toKeep, reviewByDate: latestData.reviewByDate ?? {} }))
+    // 이벤트 변경은 즉시 서버에 flush — 500ms 디바운스 대기 중 HMR/탭닫기로 유실 방지
+    // Python으로 치면: await save_page_now(page_id)  # fire-and-forget
+    savePageNow(pageId).catch(() => {})
+  }, [updateBlock, savePageNow, pageId, block.id])
 
   // ── 이벤트 배열 시간순 정렬 헬퍼 ─────────────
   // Python으로 치면: def sort_events(evs): return sorted(evs, key=lambda e: e.start)
@@ -1399,15 +1416,26 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
   // ── 일일 회고 저장 헬퍼 (300ms 디바운스) ─────
   // 타이핑마다 호출되므로 디바운스 적용 — 서버 응답 레이스 컨디션 방지
+  // 스테일 클로저 방지: 타이머 발화 시 스토어에서 최신 데이터를 직접 읽음
+  // (이벤트 추가 직후 회고 저장 시 eventsByDate가 이전 버전으로 덮어쓰이는 버그 방지)
   // Python으로 치면: def save_review(date, text): debounce(300, _do_save)(date, text)
   const saveReview = useCallback((date: string, text: string) => {
     if (reviewTimerRef.current) clearTimeout(reviewTimerRef.current)
     reviewTimerRef.current = setTimeout(() => {
       reviewTimerRef.current = null
-      const next = { ...(data.reviewByDate ?? {}), [date]: text }
-      updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: data.eventsByDate, reviewByDate: next }))
+      // 최신 데이터를 스토어에서 직접 읽어 stale 클로저 방지
+      // Python으로 치면: latest = store.get_block_content(page_id, block_id)
+      const latestData: PlannerData = (() => {
+        try {
+          return JSON.parse(
+            usePageStore.getState().pages.find(p => p.id === pageId)?.blocks.find(b => b.id === block.id)?.content || '{}'
+          )
+        } catch { return { eventsByDate: {}, reviewByDate: {} } }
+      })()
+      const next = { ...(latestData.reviewByDate ?? {}), [date]: text }
+      updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: latestData.eventsByDate, reviewByDate: next }))
     }, 300)
-  }, [data, updateBlock, pageId, block.id])
+  }, [updateBlock, pageId, block.id])
 
   // ── 이벤트 단일 필드 업데이트 헬퍼 ──────────
   // immediate=true: 에너지 클릭 등 즉각 반응 필요한 경우 디바운스 없이 저장
@@ -1783,10 +1811,12 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         </button>
       </div>
 
-      <div className="flex">
+      {/* 본문 flex — 블록 최대 높이를 680px로 고정하여 타임라인·이벤트 목록이 같은 높이로 나란히 스크롤 */}
+      {/* Python으로 치면: body_frame = tk.Frame(self, height=680) */}
+      <div className="flex" style={{ height: '680px' }}>
 
         {/* ── 타임라인 영역 ─────────────────────── */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto" style={{ maxHeight: '520px' }}>
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
           <div className="flex">
 
             {/* 시간 레이블 열 */}
@@ -1996,7 +2026,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         {/* ── 오른쪽: 이벤트 목록 / 상세 기록 패널 ─ */}
         {/* selectedEventId 없으면 list 모드, 있으면 detail 모드 */}
         {/* Python으로 치면: if selected_event_id: render_detail() else: render_list() */}
-        <div className="border-l border-gray-200 flex flex-col shrink-0" style={{ width: sidebarWidth }}>
+        {/* 오른쪽 패널 — flex-col + overflow-hidden으로 내부 이벤트 목록만 스크롤 */}
+        <div className="border-l border-gray-200 flex flex-col shrink-0 overflow-hidden" style={{ width: sidebarWidth }}>
           {selectedEventId === null ? (
             /* ── LIST 모드 ──────────────────────────── */
             <>
@@ -2207,8 +2238,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       ────────────────────────────────────────────────────────── */}
       {newForm && (() => {
         // 폼 크기 (w-60 = 240px, 예상 높이 약 170px)
-        const FORM_W = 248
-        const FORM_H = 175
+        const FORM_W = 268
+        const FORM_H = 185
         // 화면 밖으로 나가지 않도록 보정
         const rawLeft = newForm.screenX + 8
         const rawTop  = newForm.screenY + 8
@@ -2253,15 +2284,44 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
               />
               <span className="text-[10px] text-gray-500">시간 미지정</span>
             </label>
-            {/* 시간 범위 — 미지정 체크 시 비활성화 */}
-            <div className={['flex items-center gap-1.5 transition-opacity', newUnscheduled ? 'opacity-30 pointer-events-none' : ''].join(' ')}>
-              <input type="time" value={newForm.start}
-                onChange={e => setNewForm(f => f ? { ...f, start: e.target.value } : f)}
-                className="flex-1 text-xs text-gray-600 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-blue-400" />
-              <span className="text-xs text-gray-400 shrink-0">~</span>
-              <input type="time" value={newForm.end}
-                onChange={e => setNewForm(f => f ? { ...f, end: e.target.value } : f)}
-                className="flex-1 text-xs text-gray-600 border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-blue-400" />
+            {/* 시간 범위 — 24시간 select (오전/오후 혼란 방지) */}
+            {/* Python으로 치면: start_h, start_m = start.split(':'); end_h, end_m = end.split(':') */}
+            <div className={['flex items-center gap-1 transition-opacity', newUnscheduled ? 'opacity-30 pointer-events-none' : ''].join(' ')}>
+              {/* 시작 시 */}
+              <select
+                value={newForm.start.split(':')[0] ?? '09'}
+                onChange={e => setNewForm(f => f ? { ...f, start: `${e.target.value}:${f.start.split(':')[1] ?? '00'}` } : f)}
+                className="text-xs text-gray-600 border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-blue-400 bg-white">
+                {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-gray-400 shrink-0">:</span>
+              {/* 시작 분 */}
+              <select
+                value={newForm.start.split(':')[1] ?? '00'}
+                onChange={e => setNewForm(f => f ? { ...f, start: `${f.start.split(':')[0] ?? '09'}:${e.target.value}` } : f)}
+                className="text-xs text-gray-600 border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-blue-400 bg-white">
+                {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <span className="text-xs text-gray-400 shrink-0 mx-0.5">~</span>
+              {/* 종료 시 */}
+              <select
+                value={newForm.end.split(':')[0] ?? '10'}
+                onChange={e => setNewForm(f => f ? { ...f, end: `${e.target.value}:${f.end.split(':')[1] ?? '00'}` } : f)}
+                className="text-xs text-gray-600 border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-blue-400 bg-white">
+                {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+              <span className="text-[10px] text-gray-400 shrink-0">:</span>
+              {/* 종료 분 */}
+              <select
+                value={newForm.end.split(':')[1] ?? '00'}
+                onChange={e => setNewForm(f => f ? { ...f, end: `${f.end.split(':')[0] ?? '10'}:${e.target.value}` } : f)}
+                className="text-xs text-gray-600 border border-gray-200 rounded-lg px-1 py-1 focus:outline-none focus:border-blue-400 bg-white">
+                {['00', '15', '30', '45'].map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
             </div>
             {/* 컬러 선택 — flex-wrap으로 2행 표시 */}
             <div className="flex flex-col gap-1">

@@ -43,7 +43,7 @@ CONTENT_EXT = ".nct"
 
 # ── 이미지/비디오/파일 업로드 제한 ──────────────────
 ALLOWED_IMAGE_EXTS = frozenset({'.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'})
-MAX_IMAGE_SIZE = 10 * 1024 * 1024          # 10MB
+MAX_IMAGE_SIZE = 20 * 1024 * 1024          # 20MB
 ALLOWED_VIDEO_EXTS = frozenset({'.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'})
 MAX_VIDEO_SIZE = 500 * 1024 * 1024         # 500MB
 ALLOWED_FILE_EXTS = frozenset({
@@ -851,10 +851,32 @@ def get_cat_dir(cat_id: str, index: dict) -> Path:
     return get_vault_dir().joinpath(*chain)
 
 
-def get_image_url_prefix(page_folder: str, cat_folder: Optional[str]) -> str:
-    """이미지 URL 접두사 계산 — 127.0.0.1 사용 (Windows에서 localhost → ::1 IPv6 해석 문제 방지)"""
-    if cat_folder:
-        return f"http://127.0.0.1:8000/static/{cat_folder}/{page_folder}/"
+def get_cat_rel_path(cat_id: Optional[str], index: dict) -> Optional[str]:
+    """
+    카테고리 ID → vault 기준 전체 상대 경로 (부모 체인 포함, '/' 구분)
+    예: 유-_조맹 아래 얼굴_그리기 → "유-_조맹/얼굴_그리기"
+    최상위 카테고리 → "그림강의노트"
+    Python으로 치면: os.path.relpath(get_cat_dir(cat_id), vault).replace(os.sep, '/')
+    """
+    if not cat_id:
+        return None
+    cat_dir = get_cat_dir(cat_id, index)
+    vault = get_vault_dir()
+    try:
+        rel = cat_dir.relative_to(vault)
+        return rel.as_posix()
+    except ValueError:
+        return None
+
+
+def get_image_url_prefix(page_folder: str, cat_rel_path: Optional[str]) -> str:
+    """
+    이미지 URL 접두사 계산 — 127.0.0.1 사용 (Windows에서 localhost → ::1 IPv6 해석 문제 방지)
+    cat_rel_path: vault 기준 카테고리 전체 상대 경로 (부모 체인 포함, 예: "유-_조맹/얼굴_그리기")
+    Python으로 치면: f"http://127.0.0.1:8000/static/{cat_rel_path}/{page_folder}/"
+    """
+    if cat_rel_path:
+        return f"http://127.0.0.1:8000/static/{cat_rel_path}/{page_folder}/"
     return f"http://127.0.0.1:8000/static/{page_folder}/"
 
 

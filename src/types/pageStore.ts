@@ -145,6 +145,18 @@ export interface PageStore {
   deleteSelectedBlocks: (pageId: string) => void
   // 선택된 블록 일괄 복제 (undo 가능)
   duplicateSelectedBlocks: (pageId: string) => void
+  // 선택된 블록들을 토글 안에 하위 블록으로 묶기 (undo 가능)
+  // Python으로 치면: def group_into_toggle(self, page_id): ...
+  groupIntoToggle: (pageId: string) => void
+  // 토글 블록을 해제하여 자식들을 상위 레벨로 꺼내기 (undo 가능)
+  // Python으로 치면: def ungroup_toggle(self, page_id, toggle_id): ...
+  ungroupToggle: (pageId: string, toggleId: string) => void
+  // 토글 자식 블록 업데이트 (content 변경 등)
+  // Python으로 치면: def update_toggle_child(self, page_id, toggle_id, child_id, content): ...
+  updateToggleChild: (pageId: string, toggleId: string, childId: string, content: string) => void
+  // 토글 자식 블록 삭제
+  // Python으로 치면: def delete_toggle_child(self, page_id, toggle_id, child_id): ...
+  deleteToggleChild: (pageId: string, toggleId: string, childId: string) => void
 
   // ── 블록 히스토리 ──────────────────────────────
   // 구조 변경(추가/삭제/이동/타입/복제) 또는 undo/redo 실행 시 증가 → UI 리렌더링 트리거

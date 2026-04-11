@@ -282,6 +282,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     pages,
     selectedBlockIds, toggleBlockSelection, selectBlockRange,
     clearBlockSelection, deleteSelectedBlocks, duplicateSelectedBlocks,
+    groupIntoToggle,
     toggleMagazineMode, magazineModePages, layoutDescriptors, setLayoutDescriptor,
   } = usePageStore()
 
@@ -1422,6 +1423,22 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                   // 구분선 블록은 섹션이 접혀도 항상 표시 (레이아웃 구분자이므로 예외)
                   // Python으로 치면: is_hidden = hidden and block.type != 'divider'
                   const isHidden = hidden && block.type !== 'divider'
+                  // 토글 블록의 자식 블록들을 React children으로 미리 렌더링
+                  // ToggleBlock 안에서 Editor를 직접 임포트하면 순환 의존성 발생 → 여기서 pre-render
+                  // Python으로 치면: toggle_children = [Editor(child) for child in block.children] if toggle
+                  const toggleChildren = block.type === 'toggle' && (block.children?.length ?? 0) > 0
+                    ? block.children!.map(child => (
+                        <Editor
+                          key={child.id}
+                          block={child}
+                          pageId={pageId}
+                          isLast={false}
+                          readMode={readMode || !!page.isLocked}
+                          isChild={true}
+                          toggleId={block.id}
+                        />
+                      ))
+                    : undefined
                   return (
                     <div key={block.id} className={isHidden ? 'hidden' : undefined}>
                       <Editor
@@ -1434,7 +1451,10 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                         readMode={readMode || !!page.isLocked}
                         isSelected={selectedBlockIds.includes(block.id)}
                         onSelect={(e) => handleBlockSelect(block.id, e)}
-                      />
+                        onGroupIntoToggle={selectedBlockIds.length > 1 ? () => groupIntoToggle(pageId) : undefined}
+                      >
+                        {toggleChildren}
+                      </Editor>
                     </div>
                   )
                 })
@@ -1558,11 +1578,12 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       )}
 
       {/* ── 화살표 SVG 오버레이 ────────────────────────────────────────
+          arrowConnect 플러그인이 켜진 경우에만 렌더링
           blocks 변경 시 자동으로 [data-arrow-id] DOM 재스캔 후 곡선 갱신
-          Python으로 치면: render ArrowLayer(dep=page.blocks) */}
-      <ArrowLayer dep={page.blocks} />
+          Python으로 치면: if plugins.arrow_connect: render ArrowLayer(dep=page.blocks) */}
+      {plugins.arrowConnect && <ArrowLayer dep={page.blocks} />}
       {/* 화살표 우클릭 설정 메뉴 — arrowStore.contextMenu 구독, fixed 오버레이 */}
-      <ArrowContextMenu />
+      {plugins.arrowConnect && <ArrowContextMenu />}
 
       {/* ── 호버 미리보기 팝업 ────────────────────────────────────────
           [[링크]] / @멘션 위에 마우스를 올리면 해당 페이지 미리보기 팝업 표시

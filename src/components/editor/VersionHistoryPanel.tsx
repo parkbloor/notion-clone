@@ -77,8 +77,9 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
   const [previewPage, setPreviewPage] = useState<Page | null>(null)
   const [previewVersion, setPreviewVersion] = useState<HistoryVersion | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
-  // 복원 확인 UI
-  const [restoring, setRestoring] = useState(false)
+  // 복원 중인 버전 파일명 (null이면 미복원 중) — 버전별로 구분
+  // Python으로 치면: self.restoring_id: str | None = None
+  const [restoringId, setRestoringId] = useState<string | null>(null)
 
   const { loadFromServer } = usePageStore()
 
@@ -109,7 +110,7 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
   // ── 버전 복원 ────────────────────────────────────
   // Python으로 치면: async def restore(self, version): await api.restore(page_id, filename); reload()
   async function handleRestore(version: HistoryVersion) {
-    setRestoring(true)
+    setRestoringId(version.filename)
     try {
       await historyApi.restore(pageId, version.filename)
       toast.success('버전이 복원됐습니다. 페이지를 다시 불러옵니다...')
@@ -118,8 +119,7 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
       await loadFromServer()
     } catch {
       toast.error('버전 복원에 실패했습니다')
-    } finally {
-      setRestoring(false)
+      setRestoringId(null)
     }
   }
 
@@ -245,10 +245,10 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
                     <button
                       type="button"
                       onClick={() => handleRestore(version)}
-                      disabled={restoring}
+                      disabled={restoringId === version.filename}
                       className="flex-1 py-1 text-[10px] text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors disabled:opacity-50"
                     >
-                      {restoring ? '복원 중...' : '이 버전으로'}
+                      {restoringId === version.filename ? '복원 중...' : '이 버전으로'}
                     </button>
                   </div>
                 </div>
@@ -321,10 +321,10 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
                 <button
                   type="button"
                   onClick={() => handleRestore(previewVersion)}
-                  disabled={restoring}
+                  disabled={restoringId === previewVersion.filename}
                   className="w-full py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-lg transition-colors disabled:opacity-50"
                 >
-                  {restoring ? '복원 중...' : '이 버전으로 복원'}
+                  {restoringId === previewVersion.filename ? '복원 중...' : '이 버전으로 복원'}
                 </button>
               </div>
             </div>

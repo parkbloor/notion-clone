@@ -123,6 +123,11 @@ export async function saveNow(
             if (!localBlock) return serverBlock
             return {
               ...serverBlock,
+              // content는 로컬 우선 — saveNow 응답 대기 중 추가 편집이 있으면
+              // serverBlock.content(구버전)가 localBlock.content(최신)를 덮어쓰는
+              // 레이스 컨디션을 방지한다. (scheduleSave와 동일한 보호)
+              // Python으로 치면: merged['content'] = local.content or server.content
+              content: localBlock.content ?? serverBlock.content,
               backgroundColor: localBlock.backgroundColor,
               canvasX: localBlock.canvasX,
               canvasY: localBlock.canvasY,

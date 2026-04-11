@@ -9,7 +9,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLocale } from '@/locales'
 
-const BASE_URL = 'http://localhost:8000'
+// Windows에서 localhost가 IPv6(::1)로 해석되는 문제 방지 — 127.0.0.1 고정
+const BASE_URL = 'http://127.0.0.1:8000'
 
 interface LogEntry {
   level: 'INFO' | 'WARNING' | 'ERROR' | 'DEBUG'
@@ -107,7 +108,7 @@ export default function DebugTab() {
       {/* 에러 상태 */}
       {error && (
         <div className="text-sm text-red-500 bg-red-50 px-4 py-3 rounded-xl">
-          {t.settings.storage.serverError}
+          {t.settings.debug.serverError}
         </div>
       )}
 

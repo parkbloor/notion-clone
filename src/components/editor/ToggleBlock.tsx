@@ -1,7 +1,8 @@
 // =============================================
 // src/components/editor/ToggleBlock.tsx
 // 역할: 토글 블록 — 헤더 클릭으로 내용 접고 펼치기
-// Python으로 치면: class ToggleBlock(Widget): is_open = False; header = ""; body = ""
+//       isOpen 상태를 localStorage에 영속하여 리렌더/새로고침 후에도 유지
+// Python으로 치면: class ToggleBlock(Widget): is_open = load_from_storage(); header = ""; body = ""
 // =============================================
 
 'use client'
@@ -9,7 +10,7 @@
 import { useEditor, EditorContent } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extension-placeholder'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
@@ -17,7 +18,19 @@ import { useLocale } from '@/locales'
 interface ToggleBlockProps {
   block: Block
   pageId: string
-  isLast: boolean   // 마지막 블록 여부 (Backspace 삭제 방지용)
+  isLast: boolean    // 마지막 블록 여부 (Backspace 삭제 방지)
+  readMode?: boolean // 읽기 모드 — true이면 편집 불가
+  // PageEditor에서 미리 렌더링된 자식 블록 (순환 의존성 방지용 slot 패턴)
+  // Python으로 치면: self.children: ReactNode = None
+  children?: React.ReactNode
+}
+
+// -----------------------------------------------
+// localStorage 키 생성 헬퍼
+// Python으로 치면: def storage_key(block_id): return f'toggle-open-{block_id}'
+// -----------------------------------------------
+function storageKey(blockId: string): string {
+  return `toggle-open-${blockId}`
 }
 
 // -----------------------------------------------
@@ -32,38 +45,57 @@ function parseToggle(content: string): { header: string; body: string } {
     const parsed = JSON.parse(content)
     if (typeof parsed.header === 'string') return parsed
   } catch {}
-  // 구 포맷: plain 문자열을 header로 간주
   return { header: content, body: '' }
 }
 
-export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps) {
+// -----------------------------------------------
+// localStorage에서 isOpen 초기값 읽기
+// Python으로 치면: def load_open(block_id): return json.loads(storage.get(key)) or False
+// -----------------------------------------------
+function loadIsOpen(blockId: string): boolean {
+  try {
+    const raw = localStorage.getItem(storageKey(blockId))
+    if (raw !== null) return JSON.parse(raw) === true
+  } catch {}
+  return false
+}
+
+// -----------------------------------------------
+// ToggleBlock 컴포넌트
+// React.memo — block.id / block.content / readMode가 바뀌지 않으면 리렌더 생략
+// Python으로 치면: @cached_property 패턴과 유사
+// -----------------------------------------------
+const ToggleBlock = memo(function ToggleBlock({ block, pageId, isLast, readMode, children }: ToggleBlockProps) {
   const { updateBlock, deleteBlock } = usePageStore()
   const t = useLocale()
 
-  // content 파싱 (초기값)
   const { header: initHeader, body: initBody } = parseToggle(block.content)
 
   // ── 상태 ──────────────────────────────────────
-  // 토글 열림/닫힘 상태 (로컬 only, 저장 안 함)
-  // Python으로 치면: self.is_open = False
-  const [isOpen, setIsOpen] = useState(false)
+  // isOpen: localStorage 초기값으로 복원 → 리렌더/새로고침 후에도 유지
+  // Python으로 치면: self.is_open = load_from_storage(block_id)
+  const [isOpen, setIsOpen] = useState<boolean>(() => loadIsOpen(block.id))
 
   // 최신 HTML을 클로저 밖에서 읽기 위한 ref
-  // Python으로 치면: self._header_html = init_header
   const headerRef = useRef(initHeader)
   const bodyRef = useRef(initBody)
 
   // 신규 블록 여부 — 헤더·바디 모두 빈 경우 헤더 에디터 자동 포커스
-  // Python으로 치면: is_new = not init_header and not init_body
   const isNew = !initHeader && !initBody
 
   // Enter 키로 토글을 열 때 바디 에디터 포커스 이동 트리거
-  // setTimeout(0) 대신 useEffect로 처리 — DOM 업데이트 후 안정적으로 실행됨
-  // Python으로 치면: self._focus_body_on_open = False
   const [focusBodyOnOpen, setFocusBodyOnOpen] = useState(false)
 
+  // ── isOpen 변경 시 localStorage 저장 ──────────
+  // Python으로 치면: @is_open.setter: storage.set(key, value)
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey(block.id), JSON.stringify(isOpen))
+    } catch {}
+  }, [isOpen, block.id])
+
   // -----------------------------------------------
-  // header/body 중 하나가 변경될 때 block.content에 JSON으로 저장
+  // header/body 변경 시 block.content에 JSON으로 저장
   // Python으로 치면: def save(header=None, body=None): update_block(json.dumps({...}))
   // -----------------------------------------------
   function saveContent(newHeader?: string, newBody?: string) {
@@ -77,8 +109,8 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
   }
 
   // ── 헤더 에디터 ────────────────────────────────
-  // heading·list·code·blockquote 비활성화 → 단순 텍스트 서식만 허용
-  // Python으로 치면: header_editor = Editor(extensions=[Paragraph, Bold, Italic, Strike])
+  // heading·list·code·blockquote 비활성화 → 단순 인라인 서식만 허용
+  // Python으로 치면: header_editor = Editor(extensions=[Paragraph, Bold, Italic])
   const headerEditor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -92,23 +124,22 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
       Placeholder.configure({ placeholder: t.blocks.toggle.titlePlaceholder }),
     ],
     content: initHeader || '',
-    // 신규 블록이면 헤더 에디터 자동 포커스
     autofocus: isNew ? 'end' : false,
-    onUpdate: ({ editor }) => { saveContent(editor.getHTML(), undefined) },
+    editable: !readMode,
+    onUpdate: ({ editor }) => {
+      if (!readMode) saveContent(editor.getHTML(), undefined)
+    },
     editorProps: {
       handleKeyDown: (_view, event) => {
+        if (readMode) return false
         // Enter → 토글 열기 + body 에디터로 포커스 이동
-        // Python으로 치면: if event.key == 'Enter': open(); body.focus()
         if (event.key === 'Enter' && !event.shiftKey) {
           event.preventDefault()
           setIsOpen(true)
-          // useEffect가 DOM 업데이트 후 포커스를 처리 (setTimeout 0보다 안정적)
-          // Python으로 치면: self._focus_body_on_open = True
           setFocusBodyOnOpen(true)
           return true
         }
         // Backspace + 헤더 비어있음 → 블록 삭제 (마지막 블록은 삭제 방지)
-        // Python으로 치면: if event.key == 'Backspace' and empty and not last: delete()
         if (event.key === 'Backspace') {
           const isEmpty = _view.state.doc.textContent.length === 0
           if (isEmpty && !isLast) {
@@ -122,9 +153,15 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
     immediatelyRender: false,
   })
 
+  // readMode 변경 시 헤더 에디터 editable 동기화
+  // Python으로 치면: @readMode.setter: header_editor.setEditable(not readMode)
+  useEffect(() => {
+    if (!headerEditor) return
+    headerEditor.setEditable(!readMode)
+  }, [headerEditor, readMode])
+
   // ── 바디 에디터 ────────────────────────────────
-  // heading 포함 풀 서식 지원
-  // codeBlock: false → CustomCodeBlock이 없으므로 비활성화
+  // heading 포함 풀 서식 지원 (H1/H2/H3 모두 허용)
   // Python으로 치면: body_editor = Editor(extensions=[StarterKit])
   const bodyEditor = useEditor({
     extensions: [
@@ -132,13 +169,33 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
       Placeholder.configure({ placeholder: t.blocks.toggle.contentPlaceholder }),
     ],
     content: initBody || '',
-    onUpdate: ({ editor }) => { saveContent(undefined, editor.getHTML()) },
+    editable: !readMode,
+    onUpdate: ({ editor }) => {
+      if (!readMode) saveContent(undefined, editor.getHTML())
+    },
+    editorProps: {
+      handleKeyDown: (_view, event) => {
+        if (readMode) return false
+        // Escape → 헤더 에디터로 포커스 복귀
+        // Python으로 치면: if event.key == 'Escape': header_editor.focus()
+        if (event.key === 'Escape') {
+          headerEditor?.commands.focus('end')
+          return true
+        }
+        return false
+      },
+    },
     immediatelyRender: false,
   })
 
-  // isOpen + focusBodyOnOpen이 모두 true일 때 바디로 포커스
-  // useEffect는 DOM 업데이트 후 실행되므로 bodyEditor가 마운트된 상태 보장
-  // Python으로 치면: @observe(is_open, focus_body_on_open) def focus_body(): ...
+  // readMode 변경 시 바디 에디터 editable 동기화
+  useEffect(() => {
+    if (!bodyEditor) return
+    bodyEditor.setEditable(!readMode)
+  }, [bodyEditor, readMode])
+
+  // isOpen + focusBodyOnOpen 시 바디로 포커스
+  // Python으로 치면: @observe(is_open, focus_body_on_open) def on_open(): body.focus()
   useEffect(() => {
     if (isOpen && focusBodyOnOpen && bodyEditor) {
       bodyEditor.commands.focus('end')
@@ -147,10 +204,9 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
   }, [isOpen, focusBodyOnOpen, bodyEditor])
 
   // ── 화살표 버튼 스타일 (열리면 90° 회전) ─────────
-  // Python으로 치면: arrow_class = "rotate-90 ..." if is_open else "..."
   const arrowClass = isOpen
-    ? "mt-1 shrink-0 text-gray-500 hover:text-gray-700 rotate-90 transition-transform duration-200"
-    : "mt-1 shrink-0 text-gray-400 hover:text-gray-600 transition-transform duration-200"
+    ? "mt-0.5 shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rotate-90 transition-transform duration-200"
+    : "mt-0.5 shrink-0 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-transform duration-200"
 
   return (
     // 토글 전체 래퍼
@@ -158,16 +214,16 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
     <div className="w-full">
 
       {/* ── 헤더 행: 화살표 버튼 + 헤더 에디터 ────── */}
-      <div className="flex items-start gap-1">
+      <div className="flex items-start gap-1.5">
 
-        {/* 화살표 버튼: 클릭 시 열기/닫기, 열리면 SVG가 90° 회전 */}
+        {/* 화살표 버튼: 클릭 시 열기/닫기 토글 */}
         <button
           type="button"
           onClick={() => setIsOpen(prev => !prev)}
           className={arrowClass}
           title={isOpen ? t.blocks.toggle.collapseTitle : t.blocks.toggle.expandTitle}
         >
-          {/* 오른쪽 방향 삼각형 SVG (rotate-90으로 아래 방향 변환) */}
+          {/* 오른쪽 방향 삼각형 SVG (rotate-90 으로 아래 방향 전환) */}
           <svg viewBox="0 0 6 10" className="w-2.5 h-2.5 fill-current">
             <path d="M0 0 L6 5 L0 10 Z" />
           </svg>
@@ -177,14 +233,29 @@ export default function ToggleBlock({ block, pageId, isLast }: ToggleBlockProps)
         <EditorContent editor={headerEditor} className="flex-1 outline-none font-medium" />
       </div>
 
-      {/* ── 바디: 열려있을 때만 표시 ──────────────── */}
+      {/* ── 바디: isOpen=true 일 때만 표시 ──────── */}
+      {/* children(하위 블록)이 있으면 Tiptap body 대신 children 렌더링 */}
       {/* Python으로 치면: if is_open: body_area.show() */}
       {isOpen && (
-        <div className="ml-5 pl-3 border-l-2 border-gray-100 mt-0.5">
-          <EditorContent editor={bodyEditor} className="outline-none" />
+        <div className="ml-4 pl-3 border-l-2 border-gray-200 dark:border-gray-700 mt-0.5">
+          {children
+            ? (
+              // 하위 블록 모드 — PageEditor에서 전달한 Editor 컴포넌트 목록
+              // Python으로 치면: for child_block in children: render(child_block)
+              <div className="space-y-0.5 py-0.5">
+                {children}
+              </div>
+            )
+            : (
+              // 기존 Tiptap body 에디터 모드 (하위 블록 없을 때)
+              <EditorContent editor={bodyEditor} className="outline-none" />
+            )
+          }
         </div>
       )}
 
     </div>
   )
-}
+})
+
+export default ToggleBlock

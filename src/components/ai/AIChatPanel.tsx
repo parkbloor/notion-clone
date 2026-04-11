@@ -93,14 +93,16 @@ export default function AIChatPanel({
   // Python으로 치면: self._abort_ctrl: AbortController | None = None
   const aiAbortRef = useRef<AbortController | null>(null)
 
-  // 드래그/리사이즈 리스너 cleanup — 언마운트 시 좀비 리스너 방지
+  // 드래그/리사이즈 리스너 cleanup — 각각 별도 ref로 관리 (서로 덮어쓰기 방지)
   // Python으로 치면: self._drag_cleanup: Callable | None = None
-  const activeListenersRef = useRef<(() => void) | null>(null)
+  const dragListenersRef   = useRef<(() => void) | null>(null)
+  const resizeListenersRef = useRef<(() => void) | null>(null)
 
   // 언마운트 시 AI 스트림 + 이벤트 리스너 일괄 정리
   useEffect(() => () => {
     aiAbortRef.current?.abort()
-    activeListenersRef.current?.()
+    dragListenersRef.current?.()
+    resizeListenersRef.current?.()
   }, [])
 
   // ── 드래그 이동 + 리사이즈 (floating 모드 전용) ──────
@@ -108,6 +110,10 @@ export default function AIChatPanel({
   // initialPos prop이 있으면 사용 (GlobalAIChatButton에서 버튼과 겹치지 않도록 bottom 오프셋)
   const [pos, setPos] = useState(initialPos ?? { right: 16, bottom: 16 })
   const [size, setSize] = useState({ width: 320, height: 480 })
+  // sizeRef: onMove 클로저에서 최신 size 읽기용 — setSize updater 안에서 setPos 호출하는 anti-pattern 방지
+  // Python으로 치면: self._size_ref = self.size
+  const sizeRef = useRef(size)
+  useEffect(() => { sizeRef.current = size }, [size])
 
   // 이동 드래그
   const dragRef = useRef<{ startX: number; startY: number; startRight: number; startBottom: number } | null>(null)
@@ -121,23 +127,23 @@ export default function AIChatPanel({
       if (!dragRef.current) return
       const dx = ev.clientX - dragRef.current.startX
       const dy = ev.clientY - dragRef.current.startY
-      setSize(s => {
-        const newRight = Math.max(0, Math.min(window.innerWidth - s.width, dragRef.current!.startRight - dx))
-        const newBottom = Math.max(0, Math.min(window.innerHeight - s.height, dragRef.current!.startBottom - dy))
-        setPos({ right: newRight, bottom: newBottom })
-        return s
-      })
+      // sizeRef로 최신 size 직접 읽기 — setSize updater 안에서 setPos 호출하는 안티패턴 제거
+      // Python으로 치면: new_right = clamp(start_right - dx, 0, w - size.width)
+      const { width, height } = sizeRef.current
+      const newRight  = Math.max(0, Math.min(window.innerWidth  - width,  dragRef.current.startRight  - dx))
+      const newBottom = Math.max(0, Math.min(window.innerHeight - height, dragRef.current.startBottom - dy))
+      setPos({ right: newRight, bottom: newBottom })
     }
     function onUp() {
       dragRef.current = null
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
-      activeListenersRef.current = null
+      dragListenersRef.current = null
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-    // 언마운트 시 제거할 cleanup 등록
-    activeListenersRef.current = () => {
+    // 언마운트 시 제거할 드래그 cleanup 등록 (리사이즈 ref와 분리)
+    dragListenersRef.current = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
@@ -172,12 +178,12 @@ export default function AIChatPanel({
     function onUp() {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
-      activeListenersRef.current = null
+      resizeListenersRef.current = null
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-    // 언마운트 시 제거할 cleanup 등록
-    activeListenersRef.current = () => {
+    // 언마운트 시 제거할 리사이즈 cleanup 등록 (드래그 ref와 분리)
+    resizeListenersRef.current = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }

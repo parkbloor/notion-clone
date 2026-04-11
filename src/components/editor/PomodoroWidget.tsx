@@ -45,41 +45,18 @@ export default function PomodoroWidget() {
 
   // -----------------------------------------------
   // 타이머 tick — 1초마다 감소, 0이 되면 단계 전환
+  // updater 내부에서 다른 setState 호출 금지 → 0 감지는 별도 effect로 분리
   // Python으로 치면: while True: time.sleep(1); self.seconds_left -= 1
   // -----------------------------------------------
   useEffect(() => {
     if (!isRunning) return
 
     intervalRef.current = setInterval(() => {
-      setSecondsLeft(prev => {
-        if (prev <= 1) {
-          // 시간 종료 → 단계 전환 (브라우저 알림)
-          if (typeof window !== 'undefined') {
-            // 간단한 title 깜빡임으로 알림 (알림 권한 없이도 동작)
-            document.title = phaseRef.current === 'work'
-              ? '🍅 집중 종료! 휴식하세요'
-              : '🎯 휴식 종료! 다시 집중하세요'
-            setTimeout(() => { document.title = 'Notion Clone' }, 4000)
-          }
-
-          if (phaseRef.current === 'work') {
-            // 집중 완료 → 완료 수 +1, 휴식 단계로
-            setCompletedCount(c => c + 1)
-            setPhase('break')
-            setSecondsLeft(BREAK_SECONDS)
-          } else {
-            // 휴식 완료 → 집중 단계로
-            setPhase('work')
-            setSecondsLeft(WORK_SECONDS)
-          }
-          setIsRunning(false)
-          return 0
-        }
-        return prev - 1
-      })
+      // setSecondsLeft updater는 순수하게 값만 감소 — 다른 setState 호출 금지
+      setSecondsLeft(prev => (prev <= 1 ? 0 : prev - 1))
     }, 1000)
 
-    // cleanup: phase나 isRunning 변경 시 이전 interval 제거
+    // cleanup: isRunning 변경 시 이전 interval 제거
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
@@ -87,6 +64,35 @@ export default function PomodoroWidget() {
       }
     }
   }, [isRunning])
+
+  // -----------------------------------------------
+  // 단계 전환 감지 — secondsLeft가 0이 되면 다음 단계로
+  // updater 밖에서 처리하므로 React StrictMode 이중 실행 문제 없음
+  // Python으로 치면: if self.seconds_left == 0: self.next_phase()
+  // -----------------------------------------------
+  useEffect(() => {
+    if (!isRunning || secondsLeft !== 0) return
+
+    // 브라우저 title 알림 (알림 권한 없이도 동작)
+    if (typeof window !== 'undefined') {
+      document.title = phaseRef.current === 'work'
+        ? '🍅 집중 종료! 휴식하세요'
+        : '🎯 휴식 종료! 다시 집중하세요'
+      setTimeout(() => { document.title = 'Notion Clone' }, 4000)
+    }
+
+    if (phaseRef.current === 'work') {
+      // 집중 완료 → 완료 수 +1, 휴식 단계로
+      setCompletedCount(c => c + 1)
+      setPhase('break')
+      setSecondsLeft(BREAK_SECONDS)
+    } else {
+      // 휴식 완료 → 집중 단계로
+      setPhase('work')
+      setSecondsLeft(WORK_SECONDS)
+    }
+    setIsRunning(false)
+  }, [isRunning, secondsLeft])
 
   // -----------------------------------------------
   // 리셋 — 현재 단계의 초기 시간으로 복귀

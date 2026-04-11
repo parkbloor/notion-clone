@@ -645,7 +645,7 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
         width: '100vw',
         height: '100vh',
         pointerEvents: 'none',
-        zIndex: 9999,
+        zIndex: 30,   // 페이지 컨텐츠(~5) 위, 설정 모달(z-50=50) / BlockMenu(200) / ContextMenu(9999) 아래
         overflow: 'visible',
         // 연결 대기 모드: 전체 화면 커서 변경 (SVG 자체에는 pointer-events 없으므로 body에 적용)
         cursor: 'default',

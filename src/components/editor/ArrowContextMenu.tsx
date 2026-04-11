@@ -21,6 +21,22 @@ export default function ArrowContextMenu() {
   const clearContextMenu = useArrowStore(s => s.clearContextMenu)
   const menuRef = useRef<HTMLDivElement>(null)
 
+  // 스마트 포지셔닝: 메뉴가 화면 하단을 벗어나면 클릭 위치 위로 뒤집기
+  // Python으로 치면: (top, left) = smart_position(click_y, click_x, menu_h, menu_w)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+
+  useEffect(() => {
+    if (!contextMenu || !menuRef.current) return
+    const menuH = menuRef.current.offsetHeight
+    const menuW = menuRef.current.offsetWidth
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    // 화면 절반 기준: 하단 절반이면 위로 뒤집기
+    const top  = contextMenu.y + menuH > vh ? contextMenu.y - menuH : contextMenu.y
+    const left = contextMenu.x + menuW > vw ? contextMenu.x - menuW : contextMenu.x
+    setMenuPos({ top: Math.max(0, top), left: Math.max(0, left) })
+  }, [contextMenu])
+
   // 로컬 편집 상태 — contextMenu.attrs를 초기값으로 사용
   // Python으로 치면: self.local_attrs = copy(context_menu.attrs)
   const [color,     setColor]     = useState('blue')
@@ -93,6 +109,10 @@ export default function ArrowContextMenu() {
   }, [contextMenu, clearContextMenu])
 
   if (!contextMenu) return null
+
+  // menuPos가 아직 계산되지 않은 경우 화면 밖에 invisible 렌더 후 측정
+  // Python으로 치면: pos = menu_pos if menu_pos else { top: -9999, left: -9999 }
+  const resolvedPos = menuPos ?? { top: -9999, left: -9999 }
 
   // -----------------------------------------------
   // 같은 arrowId를 가진 모든 마크를 새 속성으로 일괄 갱신
@@ -255,10 +275,13 @@ export default function ArrowContextMenu() {
       ref={menuRef}
       style={{
         position: 'fixed',
-        top: contextMenu.y,
-        left: contextMenu.x,
+        top: resolvedPos.top,
+        left: resolvedPos.left,
         zIndex: 10001,
         minWidth: '180px',
+        // menuPos 미계산 시 불투명도 0으로 숨겨서 위치 측정 후 표시
+        opacity: menuPos ? 1 : 0,
+        transition: 'opacity 0.05s',
       }}
       className="bg-gray-900 rounded-lg shadow-xl border border-gray-700 py-2 print-hide"
       onMouseDown={(e) => e.stopPropagation()}

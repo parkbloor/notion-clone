@@ -256,6 +256,17 @@ function getPluginList(t: ReturnType<typeof useLocale>): PluginMeta[] {
       fullDesc: p.math.fullDesc,
       available: true,
     },
+    {
+      id: 'arrowConnect',
+      icon: '↗',
+      name: p.arrowConnect.name,
+      author: sp.authorBuiltin,
+      version: '1.0.0',
+      tags: p.arrowConnect.tags,
+      desc: p.arrowConnect.desc,
+      fullDesc: p.arrowConnect.fullDesc,
+      available: true,
+    },
   ]
 }
 

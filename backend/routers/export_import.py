@@ -229,6 +229,290 @@ def _embed_static_urls(text: str) -> str:
     return _STATIC_URL_RE.sub(replacer, text)
 
 
+def _dayplanner_to_html(content: str) -> str:
+    """
+    DayPlanner 블록 JSON → 시각적 타임테이블 HTML 변환
+    Python으로 치면: def render_planner(data: PlannerData) -> str: ...
+    앱과 동일한 레이아웃: 좌측 시간 레이블 + 우측 절대좌표 이벤트 블록 + 우측 이벤트 목록
+    """
+    try:
+        data = json.loads(content) if isinstance(content, str) else {}
+    except Exception:
+        return '<p><em>[일정표 데이터 오류]</em></p>'
+
+    events_by_date: dict = data.get("eventsByDate", {})
+    if not events_by_date:
+        return '<p><em>[일정표 — 등록된 일정 없음]</em></p>'
+
+    # 색상 팔레트 (Tailwind 400 계열 hex 값)
+    # Python으로 치면: COLOR_MAP: dict[str, tuple[str, str]] = {...}  → (bg, text)
+    COLOR_MAP: dict = {
+        'blue':    ('#60a5fa', '#fff'),
+        'sky':     ('#38bdf8', '#fff'),
+        'cyan':    ('#22d3ee', '#fff'),
+        'teal':    ('#2dd4bf', '#fff'),
+        'green':   ('#34d399', '#fff'),
+        'lime':    ('#a3e635', '#1f2937'),
+        'yellow':  ('#facc15', '#1f2937'),
+        'amber':   ('#fbbf24', '#fff'),
+        'orange':  ('#fb923c', '#fff'),
+        'red':     ('#fb7185', '#fff'),
+        'pink':    ('#f472b6', '#fff'),
+        'fuchsia': ('#e879f9', '#fff'),
+        'purple':  ('#a78bfa', '#fff'),
+        'indigo':  ('#818cf8', '#fff'),
+        'slate':   ('#94a3b8', '#fff'),
+        'gray':    ('#9ca3af', '#fff'),
+    }
+
+    HOUR_PX   = 48      # 1시간당 픽셀 높이 (앱 기본 줌과 동일)
+    START_H   = 0       # 표시 시작 시각
+    END_H     = 24      # 표시 종료 시각
+    TOTAL_H   = END_H - START_H
+    TOTAL_PX  = TOTAL_H * HOUR_PX
+
+    def time_to_min(t: str) -> int:
+        """HH:MM → 분 단위 정수. Python: int(h)*60+int(m)"""
+        try:
+            h, m = t.split(':')
+            return int(h) * 60 + int(m)
+        except Exception:
+            return -1
+
+    def event_top_height(ev: dict) -> tuple[float, float] | None:
+        """이벤트 top/height px 계산. Python: top=(start-base)*px_per_min"""
+        s = time_to_min(ev.get('start', ''))
+        e = time_to_min(ev.get('end', ''))
+        if s < 0 or e <= s:
+            return None
+        base = START_H * 60
+        px_per_min = HOUR_PX / 60.0
+        top    = (s - base) * px_per_min
+        height = (e - s) * px_per_min
+        return (top, max(height, 20))
+
+    # 날짜 정렬 후 각 날짜별 타임테이블 렌더
+    # Python으로 치면: for date in sorted(events_by_date): render_date(date)
+    sections: list[str] = []
+
+    for date_key in sorted(events_by_date.keys()):
+        events: list = events_by_date[date_key]
+        if not events:
+            continue
+
+        # ── 이벤트 레이아웃 계산 (겹침 컬럼 분할) ──────────────────
+        # Python으로 치면: items = sorted(events, key=lambda e: time_to_min(e['start']))
+        items_with_pos: list[dict] = []
+        for ev in sorted(events, key=lambda e: time_to_min(e.get('start', '00:00'))):
+            pos = event_top_height(ev)
+            if pos:
+                items_with_pos.append({'ev': ev, 'top': pos[0], 'height': pos[1], 'col': 0, 'total_cols': 1})
+
+        # 겹치는 이벤트 컬럼 분할
+        for i, cur in enumerate(items_with_pos):
+            cols_used: list[int] = []
+            for prev in items_with_pos[:i]:
+                ps = time_to_min(prev['ev'].get('start', ''))
+                pe = time_to_min(prev['ev'].get('end', ''))
+                cs = time_to_min(cur['ev'].get('start', ''))
+                ce = time_to_min(cur['ev'].get('end', ''))
+                if ps < ce and pe > cs:
+                    cols_used.append(prev['col'])
+            col = 0
+            while col in cols_used:
+                col += 1
+            cur['col'] = col
+        max_cols = max((it['col'] for it in items_with_pos), default=0) + 1
+        for it in items_with_pos:
+            it['total_cols'] = max_cols
+
+        # ── 이벤트 블록 HTML ────────────────────────────────────────
+        event_blocks_html: list[str] = []
+        for it in items_with_pos:
+            ev       = it['ev']
+            bg, fg   = COLOR_MAP.get(ev.get('color', 'blue'), ('#60a5fa', '#fff'))
+            w_pct    = 100 / it['total_cols']
+            l_pct    = it['col'] * w_pct
+            done     = ev.get('done', False)
+            opacity  = 'opacity:0.45;' if done else ''
+            strike   = 'text-decoration:line-through;' if done else ''
+            h_px     = it['height']
+            title_style = f'font-size:11px;font-weight:600;line-height:1.2;margin:0;{strike}'
+            time_html   = (
+                f'<span style="font-size:9px;opacity:0.8;line-height:1.2;">'
+                f'{ev.get("start","")}&ndash;{ev.get("end","")}</span>'
+            ) if h_px > 32 else ''
+
+            event_blocks_html.append(
+                f'<div style="position:absolute;top:{it["top"]+1:.1f}px;height:{h_px-2:.1f}px;'
+                f'left:calc({l_pct:.1f}% + 2px);width:calc({w_pct:.1f}% - 4px);'
+                f'background:{bg};color:{fg};border-radius:8px;padding:3px 6px;'
+                f'overflow:hidden;display:flex;flex-direction:column;justify-content:flex-start;'
+                f'box-shadow:0 1px 3px rgba(0,0,0,.12);{opacity}">'
+                f'<p style="{title_style}">{_html_mod.escape(ev.get("title",""))}</p>'
+                f'{time_html}'
+                f'</div>'
+            )
+
+        # ── 시간 레이블 ─────────────────────────────────────────────
+        hour_labels_html: list[str] = []
+        for i in range(TOTAL_H + 1):
+            top_px = i * HOUR_PX - 6 if i > 0 else 2
+            hour_labels_html.append(
+                f'<div style="position:absolute;top:{top_px}px;right:0;width:100%;'
+                f'text-align:right;padding-right:8px;font-size:10px;color:#9ca3af;line-height:1;">'
+                f'{str(START_H + i).zfill(2)}:00</div>'
+            )
+
+        # ── 그리드 선 ───────────────────────────────────────────────
+        grid_lines_html: list[str] = []
+        for i in range(TOTAL_H):
+            grid_lines_html.append(
+                f'<div style="position:absolute;left:0;right:0;top:{i*HOUR_PX}px;'
+                f'border-top:1px solid #f3f4f6;"></div>'
+                f'<div style="position:absolute;left:0;right:0;top:{i*HOUR_PX+HOUR_PX//2}px;'
+                f'border-top:1px dashed #f9fafb;"></div>'
+            )
+
+        # ── 우측 이벤트 목록 ────────────────────────────────────────
+        # ── 우측 이벤트 목록 (details/summary로 상세 정보 펼치기) ───
+        # Python으로 치면: for ev in sorted_events: render_list_item(ev)
+        list_items_html: list[str] = []
+        for ev in sorted(events, key=lambda e: time_to_min(e.get('start', '00:00'))):
+            bg, _  = COLOR_MAP.get(ev.get('color', 'blue'), ('#60a5fa', '#fff'))
+            done   = ev.get('done', False)
+            strike = 'text-decoration:line-through;' if done else ''
+            title  = _html_mod.escape(ev.get('title', ''))
+
+            # 상세 데이터 수집
+            clock_in   = ev.get('clockIn', '')
+            clock_out  = ev.get('clockOut', '')
+            elapsed    = ev.get('elapsed')          # 분 단위 int|None
+            log_text   = ev.get('log', '').strip()  # 자유 텍스트 기록
+            subtasks   = ev.get('subtasks', [])     # [{text, done}]
+            energy     = ev.get('energy')           # 1~5|None
+
+            # 상세 내용이 하나라도 있으면 details 사용, 없으면 단순 div
+            has_detail = bool(clock_in or clock_out or log_text or subtasks or energy)
+
+            # ── 상세 블록 조립 ──────────────────────────────────────
+            detail_parts: list[str] = []
+
+            # 실제 시각 + 경과 시간
+            if clock_in or clock_out or elapsed is not None:
+                ci  = clock_in[:5]  if clock_in  else '–'   # HH:MM:SS → HH:MM
+                co  = clock_out[:5] if clock_out else '–'
+                el  = f'{elapsed}분' if elapsed is not None else ''
+                detail_parts.append(
+                    f'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">'
+                    f'<span style="font-size:10px;">⏱</span>'
+                    f'<span style="font-size:10px;color:#6b7280;">{ci} – {co}'
+                    f'{(" (" + el + ")") if el else ""}</span></div>'
+                )
+
+            # 집중도 (에너지 레벨 ★ 표시)
+            if energy:
+                stars = '★' * int(energy) + '☆' * (5 - int(energy))
+                detail_parts.append(
+                    f'<div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">'
+                    f'<span style="font-size:10px;">⚡</span>'
+                    f'<span style="font-size:11px;color:#f59e0b;">{stars}</span></div>'
+                )
+
+            # 실제 수행 기록 (자유 텍스트)
+            if log_text:
+                log_escaped = _html_mod.escape(log_text).replace('\n', '<br>')
+                detail_parts.append(
+                    f'<div style="margin-bottom:4px;">'
+                    f'<div style="font-size:10px;font-weight:600;color:#9ca3af;margin-bottom:2px;">📝 기록</div>'
+                    f'<div style="font-size:11px;color:#374151;line-height:1.5;'
+                    f'background:#f9fafb;border-radius:6px;padding:6px 8px;">'
+                    f'{log_escaped}</div></div>'
+                )
+
+            # 서브태스크 체크리스트
+            if subtasks:
+                done_count = sum(1 for s in subtasks if s.get('done'))
+                sub_items = ''.join(
+                    f'<div style="display:flex;align-items:center;gap:6px;padding:2px 0;">'
+                    f'<span style="font-size:12px;color:{"#10b981" if s.get("done") else "#d1d5db"};">'
+                    f'{"☑" if s.get("done") else "☐"}</span>'
+                    f'<span style="font-size:11px;color:#374151;'
+                    f'{"text-decoration:line-through;opacity:0.5;" if s.get("done") else ""}">'
+                    f'{_html_mod.escape(s.get("text",""))}</span></div>'
+                    for s in subtasks
+                )
+                detail_parts.append(
+                    f'<div>'
+                    f'<div style="font-size:10px;font-weight:600;color:#9ca3af;margin-bottom:2px;">'
+                    f'☑ 서브태스크 ({done_count}/{len(subtasks)})</div>'
+                    f'{sub_items}</div>'
+                )
+
+            detail_html = ''.join(detail_parts)
+
+            # ── 헤더 (summary) 공통 부분 ───────────────────────────
+            header_html = (
+                f'<div style="display:flex;align-items:center;gap:8px;">'
+                f'<div style="width:10px;height:10px;border-radius:50%;background:{bg};'
+                f'flex-shrink:0;margin-top:1px;"></div>'
+                f'<div style="flex:1;min-width:0;">'
+                f'<div style="font-size:12px;font-weight:600;color:#374151;{strike}'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title}</div>'
+                f'<div style="font-size:10px;color:#9ca3af;">'
+                f'{ev.get("start","")} – {ev.get("end","")}</div>'
+                f'</div></div>'
+            )
+
+            if has_detail:
+                # <details>로 펼치기/접기
+                list_items_html.append(
+                    f'<details style="border-bottom:1px solid #f3f4f6;padding:5px 0;">'
+                    f'<summary style="list-style:none;cursor:pointer;'
+                    f'-webkit-appearance:none;outline:none;">'
+                    f'{header_html}'
+                    f'</summary>'
+                    f'<div style="margin:6px 0 4px 18px;padding:8px;'
+                    f'background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">'
+                    f'{detail_html}'
+                    f'</div>'
+                    f'</details>'
+                )
+            else:
+                list_items_html.append(
+                    f'<div style="border-bottom:1px solid #f3f4f6;padding:5px 0;">'
+                    f'{header_html}</div>'
+                )
+
+        sections.append(f'''
+<div class="dp-section" style="margin-bottom:32px;">
+  <div style="font-size:13px;font-weight:700;color:#374151;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e5e7eb;">
+    {_html_mod.escape(date_key)}
+  </div>
+  <div style="display:flex;height:680px;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
+    <!-- 타임라인 영역 -->
+    <div style="flex:1;overflow-y:auto;display:flex;">
+      <!-- 시간 레이블 열 -->
+      <div style="width:48px;flex-shrink:0;position:relative;height:{TOTAL_PX}px;">
+        {"".join(hour_labels_html)}
+      </div>
+      <!-- 그리드 + 이벤트 -->
+      <div style="flex:1;position:relative;border-left:1px solid #e5e7eb;height:{TOTAL_PX}px;">
+        {"".join(grid_lines_html)}
+        {"".join(event_blocks_html)}
+      </div>
+    </div>
+    <!-- 이벤트 목록 (우측, 독립 스크롤) -->
+    <div style="width:220px;flex-shrink:0;border-left:1px solid #e5e7eb;overflow-y:auto;padding:12px;">
+      <div style="font-size:11px;font-weight:700;color:#6b7280;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">일정 목록</div>
+      {"".join(list_items_html) if list_items_html else '<p style="font-size:12px;color:#9ca3af;">일정 없음</p>'}
+    </div>
+  </div>
+</div>''')
+
+    return "\n".join(sections) if sections else '<p><em>[일정표 — 등록된 일정 없음]</em></p>'
+
+
 def _blocks_to_html(blocks: list) -> str:
     """
     블록 배열 → HTML 문자열 변환 (재귀)
@@ -413,6 +697,10 @@ def _blocks_to_html(blocks: list) -> str:
                 parts.append(f'<div class="kanban">{"".join(col_parts)}</div>')
             except Exception:
                 parts.append(f'<div>[칸반 보드]</div>')
+
+        elif btype in ("dayPlanner", "dayplanner"):
+            # Python으로 치면: parts.append(render_planner(json.loads(content)))
+            parts.append(_dayplanner_to_html(content))
 
         else:
             parts.append(f'<p>{content}</p>')

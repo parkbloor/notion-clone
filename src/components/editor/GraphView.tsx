@@ -61,8 +61,7 @@ export default function GraphView({ onClose }: GraphViewProps) {
   // Python으로 치면: graph = build_graph(pages, category_map)
   const { nodes, edges } = useMemo(
     () => buildGraphData(pages, categoryMap),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [pages]
+    [pages, categoryMap]
   )
 
   // SVG 참조
@@ -343,7 +342,7 @@ export default function GraphView({ onClose }: GraphViewProps) {
         <g transform={`translate(${transform.x},${transform.y}) scale(${transform.scale})`}>
 
           {/* 엣지 (연결선) */}
-          {edges.map((e, i) => {
+          {edges.map((e) => {
             const si = idxMap[e.sourceId]
             const ti = idxMap[e.targetId]
             if (si === undefined || ti === undefined) return null
@@ -352,7 +351,7 @@ export default function GraphView({ onClose }: GraphViewProps) {
             if (!sn || !tn) return null
             return (
               <line
-                key={i}
+                key={`${e.sourceId}-${e.targetId}`}
                 x1={sn.x} y1={sn.y}
                 x2={tn.x} y2={tn.y}
                 stroke={edgeColor}

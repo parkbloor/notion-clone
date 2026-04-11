@@ -625,12 +625,23 @@ export const usePageStore = create<PageStore>()(
     },
 
     // 타이핑마다 호출 → 반드시 디바운스
+    // 최상위 blocks에서 먼저 탐색, 없으면 토글 children도 탐색 (토글 자식 블록 저장 지원)
+    // Python으로 치면: def update_block(page_id, block_id, content): find_and_update(block_id)
     updateBlock: (pageId, blockId, content) => {
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
+        // 최상위 블록에서 탐색
         const block = page.blocks.find(b => b.id === blockId)
-        if (block) { block.content = content; block.updatedAt = new Date().toISOString() }
+        if (block) { block.content = content; block.updatedAt = new Date().toISOString(); return }
+        // 토글 children에서 탐색 (토글 자식 블록인 경우)
+        // Python으로 치면: for toggle in toggles: if block_id in toggle.children: update
+        const now = new Date().toISOString()
+        for (const toggle of page.blocks) {
+          if (!toggle.children) continue
+          const child = toggle.children.find(c => c.id === blockId)
+          if (child) { child.content = content; child.updatedAt = now; return }
+        }
       })
       scheduleSave(pageId, get, set)
     },
@@ -737,6 +748,100 @@ export const usePageStore = create<PageStore>()(
           return [b, clone]
         })
         state.selectedBlockIds = newBlocks
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // ── 선택 블록들을 토글 자식으로 묶기 ──────────────────────────────────
+    // 선택된 블록들을 페이지 순서대로 정렬 후 새 토글 블록의 children으로 이동
+    // 원래 블록들은 페이지 상위 레벨에서 제거되고, 토글이 첫 번째 블록 위치에 삽입
+    // Python으로 치면: def group_into_toggle(self, page_id): ...
+    groupIntoToggle: (pageId) => {
+      const { selectedBlockIds } = get()
+      if (selectedBlockIds.length < 1) return
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const selectedSet = new Set(selectedBlockIds)
+        // 페이지 순서를 유지하며 선택 블록 추출
+        // Python으로 치면: children = [b for b in page.blocks if b.id in selected_set]
+        const children = page.blocks.filter(b => selectedSet.has(b.id))
+        if (children.length === 0) return
+        // 첫 번째 선택 블록의 위치에 토글 삽입
+        const firstIdx = page.blocks.findIndex(b => selectedSet.has(b.id))
+        const now = new Date().toISOString()
+        const toggleBlock: Block = {
+          id: crypto.randomUUID(),
+          type: 'toggle',
+          // 헤더 빈 상태로 생성 — 사용자가 제목 입력
+          content: JSON.stringify({ header: '', body: '' }),
+          children,
+          createdAt: now,
+          updatedAt: now,
+        }
+        // 선택 블록 제거 후 토글 삽입
+        // Python으로 치면: blocks = [toggle if b is first else b for b in blocks if b not in selected]
+        const remaining = page.blocks.filter(b => !selectedSet.has(b.id))
+        remaining.splice(firstIdx, 0, toggleBlock)
+        page.blocks = remaining
+        state.selectedBlockIds = []
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // ── 토글 블록 해제 — 자식들을 상위 레벨로 꺼내기 ──────────────────────
+    // 토글의 children을 토글 위치에 순서대로 펼쳐 넣고 토글 블록 삭제
+    // Python으로 치면: def ungroup_toggle(self, page_id, toggle_id): ...
+    ungroupToggle: (pageId, toggleId) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const idx = page.blocks.findIndex(b => b.id === toggleId)
+        if (idx === -1) return
+        const toggle = page.blocks[idx]
+        const children = toggle.children ?? []
+        // 토글 자리에 children을 펼쳐 넣기
+        // Python으로 치면: blocks[idx:idx+1] = children
+        page.blocks.splice(idx, 1, ...children)
+        if (page.blocks.length === 0) page.blocks.push(createBlock('paragraph'))
+        state.historyVersion++
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // ── 토글 자식 블록 content 업데이트 ─────────────────────────────────────
+    // Python으로 치면: def update_toggle_child(self, page_id, toggle_id, child_id, content): ...
+    updateToggleChild: (pageId, toggleId, childId, content) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const toggle = page.blocks.find(b => b.id === toggleId)
+        if (!toggle?.children) return
+        const child = toggle.children.find(c => c.id === childId)
+        if (!child) return
+        child.content = content
+        child.updatedAt = new Date().toISOString()
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    // ── 토글 자식 블록 삭제 ───────────────────────────────────────────────
+    // Python으로 치면: def delete_toggle_child(self, page_id, toggle_id, child_id): ...
+    deleteToggleChild: (pageId, toggleId, childId) => {
+      const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        const toggle = page.blocks.find(b => b.id === toggleId)
+        if (!toggle?.children) return
+        toggle.children = toggle.children.filter(c => c.id !== childId)
         state.historyVersion++
       })
       scheduleSave(pageId, get, set)

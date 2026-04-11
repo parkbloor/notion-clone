@@ -91,8 +91,8 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
       }
     }
     // 약간 딜레이 후 등록 (오픈 클릭 이벤트와 겹침 방지)
-    const t = setTimeout(() => document.addEventListener('mousedown', handler), 100)
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', handler) }
+    const timerId = setTimeout(() => document.addEventListener('mousedown', handler), 100)
+    return () => { clearTimeout(timerId); document.removeEventListener('mousedown', handler) }
   }, [onClose])
 
   // Escape 키 → 닫기

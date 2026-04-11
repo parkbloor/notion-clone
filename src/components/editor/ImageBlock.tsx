@@ -1,13 +1,15 @@
 // =============================================
 // src/components/editor/ImageBlock.tsx
-// 역할: 이미지 블록 — 업로드 UI, 이미지 표시, 우측 핸들로 너비 조절
-//       GIF의 경우 canvas 렌더링으로 재생/일시정지/프레임 이동 지원
+// 역할: 이미지 블록 — 단일/다중 이미지 지원
+//       단일 이미지: 너비 조절 + GIF canvas 플레이어
+//       다중 이미지: 그리드 레이아웃 + 라이트박스 뷰어 (←→ 넘기기, ESC 닫기)
 // Python으로 치면: class ImageBlock(Widget): def render(self): ...
 // =============================================
 
 'use client'
 
 import { useRef, useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { parseGIF, decompressFrames, ParsedFrame } from 'gifuct-js'
 import { Block } from '@/types/block'
@@ -18,29 +20,43 @@ import { useLocale } from '@/locales'
 interface ImageBlockProps {
   block: Block
   pageId: string
-  // 원고(읽기) 모드 여부 — true이면 GIF 컨트롤 표시 + 자동 재생 없음
+  // 읽기 모드 여부 — true이면 GIF 컨트롤 항상 표시, 편집 UI 숨김
   // Python으로 치면: read_mode: bool = False
   readMode?: boolean
 }
 
 // -----------------------------------------------
-// content 파싱 헬퍼
-// 새 포맷: JSON { src, width?, caption? }
-// 구 포맷(legacy): plain data URL 문자열
-// Python으로 치면: def parse_content(s): return json.loads(s) or {'src': s}
+// 개별 이미지 항목 타입
+// Python으로 치면: class ImageItem(TypedDict): src: str; caption: Optional[str]
 // -----------------------------------------------
-function parseContent(content: string): { src: string; width?: number; caption?: string } {
-  if (!content) return { src: '' }
+type ImageItem = { src: string; caption?: string }
+
+// -----------------------------------------------
+// content 파싱 헬퍼 — 구/신 포맷 모두 지원
+//   신 포맷: { images: ImageItem[], width?: number }
+//   구 포맷: { src, width?, caption? } or 평문 data URL
+// Python으로 치면: def parse_multi_content(s) -> dict: ...
+// -----------------------------------------------
+function parseMultiContent(content: string): { images: ImageItem[]; width?: number } {
+  if (!content) return { images: [] }
   try {
     const parsed = JSON.parse(content)
-    if (typeof parsed.src === 'string') return parsed
+    // 신 포맷: images 배열이 있으면 바로 반환
+    if (Array.isArray(parsed.images)) return parsed as { images: ImageItem[]; width?: number }
+    // 구 포맷: src 문자열 하나를 배열로 래핑
+    if (typeof parsed.src === 'string') {
+      return { images: [{ src: parsed.src, caption: parsed.caption }], width: parsed.width }
+    }
   } catch {}
-  return { src: content }
+  // 레거시: 평문 data URL 또는 http URL
+  if (content.startsWith('data:image/') || content.startsWith('http')) {
+    return { images: [{ src: content }] }
+  }
+  return { images: [] }
 }
 
 // -----------------------------------------------
 // src URL이 GIF인지 판단
-// URL 끝이 .gif 이거나 쿼리스트링 제외한 경로가 .gif 로 끝나면 true
 // Python으로 치면: def is_gif(src): return src.lower().endswith('.gif')
 // -----------------------------------------------
 function detectGif(src: string): boolean {
@@ -52,14 +68,23 @@ function detectGif(src: string): boolean {
   }
 }
 
+// -----------------------------------------------
+// 이미지 수에 따른 그리드 열 클래스 계산
+// 2장 → 2열, 3장 이상 → 3열
+// Python으로 치면: def grid_cols(n): return 2 if n == 2 else 3
+// -----------------------------------------------
+function gridColsClass(count: number): string {
+  if (count === 2) return 'grid-cols-2'
+  return 'grid-cols-3'
+}
+
 export default function ImageBlock({ block, pageId, readMode = false }: ImageBlockProps) {
   const { updateBlock, updateBlockCanvas, savePageNow } = usePageStore()
   const t = useLocale()
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  // GIF canvas 렌더링용 ref — <canvas> 엘리먼트 직접 참조
-  // Python으로 치면: canvas_ref = None
+  // GIF canvas 렌더링용 ref
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -70,80 +95,77 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   const [localWidth, setLocalWidth] = useState<number | undefined>(undefined)
   const [isUploading, setIsUploading] = useState(false)
 
-  // ── GIF 플레이어 상태 ─────────────────────────
-  // 파싱된 프레임 배열 (gifuct-js 디코딩 결과)
+  // ── 라이트박스 상태 ──────────────────────────
+  // null = 닫힘, 숫자 = 해당 인덱스 이미지를 전체화면으로 표시
+  // Python으로 치면: self.lightbox_idx: Optional[int] = None
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null)
+  // 라이트박스에서 편집 중인 캡션
+  const [lightboxCaption, setLightboxCaption] = useState('')
+
+  // ── GIF 플레이어 상태 (단일 이미지 모드 전용) ──
   // Python으로 치면: self.frames: list[ParsedFrame] = []
   const [gifFrames, setParsedFrames] = useState<ParsedFrame[]>([])
-  // 현재 표시 중인 프레임 인덱스
   const [currentFrameIdx, setCurrentFrameIdx] = useState(0)
-  // 재생 중 여부 — true면 requestAnimationFrame 루프 작동
   const [isPlaying, setIsPlaying] = useState(false)
-  // GIF 파싱 진행 중 여부
   const [isLoadingGif, setIsLoadingGif] = useState(false)
-  // GIF 여부
   const [isGif, setIsGif] = useState(false)
-
-  // GIF 애니메이션 루프 제어용 ref
-  // Python으로 치면: raf_id: int | None = None
   const rafRef = useRef<number | null>(null)
-  // 마지막 프레임 렌더 시각 (ms) — delay 계산용
   const lastFrameTimeRef = useRef<number>(0)
-  // 현재 프레임 인덱스 ref — RAF 클로저 안에서 최신값 참조
   const frameIdxRef = useRef(0)
-  // 프레임 배열 ref — RAF 클로저 안에서 최신값 참조
   const framesRef = useRef<ParsedFrame[]>([])
-  // canvas 누적 배경 보존용 오프스크린 버퍼 (disposal type 3 용)
   const offscreenRef = useRef<HTMLCanvasElement | null>(null)
-  // 프레임 픽셀 데이터 임시 캔버스 — 매 프레임마다 생성 비용 절감용 재사용 버퍼
-  // putImageData → drawImage 변환 브릿지 역할
-  // Python으로 치면: self._temp_surface = pygame.Surface((0, 0))
   const tempCanvasRef = useRef<HTMLCanvasElement | null>(null)
-
-  // ── 재생 속도 배수 — 0.5× / 1× / 2× 선택
-  // Python으로 치면: self.speed: float = 1.0
   const [speedMultiplier, setSpeedMultiplier] = useState<0.5 | 1 | 2>(1)
-  // RAF 클로저 안에서 최신 속도값 읽기용 ref
   const speedMultiplierRef = useRef<number>(1)
-
-  // ── 루프 여부 — false면 마지막 프레임에서 재생 멈춤
-  // Python으로 치면: self.looping: bool = True
   const [isLooping, setIsLooping] = useState(true)
   const isLoopingRef = useRef(true)
 
-  const { src, width: savedWidth, caption: savedCaption } = parseContent(block.content)
-  const [localCaption, setLocalCaption] = useState(savedCaption ?? '')
+  // content 파싱 — 이미지 배열과 공통 너비 추출
+  const { images, width: savedWidth } = parseMultiContent(block.content)
+  const isSingleImage = images.length === 1
+  const src = images[0]?.src ?? ''
   const displayWidth = isResizing ? localWidth : savedWidth
-  const hasValidImage = src.startsWith('data:image/') || src.startsWith('http')
 
-  // -----------------------------------------------
-  // Effect 1: src가 바뀌면 GIF 여부만 감지해서 상태 업데이트
-  // — 프레임 로딩은 여기서 하지 않는다.
-  //   setIsGif(true)가 실행되면 React가 다음 렌더에서 <canvas>를 DOM에 추가한다.
-  //   canvas가 DOM에 존재하기 전에 loadParsedFrames를 호출하면 canvasRef.current가
-  //   null이라 canvas.width/height 설정이 전부 무효 → 빈 캔버스가 된다.
-  // Python으로 치면: def on_src_changed(src): self.is_gif = is_gif(src)
-  // -----------------------------------------------
+  // 단일 이미지 모드에서만 GIF 감지 실행
+  // Python으로 치면: if single_mode: self.is_gif = is_gif(src)
   useEffect(() => {
+    if (!isSingleImage) { setIsGif(false); return }
     setIsGif(src ? detectGif(src) : false)
-  }, [src])
+  }, [src, isSingleImage])
 
-  // -----------------------------------------------
-  // Effect 2: isGif가 true가 된 직후 실행
-  // React는 상태 변경 → DOM 커밋 → effect 실행 순서를 보장하므로
-  // 이 effect가 실행될 때는 <canvas>가 이미 DOM에 마운트된 상태다.
-  // Python으로 치면: def on_is_gif_changed(): if is_gif: load_frames(src)
-  // -----------------------------------------------
+  // isGif 전환 후 DOM에 <canvas>가 마운트된 시점에 프레임 로딩
   useEffect(() => {
-    if (!isGif || !src) return
+    if (!isGif || !src || !isSingleImage) return
     loadParsedFrames(src)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isGif, src])
+  }, [isGif, src, isSingleImage])
+
+  // 라이트박스가 열릴 때 해당 이미지 캡션을 편집 상태로 초기화
+  useEffect(() => {
+    if (lightboxIdx !== null) {
+      setLightboxCaption(images[lightboxIdx]?.caption ?? '')
+    }
+  }, [lightboxIdx]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 라이트박스 키보드 조작 — ← → ESC
+  // Python으로 치면: def on_key(e): if e.key == 'Escape': close()
+  useEffect(() => {
+    if (lightboxIdx === null) return
+    const total = images.length
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { setLightboxIdx(null); return }
+      if (e.key === 'ArrowLeft')
+        setLightboxIdx(i => i !== null ? (i - 1 + total) % total : null)
+      if (e.key === 'ArrowRight')
+        setLightboxIdx(i => i !== null ? (i + 1) % total : null)
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+  }, [lightboxIdx, images.length])
 
   // -----------------------------------------------
-  // XHR로 ArrayBuffer 로드
-  // Chrome 확장이 window.fetch를 가로채므로 XHR 직접 사용
-  // 확장의 InvalidStateError는 확장 자체의 오류일 뿐 우리 onload 콜백은 정상 실행됨
-  // Python으로 치면: def fetch_bytes(url) -> bytes: return urllib.request.urlopen(url).read()
+  // XHR로 ArrayBuffer 로드 (Chrome 확장 fetch 간섭 방지)
+  // Python으로 치면: def fetch_bytes(url) -> bytes: ...
   // -----------------------------------------------
   function fetchArrayBuffer(url: string): Promise<ArrayBuffer> {
     return new Promise((resolve, reject) => {
@@ -151,11 +173,8 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
       xhr.open('GET', url, true)
       xhr.responseType = 'arraybuffer'
       xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(xhr.response as ArrayBuffer)
-        } else {
-          reject(new Error(`HTTP ${xhr.status}`))
-        }
+        if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response as ArrayBuffer)
+        else reject(new Error(`HTTP ${xhr.status}`))
       }
       xhr.onerror = () => reject(new Error('network error'))
       xhr.send()
@@ -163,12 +182,8 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   }
 
   // -----------------------------------------------
-  // GIF 파싱: XHR → ArrayBuffer → gifuct-js 디코딩 → 프레임 배열
-  // Python으로 치면:
-  //   async def load_gif_frames(src):
-  //       data = fetch_bytes(src)
-  //       frames = decompress(parse_gif(data))
-  //       self.frames = frames
+  // GIF 파싱: XHR → gifuct-js 디코딩 → 프레임 배열
+  // Python으로 치면: async def load_gif_frames(src): ...
   // -----------------------------------------------
   async function loadParsedFrames(gifSrc: string) {
     setIsLoadingGif(true)
@@ -181,15 +196,11 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
       const parsed = parseGIF(buf)
       const frames = decompressFrames(parsed, true) as ParsedFrame[]
 
-      // ── canvas 크기를 GIF 헤더(lsd)에서 설정 ──────────────────────
-      // canvas 기본 크기는 300×150이라 width===0 조건이 절대 실행 안 됨
-      // lsd(Logical Screen Descriptor)가 GIF 전체 해상도의 단일 진실 공급원
-      // Python으로 치면: canvas.config(width=parsed.lsd.width, height=parsed.lsd.height)
+      // canvas 크기를 GIF 헤더(lsd)로 설정
       const canvas = canvasRef.current
       if (canvas) {
         canvas.width = parsed.lsd.width
         canvas.height = parsed.lsd.height
-        // 오프스크린 버퍼 초기화 (disposal type 3 복원용)
         const off = document.createElement('canvas')
         off.width = parsed.lsd.width
         off.height = parsed.lsd.height
@@ -198,28 +209,17 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
 
       framesRef.current = frames
       setParsedFrames(frames)
-      // 첫 프레임 즉시 렌더
-      if (frames.length > 0) {
-        renderFrame(frames, 0, canvas)
-      }
+      if (frames.length > 0) renderFrame(frames, 0, canvas)
     } catch {
-      // 파싱 실패 — isGif는 유지 (setIsGif(false) 금지)
-      // setIsGif(false)를 하면 <img>로 폴백되어 컨트롤이 사라짐
-      // frames가 비어있으면 컨트롤 비활성 상태로 표시됨
+      // 파싱 실패 시 isGif 유지 (img 폴백으로 GIF 원본 표시 유지)
     } finally {
       setIsLoadingGif(false)
     }
   }
 
   // -----------------------------------------------
-  // 특정 프레임을 canvas에 렌더링
-  // GIF disposal type 처리:
-  //   0,1 = 이전 상태 유지 (do not dispose) → 그냥 덧그리기
-  //   2   = 배경으로 복원 → 이전 프레임 영역 지우고 덧그리기
-  //   3   = 이전 프레임 복원 (rare, 오프스크린 버퍼로 처리)
-  // Python으로 치면:
-  //   def render_frame(frames, idx, canvas):
-  //       apply_disposal(prev); ctx.put_image_data(frame.patch, x, y)
+  // 특정 프레임을 canvas에 렌더링 (disposal type 0/1/2/3 처리)
+  // Python으로 치면: def render_frame(frames, idx, canvas): ...
   // -----------------------------------------------
   function renderFrame(frames: ParsedFrame[], idx: number, canvas: HTMLCanvasElement | null) {
     const c = canvas ?? canvasRef.current
@@ -230,29 +230,21 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     const ctx = c.getContext('2d')
     if (!ctx) return
 
-    // 이전 프레임의 disposal type 적용 (현재 프레임 그리기 전)
-    // Python으로 치면: if prev.disposal == 2: ctx.clear(prev.rect)
     if (idx > 0) {
       const prev = frames[idx - 1]
       if (prev.disposalType === 2) {
-        // restore to background: 이전 프레임 영역을 투명으로 지우기
         ctx.clearRect(prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height)
       } else if (prev.disposalType === 3) {
-        // restore to previous: 오프스크린 버퍼에서 해당 영역 복원
         const off = offscreenRef.current
         if (off) {
           ctx.drawImage(off, prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height,
             prev.dims.left, prev.dims.top, prev.dims.width, prev.dims.height)
         }
       }
-      // disposalType 0,1: 이전 상태 유지 — 아무것도 하지 않음
     } else {
-      // 첫 프레임은 전체 canvas 클리어
       ctx.clearRect(0, 0, c.width, c.height)
     }
 
-    // disposalType 3을 위해 현재 프레임 그리기 전 상태를 오프스크린에 저장
-    // Python으로 치면: if frame.disposal == 3: offscreen.copy(canvas)
     if (frame.disposalType === 3) {
       const offCtx = offscreenRef.current?.getContext('2d')
       if (offCtx && offscreenRef.current) {
@@ -261,15 +253,9 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
       }
     }
 
-    // 현재 프레임을 임시 캔버스에 putImageData → 메인 캔버스에 drawImage
-    // putImageData는 알파 채널을 덮어쓰기로 직접 써서 투명 픽셀이 배경을 지워버림
-    // drawImage는 source-over 합성이라 투명 픽셀이 아래 내용을 보존함
-    // Python으로 치면: temp_surface.blit(patch); main_surface.blit(temp_surface, (x, y))
-    if (!tempCanvasRef.current) {
-      tempCanvasRef.current = document.createElement('canvas')
-    }
+    // putImageData → drawImage 브릿지 (알파 채널 보존)
+    if (!tempCanvasRef.current) tempCanvasRef.current = document.createElement('canvas')
     const temp = tempCanvasRef.current
-    // 프레임 크기가 바뀔 때만 리사이즈 (매 프레임 재할당 방지)
     if (temp.width !== frame.dims.width || temp.height !== frame.dims.height) {
       temp.width = frame.dims.width
       temp.height = frame.dims.height
@@ -283,29 +269,21 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   }
 
   // -----------------------------------------------
-  // RAF 애니메이션 루프 — delay 시간마다 다음 프레임으로 이동
-  // Python으로 치면:
-  //   def animation_loop(timestamp):
-  //       if timestamp - last >= frame.delay: next_frame()
-  //       raf_id = request_animation_frame(animation_loop)
+  // RAF 애니메이션 루프 — delay마다 다음 프레임
+  // Python으로 치면: def animation_loop(timestamp): ...
   // -----------------------------------------------
   const animationLoop = useCallback((timestamp: number) => {
     const frames = framesRef.current
     if (frames.length === 0) return
 
     const frame = frames[frameIdxRef.current]
-    // 속도 배수 적용: delay / speed (최소 10ms)
-    // Python으로 치면: effective_delay = max(frame.delay / speed, 10)
     const rawDelay = frame.delay || 100
     const delay = Math.max(rawDelay / speedMultiplierRef.current, 10)
 
     if (timestamp - lastFrameTimeRef.current >= delay) {
       const nextRaw = frameIdxRef.current + 1
-      // 마지막 프레임 도달 시 루프 여부에 따라 정지 또는 처음으로 이동
-      // Python으로 치면: if next >= len(frames): stop() if not looping else wrap
       if (nextRaw >= frames.length) {
         if (!isLoopingRef.current) {
-          // 루프 꺼짐: 마지막 프레임에서 재생 정지
           rafRef.current = null
           setIsPlaying(false)
           return
@@ -321,10 +299,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     rafRef.current = requestAnimationFrame(animationLoop)
   }, [])
 
-  // -----------------------------------------------
-  // 애니메이션 시작
-  // Python으로 치면: def start_animation(): raf_id = request_animation_frame(loop)
-  // -----------------------------------------------
   const startAnimation = useCallback(() => {
     if (rafRef.current !== null) return
     lastFrameTimeRef.current = performance.now()
@@ -332,10 +306,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     setIsPlaying(true)
   }, [animationLoop])
 
-  // -----------------------------------------------
-  // 애니메이션 정지
-  // Python으로 치면: def stop_animation(): cancel_animation_frame(raf_id)
-  // -----------------------------------------------
   const stopAnimation = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current)
@@ -344,25 +314,13 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     setIsPlaying(false)
   }, [])
 
-  // 언마운트 시 RAF 정리
   useEffect(() => () => { stopAnimation() }, [stopAnimation])
 
-  // -----------------------------------------------
-  // 재생/일시정지 토글
-  // Python으로 치면: def toggle_play(): start() if not playing else stop()
-  // -----------------------------------------------
   function handleTogglePlay() {
-    if (isPlaying) {
-      stopAnimation()
-    } else {
-      startAnimation()
-    }
+    if (isPlaying) stopAnimation()
+    else startAnimation()
   }
 
-  // -----------------------------------------------
-  // 이전/다음 프레임으로 이동 (재생 중이면 일시정지 후 이동)
-  // Python으로 치면: def step_frame(delta): idx = (idx + delta) % len(frames)
-  // -----------------------------------------------
   function handleStepFrame(delta: number) {
     if (gifFrames.length === 0) return
     stopAnimation()
@@ -372,10 +330,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     renderFrame(gifFrames, nextIdx, null)
   }
 
-  // -----------------------------------------------
-  // 첫 프레임으로 점프
-  // Python으로 치면: def jump_to_first(): idx = 0
-  // -----------------------------------------------
   function handleJumpToFirst() {
     if (gifFrames.length === 0) return
     stopAnimation()
@@ -384,10 +338,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     renderFrame(gifFrames, 0, null)
   }
 
-  // -----------------------------------------------
-  // 마지막 프레임으로 점프
-  // Python으로 치면: def jump_to_last(): idx = len(frames) - 1
-  // -----------------------------------------------
   function handleJumpToLast() {
     if (gifFrames.length === 0) return
     stopAnimation()
@@ -397,10 +347,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     renderFrame(gifFrames, lastIdx, null)
   }
 
-  // -----------------------------------------------
-  // 스크러버로 임의 프레임 이동
-  // Python으로 치면: def seek(idx): stop(); render(idx)
-  // -----------------------------------------------
   function handleScrub(idx: number) {
     if (gifFrames.length === 0) return
     stopAnimation()
@@ -409,19 +355,11 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     renderFrame(gifFrames, idx, null)
   }
 
-  // -----------------------------------------------
-  // 재생 속도 변경 — ref와 state 동시 업데이트
-  // Python으로 치면: def set_speed(s): self.speed = s
-  // -----------------------------------------------
   function handleSetSpeed(s: 0.5 | 1 | 2) {
     speedMultiplierRef.current = s
     setSpeedMultiplier(s)
   }
 
-  // -----------------------------------------------
-  // 루프 토글 — ref와 state 동시 업데이트
-  // Python으로 치면: def toggle_loop(): self.looping = not self.looping
-  // -----------------------------------------------
   function handleToggleLoop() {
     const next = !isLoopingRef.current
     isLoopingRef.current = next
@@ -429,13 +367,12 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   }
 
   // -----------------------------------------------
-  // content를 JSON으로 직렬화하여 저장
-  // Python으로 치면: def save_content(src, width=None, caption=None): update_block(...)
+  // 신 포맷으로 content 직렬화하여 저장
+  // Python으로 치면: def save_multi_content(images, width=None): update_block(...)
   // -----------------------------------------------
-  function saveContent(newSrc: string, newWidth?: number, newCaption?: string) {
-    const data: { src: string; width?: number; caption?: string } = { src: newSrc }
+  function saveMultiContent(newImages: ImageItem[], newWidth?: number) {
+    const data: { images: ImageItem[]; width?: number } = { images: newImages }
     if (newWidth !== undefined) data.width = newWidth
-    if (newCaption !== undefined && newCaption !== '') data.caption = newCaption
     updateBlock(pageId, block.id, JSON.stringify(data))
     if (newWidth !== undefined && block.canvasX !== undefined) {
       updateBlockCanvas(pageId, block.id, { w: newWidth })
@@ -443,28 +380,55 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   }
 
   // -----------------------------------------------
-  // 파일 → 서버 업로드 후 URL 저장
-  // Python으로 치면:
-  //   async def load_file(file):
-  //       url = await api.upload(file); save(url)
+  // 단일 이미지 모드용 저장 — GIF 플레이어 호환 레거시 래퍼
+  // Python으로 치면: def save_single(src, width=None, caption=None): ...
   // -----------------------------------------------
-  async function loadFile(file: File) {
-    if (!file.type.startsWith('image/')) return
+  function saveSingleContent(newSrc: string, newWidth?: number, newCaption?: string) {
+    const item: ImageItem = { src: newSrc }
+    if (newCaption) item.caption = newCaption
+    saveMultiContent([item], newWidth)
+  }
+
+  // -----------------------------------------------
+  // 파일 여러 개 → 병렬 업로드 → images 배열에 추가
+  // Python으로 치면: async def load_files(files): ...
+  // -----------------------------------------------
+  async function loadFiles(files: File[]) {
+    const MAX_SIZE = 20 * 1024 * 1024  // 20MB — backend/core.py MAX_IMAGE_SIZE와 동기화
+
+    // 클라이언트 사전 검증: 크기·형식 오류는 서버 요청 전에 바로 안내
+    for (const f of files) {
+      if (!f.type.startsWith('image/')) {
+        toast.error(t.blocks.image.formatError)
+        return
+      }
+      if (f.size > MAX_SIZE) {
+        toast.error(`${f.name} — ${t.blocks.image.sizeError}`)
+        return
+      }
+    }
+
+    const imageFiles = files.filter(f => f.type.startsWith('image/'))
+    if (imageFiles.length === 0) return
     setIsUploading(true)
     try {
-      const url = await api.uploadImage(pageId, file)
-      saveContent(url, savedWidth, localCaption || undefined)
+      const urls = await Promise.all(imageFiles.map(f => api.uploadImage(pageId, f)))
+      const newItems: ImageItem[] = urls.map(url => ({ src: url }))
+      const merged = [...images, ...newItems]
+      saveMultiContent(merged, savedWidth)
       await savePageNow(pageId)
-    } catch {
-      toast.error(t.blocks.image.uploadError)
+    } catch (err) {
+      // api.ts에서 서버 detail 메시지를 Error.message에 담아 throw — 그대로 표시
+      const msg = err instanceof Error ? err.message : t.blocks.image.uploadError
+      toast.error(msg)
     } finally {
       setIsUploading(false)
     }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) loadFile(file)
+    const files = Array.from(e.target.files ?? [])
+    if (files.length > 0) loadFiles(files)
     e.target.value = ''
   }
 
@@ -473,23 +437,44 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     setIsDragOver(true)
   }
 
-  function handleDragLeave() {
-    setIsDragOver(false)
-  }
+  function handleDragLeave() { setIsDragOver(false) }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
     setIsDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (file) loadFile(file)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) loadFiles(files)
+  }
+
+  // -----------------------------------------------
+  // 개별 이미지 삭제 — 해당 인덱스 제거 후 저장
+  // Python으로 치면: def delete_image(idx): images.pop(idx); save()
+  // -----------------------------------------------
+  function handleDeleteImage(idx: number) {
+    const newImages = images.filter((_, i) => i !== idx)
+    if (newImages.length === 0) {
+      // 전체 삭제 → 빈 상태로 초기화
+      updateBlock(pageId, block.id, '')
+    } else {
+      saveMultiContent(newImages, savedWidth)
+    }
+    // 라이트박스가 열려있으면 닫기
+    setLightboxIdx(null)
+  }
+
+  // 라이트박스에서 캡션 저장
+  // Python으로 치면: def save_lightbox_caption(caption): images[idx].caption = caption
+  function saveLightboxCaption() {
+    if (lightboxIdx === null) return
+    const newImages = images.map((img, i) =>
+      i === lightboxIdx ? { ...img, caption: lightboxCaption || undefined } : img
+    )
+    saveMultiContent(newImages, savedWidth)
   }
 
   // -----------------------------------------------
   // 리사이즈 핸들 마우스다운 → 드래그로 너비 조절
-  // Python으로 치면:
-  //   def on_resize_start(event):
-  //       start_x = event.clientX; start_width = img.offsetWidth
-  //       document.onmousemove = lambda e: set_width(start_width + e.clientX - start_x)
+  // Python으로 치면: def on_resize_start(event): ...
   // -----------------------------------------------
   function handleResizeStart(e: React.MouseEvent) {
     e.preventDefault()
@@ -497,7 +482,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     if (isResizingRef.current) return
     isResizingRef.current = true
 
-    // canvas 또는 img 엘리먼트의 현재 너비 측정
     const targetEl = canvasRef.current ?? (containerRef.current?.querySelector('img') as HTMLImageElement | null)
     const startWidth = targetEl ? targetEl.offsetWidth : (savedWidth ?? 400)
     const maxWidth = containerRef.current?.parentElement?.offsetWidth ?? Infinity
@@ -516,7 +500,8 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
       const finalWidth = Math.min(maxWidth, Math.max(100, startWidth + (ev.clientX - startX)))
       setLocalWidth(finalWidth)
       setIsResizing(false)
-      saveContent(src, finalWidth, localCaption || undefined)
+      // 단일/다중 모두 width만 업데이트
+      saveMultiContent(images, finalWidth)
     }
 
     function cleanup() {
@@ -531,8 +516,12 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     resizeCleanupRef.current = cleanup
   }
 
-  // ── 업로드 영역 ──────────────────────────────
-  if (!hasValidImage) {
+  // =============================================
+  // ── 렌더링 분기 ──────────────────────────────
+  // =============================================
+
+  // ── 1. 빈 상태: 이미지가 없으면 업로드 영역 표시 ──
+  if (images.length === 0) {
     const uploadClass = isDragOver
       ? "w-full min-h-36 border-2 border-dashed border-blue-400 rounded-lg flex flex-col items-center justify-center gap-2 cursor-pointer bg-blue-50 transition-colors"
       : "w-full min-h-36 border-2 border-dashed border-gray-200 rounded-lg flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-colors"
@@ -548,7 +537,7 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click() }}
       >
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
         {isUploading ? (
           <>
             <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
@@ -557,7 +546,7 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
         ) : (
           <>
             <span className="text-3xl select-none">🖼️</span>
-            <p className="text-sm text-gray-400">{t.blocks.image.instruction}</p>
+            <p className="text-sm text-gray-400">{t.blocks.image.multiInstruction}</p>
             <p className="text-xs text-gray-300">{t.blocks.image.formatInfo}</p>
           </>
         )}
@@ -565,49 +554,234 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     )
   }
 
-  // ── GIF 뷰어 (img 항상 표시 + canvas 오버레이 + 컨트롤 바) ─────────────
+  // ── 2. 다중 이미지 모드: 그리드 + 라이트박스 ──────
+  if (images.length > 1) {
+    const colsClass = gridColsClass(images.length)
+
+    return (
+      <>
+        {/* 드래그 리사이즈 중 커서 고정 오버레이 */}
+        {isResizing && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
+
+        <div
+          ref={containerRef}
+          className="image-block-wrapper relative group/block my-1"
+          style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : '100%' }}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* 이미지 그리드 */}
+          <div className={`grid ${colsClass} gap-1.5`}>
+            {images.map((img, idx) => (
+              // 개별 이미지 셀 — 4:3 비율 고정, 클릭 시 라이트박스 열기
+              // Python으로 치면: ImageThumbnail(img, on_click=open_lightbox)
+              <div
+                key={idx}
+                className="relative group/cell aspect-4/3 overflow-hidden rounded-md bg-gray-100 cursor-pointer"
+                onClick={() => setLightboxIdx(idx)}
+              >
+                <img
+                  src={img.src}
+                  alt={img.caption ?? t.blocks.image.alt}
+                  className="w-full h-full object-cover transition-transform duration-200 group-hover/cell:scale-105"
+                  draggable={false}
+                />
+
+                {/* 호버 시 캡션 오버레이 — 캡션 있을 때만 표시 */}
+                {img.caption && (
+                  <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-black/50 opacity-0 group-hover/cell:opacity-100 transition-opacity">
+                    <p className="text-xs text-white truncate">{img.caption}</p>
+                  </div>
+                )}
+
+                {/* 편집 모드: 호버 시 삭제 버튼 */}
+                {!readMode && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteImage(idx) }}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 bg-black/60 text-white rounded-full flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity hover:bg-red-500 text-xs"
+                    title={t.blocks.image.deleteImageTitle}
+                  >
+                    ✕
+                  </button>
+                )}
+
+                {/* 업로드 진행 스피너 */}
+                {isUploading && idx === images.length - 1 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* 편집 모드: 이미지 추가 버튼 셀 */}
+            {!readMode && (
+              <div
+                className="aspect-4/3 rounded-md border-2 border-dashed border-gray-200 flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-gray-400 hover:bg-gray-50 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <span className="text-2xl text-gray-300">+</span>
+                <span className="text-xs text-gray-300">{t.blocks.image.addImage}</span>
+              </div>
+            )}
+          </div>
+
+          {/* 우측 리사이즈 핸들 */}
+          {!readMode && (
+            <div
+              onMouseDown={handleResizeStart}
+              className={isResizing
+                ? "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10"
+                : "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10 opacity-0 group-hover/block:opacity-100 transition-opacity"}
+              title={t.blocks.image.resizeTitle}
+            >
+              <div className="w-1 h-10 bg-blue-400 rounded-full shadow" />
+            </div>
+          )}
+
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
+        </div>
+
+        {/* ── 라이트박스 ──────────────────────────────
+            createPortal로 body에 마운트 → z-index 최상위 보장
+            Python으로 치면: LightboxOverlay(images, current_idx)
+            ─────────────────────────────────────────── */}
+        {lightboxIdx !== null && typeof document !== 'undefined' && createPortal(
+          <div
+            className="fixed inset-0 z-9999 flex items-center justify-center bg-black/90"
+            onClick={() => setLightboxIdx(null)}
+          >
+            {/* 이미지 컨테이너 — 클릭 버블링 차단 */}
+            <div
+              className="relative flex flex-col items-center max-w-[90vw] max-h-[90vh]"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* 현재 이미지 */}
+              <img
+                src={images[lightboxIdx].src}
+                alt={images[lightboxIdx].caption ?? t.blocks.image.alt}
+                className="max-w-[85vw] max-h-[75vh] object-contain rounded-lg shadow-2xl"
+                draggable={false}
+              />
+
+              {/* 인덱스 표시 및 닫기 버튼 (우상단) */}
+              <div className="absolute top-0 right-0 flex items-center gap-2 -translate-y-10">
+                <span className="text-white/60 text-sm tabular-nums">
+                  {lightboxIdx + 1} / {images.length}
+                </span>
+                <button
+                  onClick={() => setLightboxIdx(null)}
+                  className="text-white/80 hover:text-white text-xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+                  title={t.blocks.image.lightboxClose}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* 이전 이미지 버튼 (좌측) */}
+              <button
+                onClick={() => setLightboxIdx(i => i !== null ? (i - 1 + images.length) % images.length : null)}
+                className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-14 w-10 h-10 bg-white/10 hover:bg-white/25 text-white rounded-full flex items-center justify-center transition-colors"
+                title={t.blocks.image.lightboxPrev}
+              >
+                ←
+              </button>
+
+              {/* 다음 이미지 버튼 (우측) */}
+              <button
+                onClick={() => setLightboxIdx(i => i !== null ? (i + 1) % images.length : null)}
+                className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-14 w-10 h-10 bg-white/10 hover:bg-white/25 text-white rounded-full flex items-center justify-center transition-colors"
+                title={t.blocks.image.lightboxNext}
+              >
+                →
+              </button>
+
+              {/* 캡션 입력 (하단) — 읽기 모드는 텍스트만, 편집 모드는 input */}
+              <div className="mt-3 w-full">
+                {readMode ? (
+                  images[lightboxIdx].caption && (
+                    <p className="text-white/70 text-sm text-center">{images[lightboxIdx].caption}</p>
+                  )
+                ) : (
+                  <input
+                    type="text"
+                    value={lightboxCaption}
+                    onChange={e => setLightboxCaption(e.target.value)}
+                    onBlur={saveLightboxCaption}
+                    placeholder={t.blocks.image.captionAdd}
+                    className="w-full bg-transparent border-none outline-none text-white/60 text-sm text-center placeholder:text-white/30 focus:text-white/90"
+                  />
+                )}
+              </div>
+
+              {/* 하단 점 인디케이터 (이미지가 많을 때) */}
+              {images.length <= 10 && (
+                <div className="flex gap-1.5 mt-3">
+                  {images.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setLightboxIdx(i)}
+                      className={`w-1.5 h-1.5 rounded-full transition-all ${i === lightboxIdx ? 'bg-white scale-125' : 'bg-white/40 hover:bg-white/60'}`}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* 편집 모드: 현재 이미지 삭제 버튼 */}
+              {!readMode && (
+                <button
+                  onClick={() => handleDeleteImage(lightboxIdx)}
+                  className="mt-4 px-3 py-1.5 bg-red-500/80 hover:bg-red-500 text-white text-xs rounded-full transition-colors"
+                  title={t.blocks.image.deleteImageTitle}
+                >
+                  {t.blocks.image.deleteBtn}
+                </button>
+              )}
+            </div>
+          </div>,
+          document.body
+        )}
+      </>
+    )
+  }
+
+  // ── 3. 단일 이미지 모드 ─────────────────────────
+  // 이하는 기존 동작과 동일 (GIF 플레이어 + 리사이즈 + 캡션)
+
+  const singleSrc = images[0].src
+  const singleCaption = images[0].caption ?? ''
+  const [localCaption, setLocalCaption] = [singleCaption, (v: string) => {
+    // 캡션은 onBlur에서 saveContent로 저장하므로 여기선 단순 UI용
+    void v
+  }]
+
+  // ── 단일 GIF 뷰어 ──────────────────────────────
   if (isGif) {
-    // 프레임 로딩 완료 여부 — canvas가 유효한 콘텐츠를 가진 상태
-    // Python으로 치면: frames_ready = len(self.gif_frames) > 0
     const framesReady = gifFrames.length > 0
 
     return (
       <>
-        {isResizing && (
-          <div className="fixed inset-0 z-50 cursor-col-resize select-none" />
-        )}
+        {isResizing && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
 
-        {/* GIF 컨테이너 */}
         <div
           ref={containerRef}
           className="image-block-wrapper relative group/img my-1 inline-block"
           style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : 'auto' }}
         >
-          {/* -----------------------------------------------
-              <img>: 항상 표시 — 로딩 중·파싱 실패 시에도 GIF가 보이도록 보장
-              프레임 로딩 완료 후에는 canvas 아래에 숨겨지지만 DOM에는 유지
-              Python으로 치면: img.visible = not frames_ready
-              ----------------------------------------------- */}
           <img
-            src={src}
+            src={singleSrc}
             alt={t.blocks.image.alt}
             className={displayWidth ? "block w-full rounded-lg" : "block max-w-full rounded-lg"}
             style={{ display: framesReady ? 'none' : 'block' }}
             draggable={false}
           />
-
-          {/* -----------------------------------------------
-              <canvas>: 프레임 로딩 완료 후 img 위에 표시
-              gifuct-js로 디코딩한 프레임을 직접 렌더링 → 재생/정지/프레임이동 가능
-              Python으로 치면: canvas.visible = frames_ready
-              ----------------------------------------------- */}
           <canvas
             ref={canvasRef}
             className={displayWidth ? "block w-full rounded-lg" : "block max-w-full rounded-lg"}
             style={{ display: framesReady ? 'block' : 'none' }}
           />
 
-          {/* 파싱 중 스피너 — img 위에 작게 오버레이 */}
           {isLoadingGif && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/10 rounded-lg">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-white/80 rounded-full text-xs text-gray-500">
@@ -617,193 +791,91 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
             </div>
           )}
 
-          {/* -----------------------------------------------
-              GIF 컨트롤 바 — 호버 시 canvas 하단에 오버레이
-              [ |< ] [▶/⏸] [ >| ]   1 / 24
-              Python으로 치면: control_bar = HBox([prev_btn, play_btn, next_btn, label])
-              ----------------------------------------------- */}
+          {/* GIF 컨트롤 바 */}
           {framesReady && !isResizing && (
-            // 원고 모드: 항상 표시 / 편집 모드: 호버 시 표시
-            // Python으로 치면: visible = read_mode or hovered
             <div className={readMode
               ? "absolute bottom-0 left-0 right-0 flex flex-col px-2 pt-1 pb-1.5 transition-opacity"
               : "absolute bottom-0 left-0 right-0 flex flex-col px-2 pt-1 pb-1.5 opacity-0 group-hover/img:opacity-100 transition-opacity"}>
-              {/* 반투명 배경 바 */}
               <div className="absolute inset-0 bg-black/50 rounded-b-lg" />
-
-              {/* ── 줄 1: 스크러버 + 카운터 ─────────────────── */}
-              {/* Python으로 치면: Row([scrubber, counter_label]) */}
               <div className="relative z-10 flex items-center gap-2 mb-1">
-                {/* 프레임 스크러버 — range input으로 임의 프레임 이동 */}
                 <input
-                  type="range"
-                  min={0}
-                  max={gifFrames.length - 1}
-                  value={currentFrameIdx}
+                  type="range" min={0} max={gifFrames.length - 1} value={currentFrameIdx}
                   onChange={(e) => handleScrub(Number(e.target.value))}
                   className="flex-1 h-1 cursor-pointer accent-white"
                   title={t.blocks.image.gifScrubber}
                 />
-                {/* 프레임 카운터 + 현재 프레임 딜레이 */}
                 <span className="text-xs text-white/80 tabular-nums whitespace-nowrap">
                   {currentFrameIdx + 1} / {gifFrames.length}
-                  <span className="text-white/50 ml-1">
-                    ({gifFrames[currentFrameIdx]?.delay ?? 0}ms)
-                  </span>
+                  <span className="text-white/50 ml-1">({gifFrames[currentFrameIdx]?.delay ?? 0}ms)</span>
                 </span>
               </div>
-
-              {/* ── 줄 2: 버튼들 ──────────────────────────── */}
-              {/* Python으로 치면: Row([first, prev, play, next, last, loop, speed]) */}
               <div className="relative z-10 flex items-center justify-center gap-0.5">
-
-                {/* ⏮ 처음으로 점프 */}
-                <button
-                  onClick={handleJumpToFirst}
-                  className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none"
-                  title={t.blocks.image.gifJumpFirst}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <rect x="1" y="2" width="2" height="10" rx="0.5" />
-                    <rect x="4" y="2" width="2" height="10" rx="0.5" />
-                    <path d="M13 3L6 7l7 4V3z" />
-                  </svg>
+                <button onClick={handleJumpToFirst} className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none" title={t.blocks.image.gifJumpFirst}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="2" width="2" height="10" rx="0.5" /><rect x="4" y="2" width="2" height="10" rx="0.5" /><path d="M13 3L6 7l7 4V3z" /></svg>
                 </button>
-
-                {/* |< 이전 프레임 */}
-                <button
-                  onClick={() => handleStepFrame(-1)}
-                  className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none"
-                  title={t.blocks.image.gifPrevFrame}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <rect x="1" y="2" width="2" height="10" rx="0.5" />
-                    <path d="M12 3L5 7l7 4V3z" />
-                  </svg>
+                <button onClick={() => handleStepFrame(-1)} className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none" title={t.blocks.image.gifPrevFrame}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="2" width="2" height="10" rx="0.5" /><path d="M12 3L5 7l7 4V3z" /></svg>
                 </button>
-
-                {/* ▶/⏸ 재생/일시정지 */}
-                <button
-                  onClick={handleTogglePlay}
-                  className="flex items-center justify-center w-8 h-8 rounded-full text-white bg-white/20 hover:bg-white/35 transition-colors select-none"
-                  title={isPlaying ? t.blocks.image.gifPause : t.blocks.image.gifPlay}
-                >
+                <button onClick={handleTogglePlay} className="flex items-center justify-center w-8 h-8 rounded-full text-white bg-white/20 hover:bg-white/35 transition-colors select-none" title={isPlaying ? t.blocks.image.gifPause : t.blocks.image.gifPlay}>
                   {isPlaying ? (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                      <rect x="2" y="1" width="3" height="10" rx="0.5" />
-                      <rect x="7" y="1" width="3" height="10" rx="0.5" />
-                    </svg>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="1" width="3" height="10" rx="0.5" /><rect x="7" y="1" width="3" height="10" rx="0.5" /></svg>
                   ) : (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-                      <path d="M3 2l8 4-8 4V2z" />
-                    </svg>
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M3 2l8 4-8 4V2z" /></svg>
                   )}
                 </button>
-
-                {/* >| 다음 프레임 */}
-                <button
-                  onClick={() => handleStepFrame(1)}
-                  className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none"
-                  title={t.blocks.image.gifNextFrame}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <rect x="11" y="2" width="2" height="10" rx="0.5" />
-                    <path d="M2 3l7 4-7 4V3z" />
-                  </svg>
+                <button onClick={() => handleStepFrame(1)} className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none" title={t.blocks.image.gifNextFrame}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="11" y="2" width="2" height="10" rx="0.5" /><path d="M2 3l7 4-7 4V3z" /></svg>
                 </button>
-
-                {/* ⏭ 끝으로 점프 */}
-                <button
-                  onClick={handleJumpToLast}
-                  className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none"
-                  title={t.blocks.image.gifJumpLast}
-                >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-                    <rect x="11" y="2" width="2" height="10" rx="0.5" />
-                    <rect x="8" y="2" width="2" height="10" rx="0.5" />
-                    <path d="M1 3l7 4-7 4V3z" />
-                  </svg>
+                <button onClick={handleJumpToLast} className="flex items-center justify-center w-7 h-7 rounded text-white hover:bg-white/20 transition-colors select-none" title={t.blocks.image.gifJumpLast}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><rect x="11" y="2" width="2" height="10" rx="0.5" /><rect x="8" y="2" width="2" height="10" rx="0.5" /><path d="M1 3l7 4-7 4V3z" /></svg>
                 </button>
-
-                {/* 구분선 */}
                 <div className="w-px h-4 bg-white/20 mx-1" />
-
-                {/* 🔁 루프 토글 */}
-                <button
-                  onClick={handleToggleLoop}
-                  className={`flex items-center justify-center w-7 h-7 rounded transition-colors select-none ${isLooping ? 'text-white bg-white/20 hover:bg-white/30' : 'text-white/40 hover:bg-white/10'}`}
-                  title={isLooping ? t.blocks.image.gifLoopOn : t.blocks.image.gifLoopOff}
-                >
-                  {/* 루프 아이콘 (순환 화살표) */}
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 4h9a3 3 0 0 1 0 6H4" />
-                    <path d="M4 7L1 4l3-3" />
-                  </svg>
+                <button onClick={handleToggleLoop} className={`flex items-center justify-center w-7 h-7 rounded transition-colors select-none ${isLooping ? 'text-white bg-white/20 hover:bg-white/30' : 'text-white/40 hover:bg-white/10'}`} title={isLooping ? t.blocks.image.gifLoopOn : t.blocks.image.gifLoopOff}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 4h9a3 3 0 0 1 0 6H4" /><path d="M4 7L1 4l3-3" /></svg>
                 </button>
-
-                {/* 구분선 */}
                 <div className="w-px h-4 bg-white/20 mx-1" />
-
-                {/* 속도 선택 — 0.5× / 1× / 2× */}
                 {([0.5, 1, 2] as const).map((s) => (
-                  <button
-                    key={s}
-                    onClick={() => handleSetSpeed(s)}
-                    className={`text-xs px-1.5 py-0.5 rounded transition-colors select-none ${speedMultiplier === s ? 'bg-white/40 text-white' : 'text-white/50 hover:bg-white/20 hover:text-white'}`}
-                  >
-                    {s}×
-                  </button>
+                  <button key={s} onClick={() => handleSetSpeed(s)} className={`text-xs px-1.5 py-0.5 rounded transition-colors select-none ${speedMultiplier === s ? 'bg-white/40 text-white' : 'text-white/50 hover:bg-white/20 hover:text-white'}`}>{s}×</button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* ── 호버 시 버튼 (교체/삭제) — 원고 모드에서는 숨김 */}
+          {/* 편집 버튼 (교체/삭제) + 이미지 추가 버튼 */}
           {!isResizing && !readMode && (
             <div className="absolute top-2 right-8 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
               <button
                 onClick={() => fileInputRef.current?.click()}
                 className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100"
-                title={t.blocks.image.replaceTitle}
+                title={t.blocks.image.addImage}
               >
-                {t.blocks.image.replaceBtn}
+                + {t.blocks.image.addImage}
               </button>
-              <button
-                onClick={() => updateBlock(pageId, block.id, '')}
-                className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50"
-                title={t.blocks.image.deleteTitle}
-              >
+              <button onClick={() => updateBlock(pageId, block.id, '')} className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50" title={t.blocks.image.deleteTitle}>
                 {t.blocks.image.deleteBtn}
               </button>
             </div>
           )}
 
-          {/* ── 우측 리사이즈 핸들 — 원고 모드에서 숨김 */}
-          {!readMode && (
-            <div
-              onMouseDown={handleResizeStart}
-              className={isResizing
-                ? "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10"
-                : "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10 opacity-0 group-hover/img:opacity-100 transition-opacity"}
-              title={t.blocks.image.resizeTitle}
-            >
-              <div className="w-1 h-10 bg-blue-400 rounded-full shadow" />
-            </div>
-          )}
+          <div
+            onMouseDown={handleResizeStart}
+            className={isResizing
+              ? "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10"
+              : "absolute right-0 top-0 bottom-0 w-3 flex items-center justify-center cursor-col-resize z-10 opacity-0 group-hover/img:opacity-100 transition-opacity"}
+            title={t.blocks.image.resizeTitle}
+          >
+            <div className="w-1 h-10 bg-blue-400 rounded-full shadow" />
+          </div>
 
-          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
         </div>
 
-        {/* 캡션 입력란 */}
-        <div
-          className="block"
-          style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : '100%' }}
-        >
+        {/* 캡션 */}
+        <div className="block" style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : '100%' }}>
           <input
             type="text"
-            value={localCaption}
-            onChange={(e) => setLocalCaption(e.target.value)}
-            onBlur={() => saveContent(src, savedWidth, localCaption || undefined)}
+            defaultValue={singleCaption}
+            onBlur={(e) => saveSingleContent(singleSrc, savedWidth, e.target.value || undefined)}
             placeholder={t.blocks.image.captionAdd}
             className="w-full text-center text-xs text-gray-400 bg-transparent border-none outline-none placeholder:text-gray-300 focus:placeholder:text-gray-400 mt-1 py-0.5"
           />
@@ -812,12 +884,10 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     )
   }
 
-  // ── 일반 이미지 표시 + 리사이즈 핸들 ──────────
+  // ── 단일 일반 이미지 ─────────────────────────────
   return (
     <>
-      {isResizing && (
-        <div className="fixed inset-0 z-50 cursor-col-resize select-none" />
-      )}
+      {isResizing && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
 
       <div
         ref={containerRef}
@@ -825,33 +895,28 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
         style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : 'auto' }}
       >
         <img
-          src={src}
+          src={singleSrc}
           alt={t.blocks.image.alt}
           className={displayWidth ? "block w-full rounded-lg" : "block max-w-full rounded-lg"}
           style={{ contain: 'layout' }}
           draggable={false}
         />
 
-        {!isResizing && (
+        {!isResizing && !readMode && (
           <div className="absolute top-2 right-8 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
             <button
               onClick={() => fileInputRef.current?.click()}
               className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100"
-              title={t.blocks.image.replaceTitle}
+              title={t.blocks.image.addImage}
             >
-              {t.blocks.image.replaceBtn}
+              + {t.blocks.image.addImage}
             </button>
-            <button
-              onClick={() => updateBlock(pageId, block.id, '')}
-              className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50"
-              title={t.blocks.image.deleteTitle}
-            >
+            <button onClick={() => updateBlock(pageId, block.id, '')} className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50" title={t.blocks.image.deleteTitle}>
               {t.blocks.image.deleteBtn}
             </button>
           </div>
         )}
 
-        {/* ── 우측 리사이즈 핸들 ─────────────────── */}
         <div
           onMouseDown={handleResizeStart}
           className={isResizing
@@ -862,19 +927,15 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
           <div className="w-1 h-10 bg-blue-400 rounded-full shadow" />
         </div>
 
-        <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+        <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden" />
       </div>
 
-      {/* 캡션 입력란 */}
-      <div
-        className="block"
-        style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : '100%' }}
-      >
+      {/* 캡션 */}
+      <div className="block" style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : '100%' }}>
         <input
           type="text"
-          value={localCaption}
-          onChange={(e) => setLocalCaption(e.target.value)}
-          onBlur={() => saveContent(src, savedWidth, localCaption || undefined)}
+          defaultValue={singleCaption}
+          onBlur={(e) => saveSingleContent(singleSrc, savedWidth, e.target.value || undefined)}
           placeholder={t.blocks.image.captionAdd}
           className="w-full text-center text-xs text-gray-400 bg-transparent border-none outline-none placeholder:text-gray-300 focus:placeholder:text-gray-400 mt-1 py-0.5"
         />

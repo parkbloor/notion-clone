@@ -50,6 +50,7 @@ export interface PluginSettings {
   mindmap: boolean         // AI 마인드맵 블록 (방사형 트리 + AI 채팅)
   globalAiChat: boolean    // 우하단 글로벌 AI 채팅 플로팅 버튼
   math: boolean            // LaTeX 수식 (블록 수식 + 인라인 $...$)
+  arrowConnect: boolean    // 텍스트 화살표 연결 오버레이
 }
 
 // -----------------------------------------------
@@ -164,6 +165,12 @@ export interface SettingsStore {
   layoutDefaultOrientation: 'portrait' | 'landscape'  // 새 레이아웃 블록 기본 방향
   layoutDefaultTemplate: string                        // 기본 템플릿 ID (빈 문자열 = 피커 표시)
   customLayoutTemplates: CustomLayoutTemplate[]        // 사용자 정의 템플릿 목록
+
+  // ── 주기 노트 기본 템플릿 ─────────────────────────────────────────
+  // 일간/주간/월간 노트 생성 시 사용할 Template id (빈 문자열 = 하드코딩 기본값 사용)
+  // Python으로 치면: self.periodic_note_templates: dict[str, str] = {}
+  periodicNoteTemplates: { daily: string; weekly: string; monthly: string; quarterly: string; yearly: string }
+  setPeriodicNoteTemplate: (kind: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly', templateId: string) => void
 
   // ── 언어 설정 ───────────────────────────────
   // 지원 로케일: 'ko' | 'en' — 새 언어 추가 시 src/locales/ 에 파일 추가 후 여기도 확장
@@ -310,6 +317,7 @@ export const useSettingsStore = create<SettingsStore>()(
         mindmap:          true,   // 기본값: AI 마인드맵 블록 ON
         globalAiChat:     true,   // 기본값: 글로벌 AI 채팅 버튼 ON
         math:             true,   // 기본값: LaTeX 수식 ON
+        arrowConnect:     true,   // 기본값: 화살표 연결 ON
       },
       // 집중 모드는 앱 재시작 시 항상 꺼진 상태로 시작
       isFocusMode: false,
@@ -323,6 +331,8 @@ export const useSettingsStore = create<SettingsStore>()(
       layoutDefaultOrientation: 'portrait',
       layoutDefaultTemplate: '',
       customLayoutTemplates: [],
+      // 주기 노트 기본 템플릿 — 빈 문자열 = 하드코딩 기본값 사용
+      periodicNoteTemplates: { daily: '', weekly: '', monthly: '', quarterly: '', yearly: '' },
       // 언어 기본값 — 한국어
       // Python으로 치면: self.locale = 'ko'
       locale: 'ko',
@@ -456,6 +466,12 @@ export const useSettingsStore = create<SettingsStore>()(
       // Python으로 치면: def set_planner_routines(self, r): self.planner_routines = r
       setPlannerRoutines:    (r) => { set((state) => { state.plannerRoutines    = r }) },
       setPlannerAutoApply:   (v) => { set((state) => { state.plannerAutoApply   = v }) },
+
+      // ── 주기 노트 기본 템플릿 변경 ──────────────
+      // Python으로 치면: def set_periodic_note_template(self, kind, id): self.periodic_note_templates[kind] = id
+      setPeriodicNoteTemplate: (kind, templateId) => {
+        set((state) => { state.periodicNoteTemplates[kind] = templateId })
+      },
 
       // ── 언어 변경 ────────────────────────────
       // Python으로 치면: def set_locale(self, l): self.locale = l

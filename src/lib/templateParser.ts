@@ -185,6 +185,65 @@ export function parseTemplateContent(content: string): Block[] {
       continue
     }
 
+    // ── 특수 블록 (:::블록타입) ──────────────────────
+    // 주기 노트 전용 위젯 삽입 문법:
+    //   :::dayplanner        → Day Planner 타임라인 (일간)
+    //   :::weeklyplanner     → Weekly Planner 주간 캘린더 (주간)
+    //   :::routinematrix     → 루틴 달성 매트릭스 (주간)
+    //   :::monthlycalendar   → 월간 달력 그리드 (월간)
+    //   :::quarterlyplanner  → 분기 OKR 플래너 (분기)
+    //   :::yearlyplanner     → 연간 플래너 (연간)
+    // Python으로 치면: if line.startswith(':::'): insert special block
+    if (line.trim().startsWith(':::')) {
+      const blockType = line.trim().slice(3).trim().toLowerCase()
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+      const yearStr  = String(today.getFullYear())
+      const monthNum = today.getMonth() + 1
+
+      // 주간 노트 weekStart — 이번 주 월요일
+      const dow = today.getDay() === 0 ? 6 : today.getDay() - 1
+      const monday = new Date(today)
+      monday.setDate(today.getDate() - dow)
+      const weekStart = `${monday.getFullYear()}-${String(monday.getMonth()+1).padStart(2,'0')}-${String(monday.getDate()).padStart(2,'0')}`
+
+      // 분기 계산
+      const quarter = Math.ceil(monthNum / 3) as 1|2|3|4
+
+      if (blockType === 'dayplanner') {
+        const b = createBlock('dayplanner')
+        b.content = JSON.stringify({ date: todayStr, events: [], routines: [], autoApply: true })
+        blocks.push(b)
+      } else if (blockType === 'weeklyplanner') {
+        const b = createBlock('weeklyplanner')
+        b.content = JSON.stringify({ weekStart, days: {}, location: '' })
+        blocks.push(b)
+      } else if (blockType === 'routinematrix') {
+        const b = createBlock('routinematrix')
+        b.content = JSON.stringify({ weekStart })
+        blocks.push(b)
+      } else if (blockType === 'monthlycalendar') {
+        const b = createBlock('monthlycalendar')
+        b.content = JSON.stringify({ year: today.getFullYear(), month: monthNum, memos: {} })
+        blocks.push(b)
+      } else if (blockType === 'quarterlyplanner') {
+        const b = createBlock('quarterlyplanner')
+        b.content = JSON.stringify({ year: today.getFullYear(), quarter, objectives: [] })
+        blocks.push(b)
+      } else if (blockType === 'yearlyplanner') {
+        const b = createBlock('yearlyplanner')
+        b.content = JSON.stringify({ year: today.getFullYear(), goals: [] })
+        blocks.push(b)
+      } else {
+        // 알 수 없는 타입 → 그냥 paragraph로 fallback
+        const b = createBlock('paragraph')
+        b.content = inlineToHtml(line)
+        blocks.push(b)
+      }
+      i++
+      continue
+    }
+
     // ── 일반 텍스트 → paragraph ──────────────────
     // Python으로 치면: else: blocks.append(Block(type='paragraph', content=line))
     const b = createBlock('paragraph')

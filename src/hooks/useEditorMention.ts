@@ -54,10 +54,11 @@ export function useEditorMention() {
     const { from } = state.selection
     const textBefore = state.doc.textBetween(Math.max(0, from - 40), from, '\n')
 
-    // @ 트리거: @한글/영문/숫자
-    const atMatch = textBefore.match(/@([\w가-힣]*)$/)
-    // [[ 트리거: [[한글/영문/숫자/공백
-    const bracketMatch = textBefore.match(/\[\[([\w가-힣\s]*)$/)
+    // @ 트리거: @한글/영문/숫자 (ㄱ-ㅎ, ㅏ-ㅣ 자모 단독 입력 포함)
+    // Python으로 치면: re.search(r'@[\w가-힣ㄱ-ㅎㅏ-ㅣ]*$', text_before)
+    const atMatch = textBefore.match(/@([\w가-힣ㄱ-ㅎㅏ-ㅣ]*)$/)
+    // [[ 트리거: [[한글/영문/숫자/공백/자모 단독 입력 포함
+    const bracketMatch = textBefore.match(/\[\[([\w가-힣ㄱ-ㅎㅏ-ㅣ\s]*)$/)
 
     if (atMatch) {
       const query = atMatch[1]
@@ -66,11 +67,15 @@ export function useEditorMention() {
       setMentionMenu({ isOpen: true, query, from: atPos, trigger: '@', position: { x: coords.left, y: coords.bottom } })
     } else if (bracketMatch) {
       const query = bracketMatch[1]
-      const bracketPos = from - query.length - 2  // [[ 시작 위치 (2글자)
+      // textBefore에서 [[ 위치를 직접 탐색 — 공백 포함 쿼리 시 음수 방지
+      // Python으로 치면: bracket_pos = text_before.rfind('[[')
+      const bracketIdx = textBefore.lastIndexOf('[[')
+      const bracketPos = Math.max(0, from - (textBefore.length - bracketIdx))
       const coords = editor.view.coordsAtPos(from)
       setMentionMenu({ isOpen: true, query, from: bracketPos, trigger: '[[', position: { x: coords.left, y: coords.bottom } })
     } else {
-      setMentionMenu(prev => ({ ...prev, isOpen: false }))
+      // 완전 초기화 — stale position 잔존 방지
+      setMentionMenu(INITIAL_STATE)
     }
   }, [])
 

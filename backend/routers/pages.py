@@ -26,6 +26,8 @@ from backend.core import (
     PageReorderBody,
     assert_inside_vault,
     auto_discover_new_folders,
+    get_cat_dir,
+    get_cat_rel_path,
     get_category_folder_name,
     get_folder_name,
     get_image_url_prefix,
@@ -138,11 +140,10 @@ def create_page(body: CreatePageBody):
 
     index = load_index()
 
-    # 카테고리 폴더 아래 또는 루트에 저장
-    # Python으로 치면: dir = cat_dir / folder if cat else vault / folder
-    cat_folder = get_category_folder_name(body.categoryId, index) if body.categoryId else None
-    if cat_folder:
-        target_dir = get_vault_dir() / cat_folder / folder_name
+    # 카테고리 폴더 아래 또는 루트에 저장 (부모 체인 전체 경로 사용)
+    # Python으로 치면: dir = get_cat_dir(cat_id) / folder if cat else vault / folder
+    if body.categoryId:
+        target_dir = get_cat_dir(body.categoryId, index) / folder_name
     else:
         target_dir = get_vault_dir() / folder_name
 
@@ -202,14 +203,17 @@ def save_page(
         validate_uuid(categoryId, "카테고리 ID")
         cat_id = categoryId
         index.setdefault("categoryMap", {})[page_id] = cat_id
-    cat_folder = get_category_folder_name(cat_id, index)
+    # 카테고리 전체 경로 계산 (부모 체인 포함)
+    # Python으로 치면: cat_dir = get_cat_dir(cat_id) if cat_id else vault
+    cat_rel = get_cat_rel_path(cat_id, index)
 
     renamed = False
     if old_folder != new_folder:
-        # 카테고리 유무에 따라 올바른 경로 계산
-        if cat_folder:
-            old_path = get_vault_dir() / cat_folder / old_folder
-            new_path = get_vault_dir() / cat_folder / new_folder
+        # 카테고리 유무에 따라 올바른 경로 계산 (부모 체인 포함)
+        if cat_id:
+            cat_dir_path = get_cat_dir(cat_id, index)
+            old_path = cat_dir_path / old_folder
+            new_path = cat_dir_path / new_folder
         else:
             old_path = get_vault_dir() / old_folder
             new_path = get_vault_dir() / new_folder
@@ -222,18 +226,18 @@ def save_page(
         if old_path.exists():
             shutil.move(str(old_path), str(new_path))
 
-        # 이미지 URL 교체 (카테고리 prefix 포함)
-        old_prefix = get_image_url_prefix(old_folder, cat_folder)
-        new_prefix = get_image_url_prefix(new_folder, cat_folder)
+        # 이미지 URL 교체 (카테고리 전체 상대경로 포함)
+        old_prefix = get_image_url_prefix(old_folder, cat_rel)
+        new_prefix = get_image_url_prefix(new_folder, cat_rel)
         replace_image_urls_in_page(page_data, old_prefix, new_prefix)
 
         folder_map[page_id] = new_folder
         save_index(index)
         renamed = True
 
-    # content.json 저장
-    if cat_folder:
-        target_dir = get_vault_dir() / cat_folder / new_folder
+    # content.json 저장 (부모 체인 포함 전체 경로)
+    if cat_id:
+        target_dir = get_cat_dir(cat_id, index) / new_folder
     else:
         target_dir = get_vault_dir() / new_folder
 
@@ -500,11 +504,11 @@ async def upload_image(page_id: str, file: UploadFile = File(...)):
     file_path = images_dir / filename
     file_path.write_bytes(content)
 
-    # URL 경로 계산 (카테고리 prefix 포함)
+    # URL 경로 계산 (부모 체인 포함 전체 카테고리 상대경로 사용)
     page_folder = get_folder_name(page_id, index)
     cat_id = index.get("categoryMap", {}).get(page_id)
-    cat_folder = get_category_folder_name(cat_id, index)
-    prefix = get_image_url_prefix(page_folder, cat_folder)
+    cat_rel = get_cat_rel_path(cat_id, index)
+    prefix = get_image_url_prefix(page_folder, cat_rel)
     url = f"{prefix}images/{filename}"
 
     return {"url": url, "filename": filename}
@@ -559,11 +563,11 @@ async def upload_video(page_id: str, file: UploadFile = File(...)):
     file_path = videos_dir / filename
     file_path.write_bytes(content)
 
-    # URL 경로 계산 (카테고리 prefix 포함, 이미지와 동일한 prefix 사용)
+    # URL 경로 계산 (부모 체인 포함 전체 카테고리 상대경로 사용)
     page_folder = get_folder_name(page_id, index)
     cat_id = index.get("categoryMap", {}).get(page_id)
-    cat_folder = get_category_folder_name(cat_id, index)
-    prefix = get_image_url_prefix(page_folder, cat_folder)
+    cat_rel = get_cat_rel_path(cat_id, index)
+    prefix = get_image_url_prefix(page_folder, cat_rel)
     url = f"{prefix}videos/{filename}"
 
     return {"url": url, "filename": filename}
@@ -617,11 +621,11 @@ async def upload_file(page_id: str, file: UploadFile = File(...)):
     file_path = files_dir / filename
     file_path.write_bytes(content)
 
-    # URL 경로 계산 (카테고리 prefix 포함, 이미지와 동일한 prefix 사용)
+    # URL 경로 계산 (부모 체인 포함 전체 카테고리 상대경로 사용)
     page_folder = get_folder_name(page_id, index)
     cat_id = index.get("categoryMap", {}).get(page_id)
-    cat_folder = get_category_folder_name(cat_id, index)
-    prefix = get_image_url_prefix(page_folder, cat_folder)
+    cat_rel = get_cat_rel_path(cat_id, index)
+    prefix = get_image_url_prefix(page_folder, cat_rel)
     url = f"{prefix}files/{filename}"
 
     return {

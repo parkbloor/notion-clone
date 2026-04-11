@@ -47,8 +47,10 @@ function countText(blocks: Block[]): { words: number; chars: number } {
         const parsed = JSON.parse(block.content) as {
           columns: Array<{ title: string; cards: Array<{ text: string }> }>
         }
+        // title·text 모두 HTML을 포함할 수 있으므로 stripHtml 적용
+        // Python으로 치면: raw = ' '.join(strip_html(t) for t in titles + cards)
         raw = parsed.columns
-          .flatMap(col => [col.title, ...col.cards.map(c => c.text)])
+          .flatMap(col => [stripHtml(col.title), ...col.cards.map(c => stripHtml(c.text))])
           .join(' ')
       } catch { continue }
     } else if (block.type === 'toggle') {

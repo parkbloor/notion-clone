@@ -83,6 +83,18 @@ interface EditorProps {
   // 선택 핸들 클릭 콜백 (MouseEvent 전달 → Shift 키 범위 선택 판단)
   // Python으로 치면: def on_select(event): ...
   onSelect?: (e: React.MouseEvent) => void
+  // 토글 자식 블록 여부 — true이면 DnD 비활성 + 상위 토글 ID 보유
+  // Python으로 치면: self.is_child = False
+  isChild?: boolean
+  // 부모 토글 블록 ID (isChild=true 일 때 사용)
+  // Python으로 치면: self.toggle_id: str | None = None
+  toggleId?: string
+  // 선택된 블록들을 토글로 묶기 콜백 (PageEditor에서 전달)
+  // Python으로 치면: def on_group_into_toggle(): ...
+  onGroupIntoToggle?: () => void
+  // 토글 자식 블록 렌더링 (PageEditor에서 미리 렌더링 후 전달 — 순환 의존성 방지)
+  // Python으로 치면: self.children: list[ReactNode] = []
+  children?: React.ReactNode
 }
 
 const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
@@ -94,11 +106,11 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading6: 6,
 }
 
-export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode, isSelected, onSelect }: EditorProps) {
+export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode, isSelected, onSelect, isChild, toggleId, onGroupIntoToggle, children }: EditorProps) {
 
   const t = useLocale()
 
-  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage } = usePageStore()
+  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage, ungroupToggle, deleteToggleChild, updateToggleChild } = usePageStore()
 
   // ── 일괄 선택 UI 공통 변수 ─────────────────────
   // 블록 래퍼 클래스 — 선택 시 파란 하이라이트, 아닐 때 기본 hover 스타일
@@ -126,14 +138,9 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
   // -----------------------------------------------
   // useSortable: 이 블록을 dnd-kit의 드래그 가능한 아이템으로 등록
-  // id         : 각 블록의 고유 ID로 식별
-  // setNodeRef : 드래그 대상 DOM 요소를 dnd-kit에 알려줌
-  // listeners  : 드래그 핸들에만 붙이는 포인터 이벤트 핸들러
-  // attributes : 접근성(aria) 속성
-  // transform  : 드래그 중 위치 이동값 (CSS translate로 변환)
-  // transition : 드롭 후 애니메이션
-  // isDragging : 현재 이 블록이 드래그 중인지 여부
-  // Python으로 치면: sortable_id, drag_ref, drag_events = useSortable(block.id)
+  // isChild=true 인 토글 자식 블록은 SortableContext 밖에서 렌더링되므로
+  // disabled:true로 훅을 호출하여 DnD 등록을 건너뜀
+  // Python으로 치면: sortable_id, drag_ref, drag_events = useSortable(block.id, disabled=is_child)
   // -----------------------------------------------
   const {
     attributes,
@@ -142,7 +149,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: block.id })
+  } = useSortable({ id: block.id, disabled: !!isChild })
 
   const [slashMenu, setSlashMenu] = useState({
     isOpen: false,
@@ -213,7 +220,9 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       block.type === 'toggle' || block.type === 'kanban' || block.type === 'admonition' ||
       block.type === 'canvas' || block.type === 'excalidraw' || block.type === 'layout' ||
       block.type === 'math' || block.type === 'mermaid' || block.type === 'file' ||
-      block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap') ? '' : (block.content || ''),
+      block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap' ||
+      block.type === 'dayplanner' || block.type === 'weekplanner' || block.type === 'weeklyplanner' ||
+      block.type === 'routinematrix' || block.type === 'quarterlyplanner' || block.type === 'yearlyplanner') ? '' : (block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -226,7 +235,9 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           block.type === 'toggle' || block.type === 'kanban' || block.type === 'admonition' ||
           block.type === 'canvas' || block.type === 'excalidraw' || block.type === 'layout' ||
           block.type === 'math' || block.type === 'mermaid' || block.type === 'file' ||
-          block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap') return
+          block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap' ||
+          block.type === 'dayplanner' || block.type === 'weekplanner' || block.type === 'weeklyplanner' ||
+          block.type === 'routinematrix' || block.type === 'quarterlyplanner' || block.type === 'yearlyplanner') return
       // --- 입력으로 Tiptap이 <hr>을 삽입하면 블록 타입을 'divider'로 자동 동기화
       // Python으로 치면: if editor.doc starts with hr node: update_block_type('divider')
       if (block.type !== 'divider' && editor.state.doc.firstChild?.type.name === 'horizontalRule') {
@@ -642,15 +653,57 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
             icon: '⧉',
             onClick: () => duplicateBlock(pageId, block.id),
           },
-          {
-            id: 'delete',
-            label: t.editor.deleteBlock,
-            icon: '✕',
-            danger: true,
-            onClick: () => deleteBlock(pageId, block.id),
-          },
+          // 토글 자식 블록이면 "토글에서 꺼내기" 표시, 아니면 삭제
+          // Python으로 치면: if is_child: show_ungroup else show_delete
+          ...(isChild && toggleId
+            ? [{
+                id: 'delete-child',
+                label: t.editor.deleteBlock,
+                icon: '✕',
+                danger: true,
+                onClick: () => deleteToggleChild(pageId, toggleId, block.id),
+              }]
+            : [{
+                id: 'delete',
+                label: t.editor.deleteBlock,
+                icon: '✕',
+                danger: true,
+                onClick: () => deleteBlock(pageId, block.id),
+              }]
+          ),
         ],
       },
+      // ── 토글 묶기/해제 섹션 ──────────────────────
+      // isChild: 토글 해제 버튼 / 다중 선택 시: 토글로 묶기 버튼
+      // Python으로 치면: if is_toggle or multi_selected: toggle_ops section
+      ...((block.type === 'toggle' || onGroupIntoToggle)
+        ? [{
+            id: 'toggle-ops',
+            actions: [
+              // 토글 블록 자체일 때 → "토글 해제" (children을 상위로 펼치기)
+              ...(block.type === 'toggle'
+                ? [{
+                    id: 'ungroup-toggle',
+                    label: t.contextMenu.ungroupToggle,
+                    icon: '↕',
+                    onClick: () => ungroupToggle(pageId, block.id),
+                  }]
+                : []
+              ),
+              // 다중 선택 상태에서 우클릭 → "토글로 묶기"
+              ...(onGroupIntoToggle && block.type !== 'toggle'
+                ? [{
+                    id: 'group-into-toggle',
+                    label: t.contextMenu.groupIntoToggle,
+                    icon: '▶',
+                    onClick: onGroupIntoToggle,
+                  }]
+                : []
+              ),
+            ],
+          }]
+        : []
+      ),
     ]
 
     // ── 블록 타입 변환 (Tiptap 텍스트 블록만) ────────
@@ -955,7 +1008,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: if type in ('image', ..., 'math'): return
     // video, embed도 비-Tiptap 블록 — content를 JSON으로 직접 관리하므로 조기 반환
     // 빠트리면 setParagraph()가 호출돼 onUpdate → updateBlock('<p></p>') 로 content 덮어쓰기 위험
-    if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid' || type === 'file') return
+    if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid' || type === 'file' || type === 'chart' || type === 'gantt' || type === 'mindmap' || type === 'dayplanner' || type === 'weekplanner' || type === 'weeklyplanner' || type === 'routinematrix' || type === 'quarterlyplanner' || type === 'yearlyplanner') return
     const level = blockTypeToLevel[type]
     if (level) {
       editor.chain().focus().setHeading({ level }).run()
@@ -1066,7 +1119,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
           ⠿
         </div>
         <div className="flex-1 min-w-0">
-          <ToggleBlock block={block} pageId={pageId} isLast={isLast} />
+          <ToggleBlock block={block} pageId={pageId} isLast={isLast} readMode={readMode}>{children}</ToggleBlock>
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />

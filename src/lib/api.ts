@@ -134,7 +134,11 @@ export const api = {
       method: 'POST',
       body: form,
     })
-    if (!res.ok) throw new Error('이미지 업로드 실패')
+    if (!res.ok) {
+      // 서버 에러 메시지를 그대로 던져 호출부에서 구체적 안내 가능
+      const body = await res.json().catch(() => ({}))
+      throw Object.assign(new Error(body.detail || '이미지 업로드 실패'), { status: res.status })
+    }
     const data = await res.json()
     return data.url as string
   },

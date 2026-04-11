@@ -6,6 +6,7 @@
 
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useSettingsStore, applyTheme, applyThemePreset } from '@/store/settingsStore'
 import { useLocale, LANGUAGE_OPTIONS } from '@/locales'
 
@@ -71,9 +72,21 @@ export default function AppearanceTab() {
     applyThemePreset(preset)
   }
 
+  // 시스템 다크 모드 여부 — matchMedia 이벤트를 구독하여 실시간 반응
+  // Python으로 치면: system_dark = subscribe(media_query_changed)
+  const [systemDark, setSystemDark] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+
   // 현재 다크 모드 여부 (스와치 색상 선택에 사용)
-  // Python으로 치면: is_dark = theme == 'dark' or (theme == 'auto' and system.is_dark)
-  const isDark = theme === 'dark' || (theme === 'auto' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  // Python으로 치면: is_dark = theme == 'dark' or (theme == 'auto' and system_dark)
+  const isDark = theme === 'dark' || (theme === 'auto' && systemDark)
 
   // 밝기 모드 라벨 — 로케일 적용
   const themeLabels = {

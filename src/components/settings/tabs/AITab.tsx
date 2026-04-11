@@ -89,7 +89,7 @@ export default function AITab() {
       // Ollama는 base_url 추가 전송
       if (aiProvider === 'ollama') body.base_url = ollamaUrl
 
-      const res = await fetch('http://localhost:8000/api/ai/test', {
+      const res = await fetch('http://127.0.0.1:8000/api/ai/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),

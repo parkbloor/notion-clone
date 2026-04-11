@@ -19,6 +19,7 @@ from backend.core import (
     UpdateCategoryColorBody,
     assert_inside_vault,
     get_cat_dir,
+    get_cat_rel_path,
     get_folder_name,
     get_trash_dir,
     load_index,
@@ -90,9 +91,14 @@ def create_category(body: CreateCategoryBody):
         counter += 1
 
     # 🔒 vault 탈출 방지
-    cat_dir = get_vault_dir() / folder_name
+    # parentId가 있으면 부모 경로 아래에 폴더 생성 (논리적 트리와 물리 경로 일치)
+    # Python으로 치면: cat_dir = parent_dir / folder_name if parent else vault / folder_name
+    if body.parentId is not None:
+        cat_dir = get_cat_dir(body.parentId, index) / folder_name
+    else:
+        cat_dir = get_vault_dir() / folder_name
     assert_inside_vault(cat_dir)
-    cat_dir.mkdir(exist_ok=True)
+    cat_dir.mkdir(parents=True, exist_ok=True)
 
     # 카테고리 객체 (parentId 포함)
     # Python으로 치면: cat = {"id": id, "name": name, "folderName": fn, "parentId": pid}
@@ -148,8 +154,10 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
     renamed = old_folder != new_folder
 
     if renamed:
-        old_path = get_vault_dir() / old_folder
-        new_path = get_vault_dir() / new_folder
+        # 부모 체인 포함 전체 경로로 rename (부모 디렉토리는 유지, 잎 폴더만 변경)
+        # Python으로 치면: old_path = get_cat_dir(cat_id); new_path = old_path.parent / new_folder
+        old_path = get_cat_dir(cat_id, index)
+        new_path = old_path.parent / new_folder
 
         # 🔒 vault 탈출 방지
         assert_inside_vault(old_path)
@@ -158,23 +166,29 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
         if old_path.exists():
             shutil.move(str(old_path), str(new_path))
 
+        # 이름 변경 전 상대경로 계산 (URL 교체에 사용)
+        # get_cat_rel_path는 cat["folderName"] 기반이므로 변경 전에 호출
+        old_cat_rel = get_cat_rel_path(cat_id, index)
+
         # 이 카테고리에 속한 모든 페이지의 이미지 URL 업데이트
         # Python으로 치면: for page in category_pages: update_urls(page)
+        # folderName을 먼저 업데이트해야 new_cat_rel 계산이 올바름
+        cat["folderName"] = new_folder
+        new_cat_rel = get_cat_rel_path(cat_id, index)
+
         for page_id, cid in index.get("categoryMap", {}).items():
             if cid != cat_id:
                 continue
             page_folder = get_folder_name(page_id, index)
-            content_file = resolve_content_file(get_vault_dir() / new_folder / page_folder)
+            content_file = resolve_content_file(new_path / page_folder)
             if not content_file.exists():
                 continue
             page_data = json.loads(content_file.read_text(encoding="utf-8"))
-            old_prefix = f"http://127.0.0.1:8000/static/{old_folder}/{page_folder}/"
-            new_prefix = f"http://127.0.0.1:8000/static/{new_folder}/{page_folder}/"
+            old_prefix = f"http://127.0.0.1:8000/static/{old_cat_rel}/{page_folder}/"
+            new_prefix = f"http://127.0.0.1:8000/static/{new_cat_rel}/{page_folder}/"
             replace_image_urls_in_page(page_data, old_prefix, new_prefix)
             # 항상 .nct로 저장 (구버전 .json은 save_page_to_disk가 정리)
-            save_page_to_disk(page_data, get_vault_dir() / new_folder / page_folder)
-
-        cat["folderName"] = new_folder
+            save_page_to_disk(page_data, new_path / page_folder)
 
     cat["name"] = body.name
     save_index(index)
