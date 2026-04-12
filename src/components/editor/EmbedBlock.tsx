@@ -125,13 +125,14 @@ export default function EmbedBlock({ block, pageId, readOnly = false }: EmbedBlo
   // input ref (자동 포커스)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // 편집 모드 전환 시 input 자동 포커스
+  // 편집 모드 전환 시 input 자동 포커스 (마운트 시 자동 포커스 방지)
+  // !savedUrl 조건 제거 — URL 없는 빈 embed 블록이 마운트마다 포커스를 가져가서 스크롤 유발
   // Python으로 치면: if is_editing: input.focus()
   useEffect(() => {
-    if ((isEditing || !savedUrl) && inputRef.current) {
+    if (isEditing && inputRef.current) {
       inputRef.current.focus()
     }
-  }, [isEditing, savedUrl])
+  }, [isEditing])
 
   // -----------------------------------------------
   // URL 저장 처리

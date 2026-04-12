@@ -1,11 +1,12 @@
 // =============================================
 // src/components/editor/SlashCommand.tsx
-// 역할: / 입력 시 나타나는 블록 타입 선택 메뉴
+// 역할: / 입력 시 나타나는 블록 타입 선택 메뉴 (플라이아웃 이중 패널)
 // =============================================
 
 'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { BlockType } from '@/types/block'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -14,10 +15,10 @@ import { useLocale } from '@/locales'
 interface SlashCommandProps {
   editor: TiptapEditor
   isOpen: boolean
-  position: { top: number; left: number }
+  position: { top?: number; bottom?: number; left: number }
   onSelect: (type: BlockType) => void
-  onClose: () => void              // Escape 키: 팝업만 닫기 (/ 텍스트 유지)
-  onClickOutside: () => void       // 외부 클릭: 팝업 닫기 + /query 텍스트 삭제
+  onClose: () => void
+  onClickOutside: () => void
   searchQuery: string
 }
 
@@ -31,28 +32,51 @@ export default function SlashCommand({
   searchQuery,
 }: SlashCommandProps) {
 
-  const [selectedIndex, setSelectedIndex] = useState(0)
+  // 현재 플라이아웃을 표시할 카테고리 키 (마우스 호버 or 키보드 탐색으로 설정)
+  // Python으로 치면: active_category: Optional[str] = None
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
 
-  // 선택된 버튼으로 스크롤하기 위한 ref
-  // Python으로 치면: selected_ref = None
-  const selectedRef = useRef<HTMLButtonElement>(null)
-  // 팝업 DOM 참조 — 외부 클릭 감지용
-  // Python으로 치면: self.popup_ref = None
+  // 키보드가 어느 패널을 제어하는지 — 'categories' | 'items'
+  // Python으로 치면: focus_pane = 'categories'
+  const [focusPane, setFocusPane] = useState<'categories' | 'items'>('categories')
+
+  // 카테고리 패널의 키보드 포커스 인덱스
+  // Python으로 치면: category_index = 0
+  const [categoryIndex, setCategoryIndex] = useState(0)
+
+  // 항목 패널의 키보드 포커스 인덱스
+  // Python으로 치면: item_index = 0
+  const [itemIndex, setItemIndex] = useState(0)
+
+  // 검색 모드 flat 결과의 포커스 인덱스
+  // Python으로 치면: search_index = 0
+  const [searchIndex, setSearchIndex] = useState(0)
+
+  // 항목 패널 스크롤용 ref
+  // Python으로 치면: item_ref = None
+  const itemRef = useRef<HTMLButtonElement>(null)
+
+  // 카테고리 패널 스크롤용 ref
+  // Python으로 치면: category_ref = None
+  const categoryRef = useRef<HTMLButtonElement>(null)
+
+  // 검색 결과 스크롤용 ref
+  const searchRef = useRef<HTMLButtonElement>(null)
+
+  // 팝업 DOM — 외부 클릭 감지용
   const popupRef = useRef<HTMLDivElement>(null)
 
   // 번역 훅
-  // Python으로 치면: t = get_locale()
   const t = useLocale()
 
-  // 플러그인 설정 읽기 — 비활성화된 플러그인은 메뉴에서 숨김
-  // Python으로 치면: plugins = settings_store.plugins
+  // 플러그인 설정
   const { plugins } = useSettingsStore()
 
-  // ── 슬래시 커맨드 항목 목록 (번역 적용, useMemo로 t 변경 시 재생성) ──
-  // COMMANDS가 모듈 레벨 상수였으나 번역 적용을 위해 컴포넌트 내부 useMemo로 이동
-  // Python으로 치면: commands = compute_commands(t)
+  // ── 7개 카테고리 커맨드 목록 ──────────────────────────────────────
+  // Python으로 치면: COMMANDS = [{'key':..., 'group':..., 'items':[...]}, ...]
   const COMMANDS = useMemo(() => [
     {
+      key: 'text',
       group: t.slash.groupText,
       items: [
         { icon: '📝', name: t.slash.paragraph.label,  description: t.slash.paragraph.desc,  type: 'paragraph' as BlockType },
@@ -63,127 +87,245 @@ export default function SlashCommand({
         { icon: 'H4', name: t.slash.heading4.label,   description: t.slash.heading4.desc,   type: 'heading4'  as BlockType },
         { icon: 'H5', name: t.slash.heading5.label,   description: t.slash.heading5.desc,   type: 'heading5'  as BlockType },
         { icon: 'H6', name: t.slash.heading6.label,   description: t.slash.heading6.desc,   type: 'heading6'  as BlockType },
-      ]
+      ],
     },
     {
+      key: 'list',
       group: t.slash.groupList,
       items: [
         { icon: '•',  name: t.slash.bulletList.label,  description: t.slash.bulletList.desc,  type: 'bulletList'  as BlockType },
         { icon: '1.', name: t.slash.orderedList.label, description: t.slash.orderedList.desc, type: 'orderedList' as BlockType },
         { icon: '☑️', name: t.slash.taskList.label,    description: t.slash.taskList.desc,    type: 'taskList'    as BlockType },
-      ]
+      ],
     },
     {
+      key: 'media',
+      group: t.slash.groupMedia,
+      items: [
+        { icon: '🖼️', name: t.slash.image.label,      description: t.slash.image.desc,      type: 'image'      as BlockType },
+        { icon: '🎬', name: t.slash.video.label,       description: t.slash.video.desc,       type: 'video'      as BlockType },
+        { icon: '🎨', name: t.slash.canvas.label,      description: t.slash.canvas.desc,      type: 'canvas'     as BlockType },
+        { icon: '✏️', name: t.slash.excalidraw.label,  description: t.slash.excalidraw.desc,  type: 'excalidraw' as BlockType },
+        { icon: '🔗', name: t.slash.embed.label,       description: t.slash.embed.desc,       type: 'embed'      as BlockType },
+        { icon: '📎', name: t.slash.file.label,        description: t.slash.file.desc,        type: 'file'       as BlockType },
+      ],
+    },
+    {
+      key: 'data',
+      group: t.slash.groupData,
+      items: [
+        { icon: '📊', name: t.slash.table.label,     description: t.slash.table.desc,     type: 'table'   as BlockType },
+        { icon: '📋', name: t.slash.kanban.label,    description: t.slash.kanban.desc,    type: 'kanban'  as BlockType },
+        { icon: '💻', name: t.slash.codeBlock.label, description: t.slash.codeBlock.desc, type: 'code'    as BlockType },
+        { icon: '∑',  name: t.slash.math.label,      description: t.slash.math.desc,      type: 'math'    as BlockType },
+        { icon: '🔀', name: t.slash.mermaid.label,   description: t.slash.mermaid.desc,   type: 'mermaid' as BlockType },
+        { icon: '📈', name: t.slash.chart.label,     description: t.slash.chart.desc,     type: 'chart'   as BlockType },
+        { icon: '📅', name: t.slash.gantt.label,     description: t.slash.gantt.desc,     type: 'gantt'   as BlockType },
+        { icon: '🧠', name: t.slash.mindmap.label,   description: t.slash.mindmap.desc,   type: 'mindmap' as BlockType },
+        { icon: '📑', name: t.slash.toc.label,       description: t.slash.toc.desc,       type: 'toc'     as BlockType },
+      ],
+    },
+    {
+      key: 'advanced',
       group: t.slash.groupAdvanced,
       items: [
-        { icon: '🖼️', name: t.slash.image.label,         description: t.slash.image.desc,         type: 'image'          as BlockType },
-        { icon: '📊', name: t.slash.table.label,         description: t.slash.table.desc,         type: 'table'          as BlockType },
-        { icon: '💻', name: t.slash.codeBlock.label,     description: t.slash.codeBlock.desc,     type: 'code'           as BlockType },
-        { icon: '➖', name: t.slash.divider.label,       description: t.slash.divider.desc,       type: 'divider'        as BlockType },
-        { icon: '📋', name: t.slash.kanban.label,        description: t.slash.kanban.desc,        type: 'kanban'         as BlockType },
-        { icon: '💡', name: t.slash.admonition.label,    description: t.slash.admonition.desc,    type: 'admonition'     as BlockType },
-        { icon: '🖼️', name: t.slash.canvas.label,        description: t.slash.canvas.desc,        type: 'canvas'         as BlockType },
-        { icon: '✏️', name: t.slash.excalidraw.label,    description: t.slash.excalidraw.desc,    type: 'excalidraw'     as BlockType },
-        { icon: '🎬', name: t.slash.video.label,         description: t.slash.video.desc,         type: 'video'          as BlockType },
-        { icon: '📐', name: t.slash.layout.label,        description: t.slash.layout.desc,        type: 'layout'         as BlockType },
-        { icon: '∑',  name: t.slash.math.label,          description: t.slash.math.desc,          type: 'math'           as BlockType },
-        { icon: '🔗', name: t.slash.embed.label,         description: t.slash.embed.desc,         type: 'embed'          as BlockType },
-        { icon: '📊', name: t.slash.mermaid.label,       description: t.slash.mermaid.desc,       type: 'mermaid'        as BlockType },
-        { icon: '📈', name: t.slash.chart.label,         description: t.slash.chart.desc,         type: 'chart'          as BlockType },
-        { icon: '📅', name: t.slash.gantt.label,         description: t.slash.gantt.desc,         type: 'gantt'          as BlockType },
-        { icon: '🧠', name: t.slash.mindmap.label,       description: t.slash.mindmap.desc,       type: 'mindmap'        as BlockType },
-        { icon: '📑', name: t.slash.toc.label,           description: t.slash.toc.desc,           type: 'toc'            as BlockType },
-        { icon: '📎', name: t.slash.file.label,          description: t.slash.file.desc,          type: 'file'           as BlockType },
-        { icon: '🗓️', name: t.slash.dayPlanner.label,    description: t.slash.dayPlanner.desc,    type: 'dayplanner'     as BlockType },
-        { icon: '🗃️', name: t.slash.weekPlanner.label,   description: t.slash.weekPlanner.desc,   type: 'weekplanner'    as BlockType },
-        { icon: '📆', name: t.slash.weeklyPlanner.label, description: t.slash.weeklyPlanner.desc, type: 'weeklyplanner'  as BlockType },
-        { icon: '🔄', name: t.slash.routineMatrix.label, description: t.slash.routineMatrix.desc, type: 'routinematrix'  as BlockType },
-        { icon: '📅', name: t.slash.monthly.label,       description: t.slash.monthly.desc,       type: 'monthlycalendar' as BlockType },
-        { icon: '📊', name: t.slash.quarterly.label,     description: t.slash.quarterly.desc,     type: 'quarterlyplanner' as BlockType },
-        { icon: '🌟', name: t.slash.yearly.label,        description: t.slash.yearly.desc,        type: 'yearlyplanner'  as BlockType },
-      ]
+        { icon: '💡', name: t.slash.admonition.label, description: t.slash.admonition.desc, type: 'admonition' as BlockType },
+        { icon: '➖', name: t.slash.divider.label,    description: t.slash.divider.desc,    type: 'divider'    as BlockType },
+        { icon: '📐', name: t.slash.layout.label,     description: t.slash.layout.desc,     type: 'layout'     as BlockType },
+      ],
     },
     {
+      key: 'planner',
+      group: t.slash.groupPlanner,
+      items: [
+        { icon: '🗓️', name: t.slash.dayPlanner.label,    description: t.slash.dayPlanner.desc,    type: 'dayplanner'       as BlockType },
+        { icon: '🗃️', name: t.slash.weekPlanner.label,   description: t.slash.weekPlanner.desc,   type: 'weekplanner'      as BlockType },
+        { icon: '📆', name: t.slash.weeklyPlanner.label, description: t.slash.weeklyPlanner.desc, type: 'weeklyplanner'    as BlockType },
+        { icon: '🔄', name: t.slash.routineMatrix.label, description: t.slash.routineMatrix.desc, type: 'routinematrix'    as BlockType },
+        { icon: '📅', name: t.slash.monthly.label,       description: t.slash.monthly.desc,       type: 'monthlycalendar'  as BlockType },
+        { icon: '📊', name: t.slash.quarterly.label,     description: t.slash.quarterly.desc,     type: 'quarterlyplanner' as BlockType },
+        { icon: '🌟', name: t.slash.yearly.label,        description: t.slash.yearly.desc,        type: 'yearlyplanner'    as BlockType },
+      ],
+    },
+    {
+      key: 'ai',
       group: t.slash.groupAI,
       items: [
         { icon: '✨', name: t.slash.aiWrite.label, description: t.slash.aiWrite.desc, type: 'ai' as BlockType },
-      ]
+      ],
     },
   ], [t])
 
-  // 플러그인 토글 → BlockType 매핑 (false이면 해당 블록 타입을 메뉴에서 제거)
-  // Python으로 치면: PLUGIN_BLOCK_MAP = {'kanban': 'kanban', ...}
+  // ── 플러그인 OFF → 해당 BlockType 숨김 ─────────────────────────
+  // Python으로 치면: plugin_block_map = {'kanban': plugins.kanban, ...}
   const pluginBlockMap: Partial<Record<BlockType, boolean>> = {
-    kanban:      plugins.kanban,
-    admonition:  plugins.admonition,
-    canvas:      plugins.canvas,
-    excalidraw:  plugins.excalidraw,  // Excalidraw 플러그인 OFF 시 슬래시 메뉴에서 숨김
-    layout:      plugins.layoutEnabled,
-    chart:       plugins.chart,         // 차트 플러그인 OFF 시 슬래시 메뉴에서 숨김
-    gantt:       plugins.gantt,         // 갠트 플러그인 OFF 시 슬래시 메뉴에서 숨김
-    mindmap:     plugins.mindmap,       // 마인드맵 플러그인 OFF 시 슬래시 메뉴에서 숨김
-    math:        plugins.math,          // 수식 플러그인 OFF 시 슬래시 메뉴에서 숨김
-    // video는 pluginBlockMap에 없으므로 항상 메뉴에 표시됨 (autoplay/loop은 설정에서만 조절)
+    kanban:     plugins.kanban,
+    admonition: plugins.admonition,
+    canvas:     plugins.canvas,
+    excalidraw: plugins.excalidraw,
+    layout:     plugins.layoutEnabled,
+    chart:      plugins.chart,
+    gantt:      plugins.gantt,
+    mindmap:    plugins.mindmap,
+    math:       plugins.math,
   }
 
-  const filteredGroups = COMMANDS.map(group => ({
-    ...group,
-    items: group.items.filter(item => {
-      // 플러그인 토글이 false이면 해당 블록 타입 제거
-      // Python으로 치면: if type in plugin_map and not plugin_map[type]: return False
-      if (item.type in pluginBlockMap && !pluginBlockMap[item.type as BlockType]) return false
-      return (
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase())
+  // 플러그인 필터 적용 후 카테고리 목록
+  // Python으로 치면: visible_cats = filter_by_plugins(COMMANDS)
+  const filteredCategories = useMemo(() => (
+    COMMANDS
+      .map(cat => ({
+        ...cat,
+        items: cat.items.filter(item =>
+          !(item.type in pluginBlockMap) || !!pluginBlockMap[item.type as BlockType]
+        ),
+      }))
+      .filter(cat => cat.items.length > 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [COMMANDS, plugins])
+
+  // 현재 활성 카테고리의 항목 목록
+  // Python으로 치면: active_items = get_items(active_category)
+  const activeItems = useMemo(() => {
+    if (!activeCategory) return []
+    return filteredCategories.find(c => c.key === activeCategory)?.items ?? []
+  }, [activeCategory, filteredCategories])
+
+  // 검색 모드: 모든 항목 flat 필터
+  // Python으로 치면: search_results = [i for c in cats for i in c.items if q in i.name]
+  const searchResults = useMemo(() => {
+    if (!searchQuery) return []
+    const q = searchQuery.toLowerCase()
+    return filteredCategories.flatMap(cat =>
+      cat.items.filter(item =>
+        item.name.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q)
       )
-    })
-  })).filter(group => group.items.length > 0)
+    )
+  }, [filteredCategories, searchQuery])
 
-  const allFilteredItems = filteredGroups.flatMap(g => g.items)
+  // ── 카테고리 호버 핸들러 (마우스) ──────────────────────────────
+  // Python으로 치면: def on_cat_hover(key, idx): active_category = key
+  const handleCategoryHover = useCallback((key: string, idx: number) => {
+    setActiveCategory(key)
+    setCategoryIndex(idx)
+    setFocusPane('categories')
+    setItemIndex(0)
+  }, [])
 
-  // 키보드 이벤트 처리
+  // ── 키보드 이벤트 처리 ────────────────────────────────────────
+  // Python으로 치면: def handle_keydown(e): ...
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (!isOpen) return
+
+    // 검색 모드: flat 결과 내비게이션
+    if (searchQuery) {
+      const total = searchResults.length
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setSearchIndex(i => (i + 1) % total)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setSearchIndex(i => (i - 1 + total) % total)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        if (searchResults[searchIndex]) onSelect(searchResults[searchIndex].type)
+      } else if (e.key === 'Escape') {
+        onClose()
+      }
+      return
+    }
+
+    // 항목 패널 키보드 모드
+    if (focusPane === 'items') {
+      const total = activeItems.length
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setItemIndex(i => (i + 1) % total)
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setItemIndex(i => (i - 1 + total) % total)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        if (activeItems[itemIndex]) onSelect(activeItems[itemIndex].type)
+      } else if (e.key === 'ArrowLeft') {
+        // ← : 카테고리 패널로 복귀
+        e.preventDefault()
+        setFocusPane('categories')
+      } else if (e.key === 'Escape') {
+        onClose()
+      }
+      return
+    }
+
+    // 카테고리 패널 키보드 모드
+    const catTotal = filteredCategories.length
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setSelectedIndex(i => (i + 1) % allFilteredItems.length)
-    }
-    if (e.key === 'ArrowUp') {
+      const next = (categoryIndex + 1) % catTotal
+      setCategoryIndex(next)
+      setActiveCategory(filteredCategories[next]?.key ?? null)
+      setItemIndex(0)
+    } else if (e.key === 'ArrowUp') {
       e.preventDefault()
-      setSelectedIndex(i => (i - 1 + allFilteredItems.length) % allFilteredItems.length)
-    }
-    if (e.key === 'Enter') {
+      const prev = (categoryIndex - 1 + catTotal) % catTotal
+      setCategoryIndex(prev)
+      setActiveCategory(filteredCategories[prev]?.key ?? null)
+      setItemIndex(0)
+    } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
+      // → 또는 Enter: 항목 패널로 진입
       e.preventDefault()
-      if (allFilteredItems[selectedIndex]) {
-        onSelect(allFilteredItems[selectedIndex].type)
+      if (!activeCategory && filteredCategories[categoryIndex]) {
+        setActiveCategory(filteredCategories[categoryIndex].key)
       }
-    }
-    if (e.key === 'Escape') {
+      setFocusPane('items')
+      setItemIndex(0)
+    } else if (e.key === 'Escape') {
       onClose()
     }
-  }, [isOpen, selectedIndex, allFilteredItems, onSelect, onClose])
+  }, [
+    isOpen, searchQuery, focusPane, searchResults, searchIndex,
+    activeItems, itemIndex, filteredCategories, categoryIndex,
+    activeCategory, onSelect, onClose,
+  ])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  // 검색어 바뀌면 선택 인덱스 초기화
-  useEffect(() => { setSelectedIndex(0) }, [searchQuery])
-
-  // -----------------------------------------------
-  // 선택된 아이템으로 자동 스크롤
-  // selectedRef가 붙은 버튼이 보이도록 스크롤
-  // -----------------------------------------------
+  // 검색어 변경 시 인덱스 초기화
   useEffect(() => {
-    if (selectedRef.current) {
-      selectedRef.current.scrollIntoView({ block: 'nearest' })
-    }
-  }, [selectedIndex])
+    setSearchIndex(0)
+  }, [searchQuery])
 
-  // ── 팝업 외부 클릭 시 닫기 + /query 텍스트 삭제 ──
-  // onClickOutside: Editor.tsx가 /query 삭제까지 처리
-  // Python으로 치면: def on_outside_click(e): if not popup.contains(e.target): on_dismiss()
+  // 팝업 닫힐 때 상태 초기화
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveCategory(null)
+      setFocusPane('categories')
+      setCategoryIndex(0)
+      setItemIndex(0)
+      setSearchIndex(0)
+    }
+  }, [isOpen])
+
+  // 카테고리 키보드 포커스 자동 스크롤
+  useEffect(() => {
+    if (categoryRef.current) categoryRef.current.scrollIntoView({ block: 'nearest' })
+  }, [categoryIndex])
+
+  // 항목 키보드 포커스 자동 스크롤
+  useEffect(() => {
+    if (itemRef.current) itemRef.current.scrollIntoView({ block: 'nearest' })
+  }, [itemIndex])
+
+  // 검색 포커스 자동 스크롤
+  useEffect(() => {
+    if (searchRef.current) searchRef.current.scrollIntoView({ block: 'nearest' })
+  }, [searchIndex])
+
+  // 팝업 외부 클릭 시 닫기
   useEffect(() => {
     if (!isOpen) return
     function handleOutside(e: MouseEvent) {
@@ -195,68 +337,63 @@ export default function SlashCommand({
     return () => document.removeEventListener('mousedown', handleOutside)
   }, [isOpen, onClickOutside])
 
-  // ── 팝업 표시 위치 계산 (화면 절반 기준 + X 잘림 방지) ──────────
-  // Editor.tsx가 position.top = coords.bottom + 8 로 전달하므로
-  // Y 방향은 여기서 오버라이드하지 않고 Editor.tsx의 checkSlash에서 처리
-  // Python으로 치면: x = clamp(left, 8, vw - MENU_W - 8)
-  const MENU_W = 288  // w-72
+  // ── 팝업 위치 계산 (화면 잘림 방지) ──────────────────────────
+  // 플라이아웃 포함 최대 너비 384px 기준으로 계산
+  // Python으로 치면: adjusted_left = clamp(left, 8, vw - MAX_W - 8)
+  const MAX_W = 384
   const adjustedLeft = useMemo(
-    () => Math.max(8, Math.min(position.left, window.innerWidth - MENU_W - 8)),
+    () => Math.max(8, Math.min(position.left, window.innerWidth - MAX_W - 8)),
     [position.left]
   )
 
   if (!isOpen) return null
 
-  if (allFilteredItems.length === 0) {
-    return (
+  // ── 검색 결과 없음 ────────────────────────────────────────────
+  // createPortal로 document.body에 직접 마운트 → 에디터 group 요소의 DOM 트리에서 분리
+  // group-hover: CSS 트리거 방지 (드래그 핸들 등이 반투명하게 나타나는 버그 수정)
+  // Python으로 치면: document.body.appendChild(popup_element)
+  if (searchQuery && searchResults.length === 0) {
+    return createPortal(
       <div
         ref={popupRef}
-        style={{ top: position.top, left: adjustedLeft }}
+        style={{ top: position.top, bottom: position.bottom, left: adjustedLeft }}
         className="fixed z-50 w-72 bg-white rounded-lg shadow-lg border border-gray-200 p-3"
       >
         <p className="text-sm text-gray-400 text-center">{t.common.noResults}</p>
-      </div>
+      </div>,
+      document.body
     )
   }
 
-  return (
+  return createPortal(
     <div
       ref={popupRef}
-      style={{ top: position.top, left: adjustedLeft }}
-      className="fixed z-50 w-72 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
+      style={{ top: position.top, bottom: position.bottom, left: adjustedLeft }}
+      className="fixed z-50 flex bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
     >
-      {searchQuery && (
-        <div className="px-3 py-2 border-b border-gray-100">
-          <p className="text-xs text-gray-400">
-            {t.common.search}: <span className="text-gray-600 font-medium">{searchQuery}</span>
-          </p>
-        </div>
-      )}
-
-      <div className="max-h-80 overflow-y-auto py-1">
-        {filteredGroups.map((group) => (
-          <div key={group.group}>
-            <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-              {group.group}
+      {searchQuery ? (
+        // ── 검색 모드: 단일 패널 flat 결과 ──────────────────────
+        <div className="w-72 py-1">
+          <div className="px-3 py-1.5 border-b border-gray-100">
+            <p className="text-xs text-gray-400">
+              {t.common.search}: <span className="text-gray-600 font-medium">{searchQuery}</span>
             </p>
-            {group.items.map((item) => {
-              // allFilteredItems 배열에서 인덱스 조회 — 렌더 중 변이 금지 (React 순수 함수 원칙)
-              // Python으로 치면: current_index = all_items.index(item)
-              const currentIndex = allFilteredItems.indexOf(item)
-              const isSelected = selectedIndex === currentIndex
-
+          </div>
+          <div className="max-h-80 overflow-y-auto py-1">
+            {searchResults.map((item, idx) => {
+              const isSel = searchIndex === idx
               return (
                 <button
                   key={item.type}
-                  ref={isSelected ? selectedRef : null}  // 선택된 버튼에만 ref 부착
+                  ref={isSel ? searchRef : null}
                   onClick={() => onSelect(item.type)}
                   className={
-                    isSelected
+                    isSel
                       ? "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors bg-blue-50 text-blue-700"
                       : "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-gray-50 text-gray-700"
                   }
                 >
-                  <span className="w-8 h-8 flex items-center justify-center bg-gray-100 rounded text-base shrink-0">
+                  <span className="w-7 h-7 flex items-center justify-center bg-gray-100 rounded text-sm shrink-0">
                     {item.icon}
                   </span>
                   <div>
@@ -267,8 +404,85 @@ export default function SlashCommand({
               )
             })}
           </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      ) : (
+        // ── 플라이아웃 모드: 카테고리 패널 + 항목 패널 나란히 ───
+        <>
+          {/* 왼쪽: 카테고리 패널 */}
+          <div className="w-36 border-r border-gray-100 py-1 shrink-0">
+            <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              {t.slash.addBlock}
+            </p>
+            {filteredCategories.map((cat, idx) => {
+              // 카테고리 하이라이트: 호버 중이거나 키보드 포커스 중
+              // Python으로 치면: is_active = active_category == cat.key
+              const isActive = activeCategory === cat.key
+              const isKbFocus = focusPane === 'categories' && categoryIndex === idx
+              return (
+                <button
+                  key={cat.key}
+                  ref={isKbFocus ? categoryRef : null}
+                  onMouseEnter={() => handleCategoryHover(cat.key, idx)}
+                  onClick={() => {
+                    setFocusPane('items')
+                    setItemIndex(0)
+                  }}
+                  className={
+                    isActive || isKbFocus
+                      ? "w-full flex items-center justify-between px-3 py-2 text-left transition-colors bg-blue-50 text-blue-700"
+                      : "w-full flex items-center justify-between px-3 py-2 text-left transition-colors hover:bg-gray-50 text-gray-700"
+                  }
+                >
+                  <span className="text-sm font-medium truncate">{cat.group}</span>
+                  <span className="text-gray-400 text-xs ml-1 shrink-0">›</span>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* 오른쪽: 항목 패널 (활성 카테고리가 있을 때만 표시) */}
+          {/* max-h-72 + overflow-hidden: 왼쪽 카테고리 패널(~294px)보다 작게 고정 → 컨테이너 높이 안정화 */}
+          {activeCategory && (
+            <div className="w-60 py-1 border-l border-gray-100 max-h-72 flex flex-col overflow-hidden">
+              <p className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide shrink-0">
+                {filteredCategories.find(c => c.key === activeCategory)?.group}
+              </p>
+              <div className="flex-1 overflow-y-auto">
+                {activeItems.map((item, idx) => {
+                  // 항목 하이라이트: 키보드가 항목 패널에 있을 때만 적용
+                  // Python으로 치면: is_kb_sel = focus_pane == 'items' and item_index == idx
+                  const isKbSel = focusPane === 'items' && itemIndex === idx
+                  return (
+                    <button
+                      key={item.type}
+                      ref={isKbSel ? itemRef : null}
+                      onMouseEnter={() => {
+                        setItemIndex(idx)
+                        setFocusPane('items')
+                      }}
+                      onClick={() => onSelect(item.type)}
+                      className={
+                        isKbSel
+                          ? "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors bg-blue-50 text-blue-700"
+                          : "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-gray-50 text-gray-700"
+                      }
+                    >
+                      <span className="w-7 h-7 flex items-center justify-center bg-gray-100 rounded text-sm shrink-0">
+                        {item.icon}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                        <p className="text-xs text-gray-400 truncate">{item.description}</p>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>,
+    document.body
   )
 }

@@ -23,10 +23,11 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
   const t = useLocale()
 
   // -----------------------------------------------
-  // 편집 모드 초기값: 내용 비어있으면 바로 편집 모드로 시작
-  // Python으로 치면: self.is_editing = not bool(block.content.strip())
+  // 편집 모드 초기값: 항상 미리보기 모드로 시작 (마운트 시 자동 포커스 방지)
+  // 빈 블록도 플레이스홀더를 클릭해 편집 모드로 진입하는 방식으로 통일
+  // Python으로 치면: self.is_editing = False
   // -----------------------------------------------
-  const [isEditing, setIsEditing] = useState(!block.content.trim())
+  const [isEditing, setIsEditing] = useState(false)
 
   // 로컬 LaTeX 문자열 (저장 전 실시간 편집용)
   // Python으로 치면: self.latex = block.content

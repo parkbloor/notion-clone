@@ -145,6 +145,8 @@ export const en: Locale = {
 
   // ── Slash Commands ───────────────────────────────────
   slash: {
+    addBlock: 'Add Block',
+    back: 'Back',
     groupText: 'Text',
     groupList: 'List',
     groupMedia: 'Media',

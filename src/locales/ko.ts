@@ -147,6 +147,8 @@ export const ko = {
 
   // ── 슬래시 커맨드 ────────────────────────────────────────
   slash: {
+    addBlock: '블록 추가',
+    back: '뒤로',
     groupText: '텍스트',
     groupList: '목록',
     groupMedia: '미디어',

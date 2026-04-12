@@ -540,16 +540,19 @@ interface EventDetailPanelProps {
 function EventDetailPanel({ ev, patchEvent, toggleDone, setSelectedEventId, t }: EventDetailPanelProps) {
   // 로컬 상태 — onChange 시 스토어 업데이트 없이 즉시 반영
   // onBlur 시점에만 patchEvent(immediate=true)로 저장
+  // key={ev.id}로 이벤트 전환 시 컴포넌트 완전 재마운트 → 스크롤 자동 0
   // Python으로 치면: self.local_log: str = ev.log or ''
   const [localLog, setLocalLog] = useState(ev.log ?? '')
   const [localSubtasks, setLocalSubtasks] = useState<SubTask[]>(ev.subtasks ?? [])
-
-  // 이벤트 전환 시 로컬 state 초기화
-  // Python으로 치면: @property.setter def ev(self, val): self.local_log = val.log
-  useEffect(() => {
-    setLocalLog(ev.log ?? '')
-    setLocalSubtasks(ev.subtasks ?? [])
-  }, [ev.id])
+  // textarea 마운트 순간 커서+스크롤을 처음으로 강제 이동
+  // useCallback(fn, []) → 안정된 참조 → 마운트/언마운트 시에만 호출됨
+  // Python으로 치면: def on_textarea_mount(el): el.setSelection(0, 0)
+  const logRefCallback = useCallback((el: HTMLTextAreaElement | null) => {
+    if (!el) return
+    el.scrollTop = 0
+    el.selectionStart = 0
+    el.selectionEnd = 0
+  }, [])
 
   const c = getColor(ev.color)
   // 계획 시간 (분) — start/end 차이
@@ -636,6 +639,7 @@ function EventDetailPanel({ ev, patchEvent, toggleDone, setSelectedEventId, t }:
         <div>
           <div className="text-[10px] font-medium text-gray-500 mb-1">📝 {t.planner.day.detailLog}</div>
           <textarea
+            ref={logRefCallback}
             value={localLog}
             onChange={e => setLocalLog(e.target.value)}
             onBlur={() => patchEvent(ev.id, { log: localLog }, true)}
@@ -769,9 +773,13 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   const HOUR_PX = plannerZoom
 
   // ── 현재 보고 있는 날짜 (로컬 state) ─────────
-  // block.content와 무관 — 날짜 이동은 UI 상태만 변경
-  // Python으로 치면: self.current_date: str = today_str()
-  const [currentDate, setCurrentDate] = useState(todayStr)
+  // 일간 노트 제목에서 YYYY-MM-DD 파싱 → 없으면 오늘 날짜 fallback
+  // Python으로 치면: self.current_date = parse_date_from_title(page.title) or today_str()
+  const [currentDate, setCurrentDate] = useState(() => {
+    const pageTitle = usePageStore.getState().pages.find(p => p.id === pageId)?.title ?? ''
+    const m = pageTitle.match(/(\d{4}-\d{2}-\d{2})/)
+    return m ? m[1] : todayStr()
+  })
 
   // ── 콘텐츠 파싱 ──────────────────────────────
   // eventsByDate: 날짜별 이벤트 맵 (최근 90일)
@@ -2212,6 +2220,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
               }
               return (
                 <EventDetailPanel
+                  key={ev.id}
                   ev={ev}
                   patchEvent={patchEvent}
                   toggleDone={toggleDone}

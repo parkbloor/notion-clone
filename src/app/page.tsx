@@ -105,6 +105,15 @@ export default function Home() {
   const splitContainerRef = useRef<HTMLDivElement>(null)
   // 스플릿 드래그 중 mousemove 핸들러 ref — 언마운트 시 좀비 리스너 방지
   const splitMoveRef = useRef<((e: MouseEvent) => void) | null>(null)
+  // 메인 에디터 스크롤 컨테이너 ref — 페이지 전환 시 스크롤 위치 복원에 사용
+  // Python으로 치면: self.editor_scroll = QScrollArea()
+  const editorScrollRef = useRef<HTMLDivElement>(null)
+  // 페이지별 스크롤 위치 저장 맵 (세션 내 유지, 새로 방문하는 페이지는 0)
+  // Python으로 치면: self._scroll_positions: dict[str, int] = {}
+  const scrollPositions = useRef<Map<string, number>>(new Map())
+  // 이전 pageId 추적 — 떠나기 전 scrollTop 저장용
+  // Python으로 치면: self._prev_page_id: str | None = None
+  const prevPageIdRef = useRef<string | null>(null)
 
   // 플러그인 설정 + 집중 모드 상태/토글
   // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
@@ -258,6 +267,30 @@ export default function Home() {
     undoPage,
     redoPage,
   } = usePageStore()
+
+  // 페이지 전환 시: 이전 페이지 스크롤 위치 저장 → 새 페이지 스크롤 위치 복원
+  // 처음 방문하는 페이지는 0(맨 위), 이전에 읽던 페이지는 저장된 위치로 복원
+  // Python으로 치면:
+  //   def on_page_change(new_id):
+  //     self._scroll_positions[prev_id] = self.editor_scroll.scrollTop()
+  //     self.editor_scroll.scrollTo(self._scroll_positions.get(new_id, 0))
+  useEffect(() => {
+    // 이전 페이지 스크롤 위치 저장
+    if (prevPageIdRef.current && editorScrollRef.current) {
+      scrollPositions.current.set(prevPageIdRef.current, editorScrollRef.current.scrollTop)
+    }
+    prevPageIdRef.current = currentPageId
+
+    if (!editorScrollRef.current || !currentPageId) return
+
+    // 저장된 스크롤 위치 복원 (처음 방문이면 0)
+    // requestAnimationFrame: key 교체로 새 PageEditor가 DOM에 마운트된 후 스크롤 적용
+    const saved = scrollPositions.current.get(currentPageId) ?? 0
+    const rafId = requestAnimationFrame(() => {
+      if (editorScrollRef.current) editorScrollRef.current.scrollTop = saved
+    })
+    return () => cancelAnimationFrame(rafId)
+  }, [currentPageId])
 
   // -----------------------------------------------
   // Web Notification 알림 스케줄러용 reminder 목록 메모이제이션
@@ -885,13 +918,14 @@ export default function Home() {
             {/* ── 왼쪽 패널 (항상 표시) ──────────── */}
             {/* split-left-panel: @media print에서 전체 너비로 강제 확장 */}
             <div
+              ref={editorScrollRef}
               className="overflow-y-auto min-w-0 split-left-panel"
               style={{ flexGrow: splitPageId ? splitRatio * 100 : 1, flexShrink: 1, flexBasis: '0%' }}
             >
               {dbViewActive ? (
                 <DatabaseView onClose={() => setDbViewActive(false)} />
               ) : currentPageId ? (
-                <PageEditor pageId={currentPageId} />
+                <PageEditor key={currentPageId} pageId={currentPageId} />
               ) : (
                 <div className="flex items-center justify-center h-full text-gray-400">
                   <p>왼쪽에서 메모를 선택하세요</p>
@@ -936,7 +970,7 @@ export default function Home() {
                   </div>
                   {/* 오른쪽 패널 에디터 */}
                   <div className="flex-1 overflow-y-auto">
-                    <PageEditor pageId={splitPageId} />
+                    <PageEditor key={splitPageId} pageId={splitPageId} />
                   </div>
                 </div>
               )

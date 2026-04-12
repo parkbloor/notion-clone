@@ -151,11 +151,18 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     isDragging,
   } = useSortable({ id: block.id, disabled: !!isChild })
 
-  const [slashMenu, setSlashMenu] = useState({
+  // 슬래시 메뉴 상태 — position은 top/bottom 중 하나만 사용 (커서 위/아래 방향에 따라)
+  // Python으로 치면: slash_menu = SlashMenuState()
+  const [slashMenu, setSlashMenu] = useState<{
+    isOpen: boolean
+    position: { top?: number; bottom?: number; left: number }
+    searchQuery: string
+    from: number
+  }>({
     isOpen: false,
     position: { top: 0, left: 0 },
     searchQuery: '',
-    from: 0,  // /query 시작 위치 — 외부 클릭 시 deleteRange에 사용
+    from: 0,
   })
 
   // @ 멘션 / [[ 페이지링크 상태 + 감지 함수 (useEditorMention.ts)
@@ -185,14 +192,17 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
     if (slashMatch) {
       const coords = editor.view.coordsAtPos(from)
-      const MENU_MAX_H = 380  // SlashCommand 최대 높이 (헤더+목록)
       const MENU_W = 288      // w-72
 
-      // Y: 화면 절반 기준 — 위쪽이면 아래로, 아래쪽이면 위로 표시
-      // Python으로 치면: top = bottom+8 if cursor_y < vh/2 else cursor_y - MENU_MAX_H
-      const top = coords.top < window.innerHeight / 2
-        ? coords.bottom + 8
-        : Math.max(8, coords.top - MENU_MAX_H)
+      // Y: 커서가 화면 위쪽이면 커서 아래에, 아래쪽이면 커서 위에 표시
+      // 위에 뜰 때는 bottom 고정값 사용 → 메뉴 높이와 무관하게 커서에 붙음
+      // Python으로 치면:
+      //   if cursor_y < vh/2: position = {top: bottom+8}
+      //   else:               position = {bottom: vh - top + 8}
+      const isAbove = coords.top >= window.innerHeight / 2
+      const position = isAbove
+        ? { bottom: window.innerHeight - coords.top + 8, top: undefined }
+        : { top: coords.bottom + 8, bottom: undefined }
 
       // X: 오른쪽 잘림 방지
       // Python으로 치면: left = clamp(coords.left, 8, vw - MENU_W - 8)
@@ -200,7 +210,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
       setSlashMenu({
         isOpen: true,
-        position: { top, left },
+        position: { ...position, left },
         searchQuery: slashMatch[1],
         from: from - slashMatch[0].length,  // /query 시작 위치 저장
       })
@@ -929,7 +939,8 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
   // 커서부터 끝까지만 새 타입으로 분리 (옵션 B 동작)
   // Python으로 치면: def split_and_convert_list(editor, target_type): ...
   function convertListType(editor: TiptapEditor, targetType: 'bulletList' | 'orderedList'): boolean {
-    return editor.chain().focus().command(({ state, dispatch }) => {
+    // .focus() 제거 — 마운트 시 applyBlockType에서 호출될 때 포커스가 발생하면 해당 블록으로 스크롤됨
+    return editor.chain().command(({ state, dispatch }) => {
       const { $from } = state.selection
       const schema = state.schema
 
@@ -1009,26 +1020,28 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // video, embed도 비-Tiptap 블록 — content를 JSON으로 직접 관리하므로 조기 반환
     // 빠트리면 setParagraph()가 호출돼 onUpdate → updateBlock('<p></p>') 로 content 덮어쓰기 위험
     if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid' || type === 'file' || type === 'chart' || type === 'gantt' || type === 'mindmap' || type === 'dayplanner' || type === 'weekplanner' || type === 'weeklyplanner' || type === 'routinematrix' || type === 'quarterlyplanner' || type === 'yearlyplanner') return
+    // .focus() 제거 — 마운트 시 포커스가 발생하면 해당 블록으로 페이지가 스크롤됨
+    // 블록 타입 설정은 포커스 없이도 동작 (Tiptap 문서 조작은 focus 불필요)
     const level = blockTypeToLevel[type]
     if (level) {
-      editor.chain().focus().setHeading({ level }).run()
+      editor.chain().setHeading({ level }).run()
     } else if (type === 'bulletList') {
       // 리스트 안에서 호출 시: 커서부터 끝만 분리 변환 (옵션 B)
       // 리스트 밖에서 호출 시: 기존 toggle 동작 (false 반환 → fallback)
       // Python으로 치면: converted = convert_list_type(editor, 'bulletList')
       if (!convertListType(editor, 'bulletList')) {
-        editor.chain().focus().toggleBulletList().run()
+        editor.chain().toggleBulletList().run()
       }
     } else if (type === 'orderedList') {
       if (!convertListType(editor, 'orderedList')) {
-        editor.chain().focus().toggleOrderedList().run()
+        editor.chain().toggleOrderedList().run()
       }
     } else if (type === 'taskList') {
-      editor.chain().focus().toggleTaskList().run()
+      editor.chain().toggleTaskList().run()
     } else if (type === 'code') {
       // toggleCodeBlock 대신 setCodeBlock 사용 — 이미 코드 블록이면 유지, 아니면 전환
       // Python으로 치면: editor.set_code_block(language='javascript')
-      editor.chain().focus().setCodeBlock({ language: 'javascript' }).run()
+      editor.chain().setCodeBlock({ language: 'javascript' }).run()
     } else if (type === 'table') {
       // 테이블 노드가 문서에 없을 때만 기본 3×3 테이블 삽입
       // getText()로 체크하면 셀이 비어있는 기존 테이블도 ''로 판정 →
@@ -1039,10 +1052,10 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         n => n.type.name === 'table'
       )
       if (!hasTable) {
-        editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+        editor.chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
       }
     } else {
-      editor.chain().focus().setParagraph().run()
+      editor.chain().setParagraph().run()
     }
   }
 
