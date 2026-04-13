@@ -23,6 +23,37 @@ const { spawn } = require('child_process')
 const path = require('path')
 const http = require('http')
 const net = require('net')
+const fs = require('fs')
+
+// -----------------------------------------------
+// 창 크기/위치 영속 저장 헬퍼
+// Python으로 치면: def load_window_state(): json.load(open(config_path))
+// -----------------------------------------------
+const WIN_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json')
+
+/** 저장된 창 상태 읽기 (없으면 기본값 반환) */
+function loadWindowState() {
+  try {
+    const raw = fs.readFileSync(WIN_STATE_FILE(), 'utf-8')
+    return JSON.parse(raw)
+  } catch {
+    return { width: 1400, height: 900, x: undefined, y: undefined, isMaximized: false }
+  }
+}
+
+/** 창 상태 파일에 쓰기 */
+function saveWindowState(win) {
+  if (win.isMaximized()) {
+    // 최대화 상태: 크기/위치는 저장하지 않고 isMaximized만 기록
+    const prev = loadWindowState()
+    const data = { ...prev, isMaximized: true }
+    fs.writeFileSync(WIN_STATE_FILE(), JSON.stringify(data), 'utf-8')
+  } else {
+    const bounds = win.getBounds()  // { x, y, width, height }
+    const data = { ...bounds, isMaximized: false }
+    fs.writeFileSync(WIN_STATE_FILE(), JSON.stringify(data), 'utf-8')
+  }
+}
 
 // ── 개발/프로덕션 모드 판별 ────────────────────────────────
 // Python으로 치면: IS_DEV = os.environ.get('NODE_ENV') == 'development'
@@ -154,9 +185,15 @@ function createLoadingWindow() {
 // Python으로 치면: class MainWindow(QMainWindow): setup()
 // -----------------------------------------------
 function createMainWindow() {
+  // 이전 창 상태 복원 (없으면 기본값 사용)
+  // Python으로 치면: state = load_window_state() or defaults
+  const state = loadWindowState()
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: state.width,
+    height: state.height,
+    x: state.x,
+    y: state.y,
     minWidth: 800,
     minHeight: 600,
     title: 'Notion Clone',
@@ -171,6 +208,9 @@ function createMainWindow() {
         : path.join(process.resourcesPath, 'electron', 'preload.js'),
     },
   })
+
+  // 최대화 상태였으면 복원
+  if (state.isMaximized) mainWindow.maximize()
 
   // 메뉴바 완전 제거 (앱 자체 UI 사용, Alt 키 메뉴 불필요)
   Menu.setApplicationMenu(null)
@@ -232,6 +272,13 @@ function createMainWindow() {
     mainWindow.show()
     mainWindow.focus()
   })
+
+  // 창 크기/위치 변경 시 저장 (최대화 해제 후 normal 상태 캡처)
+  // Python으로 치면: win.bind('<Configure>', save_state)
+  mainWindow.on('resize', () => saveWindowState(mainWindow))
+  mainWindow.on('move', () => saveWindowState(mainWindow))
+  mainWindow.on('maximize', () => saveWindowState(mainWindow))
+  mainWindow.on('unmaximize', () => saveWindowState(mainWindow))
 
   mainWindow.on('closed', () => {
     mainWindow = null

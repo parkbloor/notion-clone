@@ -163,10 +163,16 @@ export interface PageStore {
   // Python으로 치면: history_version: int = 0
   historyVersion: number
 
+  // 엔터로 새 블록 생성 시 포커스를 받아야 할 블록 ID
+  // Editor 마운트 후 소비(null로 클리어)
+  // Python으로 치면: pending_focus_block_id: str | None = None
+  pendingFocusBlockId: string | null
+
   // 저장 상태 — 저장 버튼 UI 표시용
   // Python으로 치면: save_status: Literal['saved', 'saving', 'unsaved'] = 'saved'
   saveStatus: 'saved' | 'saving' | 'unsaved'
 
+  clearPendingFocus: () => void
   undoPage: (pageId: string) => void
   redoPage: (pageId: string) => void
   // 순수 계산 (외부 Map 조회) → 컴포넌트는 historyVersion을 구독해서 리렌더링

@@ -29,11 +29,10 @@ function getISOWeek(date: Date): number {
 
 // -----------------------------------------------
 // 일간 노트 기본 템플릿 블록 생성
-// 일간 노트 템플릿: 목표 → Deep Work → 타임라인 → 그림 연습
-//   → 문제/원인/해결 → 효율 → 학습 → 상태 체크 → 깨달음 → 내일 포인트
+// 구조: 미래 실행 계획 (목표·Deep Work·타임라인·변경점) → 회고 (실행결과·흐름·그림·문제·효율·상태·깨달음)
 // Python으로 치면: def make_daily_template(title, date_str) -> list[Block]: ...
 // -----------------------------------------------
-function makeDailyTemplate(title: string, dateStr: string): Block[] {
+export function makeDailyTemplate(_title: string, dateStr: string): Block[] {
   // 요일 레이블
   const dow = new Date(dateStr + 'T00:00:00').getDay()
   const dayLabel = ['일','월','화','수','목','금','토'][dow]
@@ -47,78 +46,84 @@ function makeDailyTemplate(title: string, dateStr: string): Block[] {
     // ── 제목 ────────────────────────────────────
     { ...createBlock('heading1'), content: `📅 ${dateStr} (${dayLabel}) 일간 노트` },
 
-    // ── 오늘 목표 (1~2개) ────────────────────────
-    { ...createBlock('heading2'), content: '🎯 오늘 목표 (1~2개)' },
-    createBlock('taskList'),
-    createBlock('taskList'),
+    // ══════════════════════════════════════════
+    // 🌅 미래 실행 계획 섹션 (계획 수립 후 실행)
+    // ══════════════════════════════════════════
+    { ...createBlock('paragraph'), content: '━━━ 🌅 미래 실행 계획 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━' },
 
-    createBlock('divider'),
+    // ── 목표 (MIT 3개) ───────────────────────────
+    // MIT = Most Important Tasks — 반드시 완료할 핵심 3개
+    { ...createBlock('heading2'), content: '🎯 목표 (MIT 3개)' },
+    createBlock('taskList'),
+    createBlock('taskList'),
+    createBlock('taskList'),
 
     // ── Deep Work ────────────────────────────────
-    // 하루 중 가장 집중해야 할 핵심 작업 1개 — 수량 기준으로 완료 기준 명시
-    { ...createBlock('heading2'), content: '🔥 Deep Work (가장 중요한 작업)' },
+    // 하루 중 가장 집중해야 할 핵심 작업 1개 — 수량으로 완료 기준 명시
+    { ...createBlock('heading2'), content: '🔥 Deep Work' },
     { ...createBlock('bulletList'), content: '작업명:' },
-    { ...createBlock('bulletList'), content: '완료 기준: (예: 컷 3컷 스케치 완성 / 코드 X 기능 구현 등 수량으로 적기)' },
+    { ...createBlock('bulletList'), content: '완료 기준: (수량으로 적기 — 예: 스케치 3컷 / 기능 X 구현)' },
     { ...createBlock('taskList'), content: '완료 여부' },
 
-    createBlock('divider'),
-
-    // ── Daily Timeline (DayPlannerBlock 자동 삽입) ─
-    // 오늘 날짜로 초기화, 루틴이 설정돼 있으면 자동 적용됨
-    // 📌 특수 블록: :::dayplanner
+    // ── Daily Timeline ───────────────────────────
+    // 📌 특수 블록: :::dayplanner — 오늘 날짜로 초기화, 루틴 자동 적용
     { ...createBlock('heading2'), content: '⏰ Daily Timeline' },
     { ...createBlock('dayplanner'), content: plannerContent },
 
-    createBlock('divider'),
+    // ── 변경점 ───────────────────────────────────
+    // 전 계획 대비 달라진 것 + 이유 — 계획 실행 후 피드백을 보며 조금씩 조정
+    { ...createBlock('heading2'), content: '🔄 변경점' },
+    { ...createBlock('bulletList'), content: '무엇이 바뀌는지:' },
+    { ...createBlock('bulletList'), content: '이유:' },
+
+    // ══════════════════════════════════════════
+    // 📝 회고 섹션 (하루 끝에 작성)
+    // ══════════════════════════════════════════
+    { ...createBlock('paragraph'), content: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' },
+
+    // ── 오늘 실제 한 것 ──────────────────────────
+    // 이모지 ✅ — 🔥와 중복 회피
+    { ...createBlock('heading2'), content: '✅ 오늘 실제 한 것 (핵심 1~3개)' },
+    createBlock('taskList'),
+    createBlock('taskList'),
+    createBlock('taskList'),
+
+    // ── Deep Work 회고 ───────────────────────────
+    // 이모지 🎯 — ⏰와 중복 회피 (하루 흐름에 🕐 사용)
+    { ...createBlock('heading2'), content: '🎯 Deep Work 회고' },
+    { ...createBlock('bulletList'), content: '무엇을 했는지:' },
+    { ...createBlock('bulletList'), content: '왜 잘됐는지:' },
+
+    // ── 하루 흐름 ────────────────────────────────
+    // 이모지 🕐 — ⏰와 중복 회피
+    { ...createBlock('heading2'), content: '🕐 하루 흐름 (간단)' },
+    { ...createBlock('bulletList'), content: '기억나는 흐름만, 시간 강박 X' },
 
     // ── 그림 연습 ────────────────────────────────
     { ...createBlock('heading2'), content: '🎨 그림 연습 (핵심만)' },
-    { ...createBlock('bulletList'), content: '연습 항목: (크로키 / 구조 / 모사 / 창작 등)' },
-    { ...createBlock('bulletList'), content: '이론: (강의 or 시간)' },
+    { ...createBlock('bulletList'), content: '연습 항목:' },
+    { ...createBlock('bulletList'), content: '이론 (강의 / 시간):' },
     { ...createBlock('bulletList'), content: '오늘의 집중 포인트:' },
     { ...createBlock('bulletList'), content: '이전 대비 달라진 점:' },
-
-    createBlock('divider'),
 
     // ── 문제 → 원인 → 해결 ───────────────────────
     { ...createBlock('heading2'), content: '❓ 문제 → 원인 → 해결' },
     { ...createBlock('bulletList'), content: '문제:' },
-    { ...createBlock('bulletList'), content: '원인: (관찰 / 구조 / 의지 문제)' },
-    { ...createBlock('bulletList'), content: '해결: (내일 할 정량 행동 1개)' },
-
-    createBlock('divider'),
+    { ...createBlock('bulletList'), content: '원인:' },
+    { ...createBlock('bulletList'), content: '해결 시도:' },
 
     // ── 효율 ─────────────────────────────────────
-    { ...createBlock('heading2'), content: '📊 효율' },
-    { ...createBlock('bulletList'), content: '효율: (상단 / 보통 / 낮음)' },
-
-    createBlock('divider'),
-
-    // ── 오늘 배운 것 (선택) ───────────────────────
-    { ...createBlock('heading2'), content: '📖 오늘 배운 것 (선택)' },
-    { ...createBlock('bulletList'), content: '학습 주제:' },
-    { ...createBlock('bulletList'), content: '핵심 요약:' },
-    { ...createBlock('bulletList'), content: '적용 포인트:' },
-
-    createBlock('divider'),
+    { ...createBlock('heading2'), content: '📊 효율 (체감 기준)' },
+    { ...createBlock('bulletList'), content: '좋음 / 보통 / 망함 + 이유:' },
 
     // ── 상태 체크 ─────────────────────────────────
     { ...createBlock('heading2'), content: '🧠 상태 체크' },
-    { ...createBlock('bulletList'), content: '수면:' },
-    { ...createBlock('bulletList'), content: '집중도 (1~5):' },
-
-    createBlock('divider'),
+    { ...createBlock('bulletList'), content: '몸 상태:' },
+    { ...createBlock('bulletList'), content: '집중도:' },
+    { ...createBlock('bulletList'), content: '감정:' },
 
     // ── 깨달음 & 생각 ─────────────────────────────
     { ...createBlock('heading2'), content: '🌿 깨달음 & 생각' },
-    { ...createBlock('bulletList'), content: '실용 인사이트 (작업 / 루틴 관련):' },
-    { ...createBlock('bulletList'), content: '창의 생각 (말하기 / 그림 아이디어):' },
-
-    createBlock('divider'),
-
-    // ── 내일 시작 포인트 ──────────────────────────
-    { ...createBlock('heading2'), content: '📌 내일 시작 포인트' },
-    { ...createBlock('bulletList'), content: '내일 가장 먼저 할 것:' },
   ]
 }
 
@@ -128,7 +133,7 @@ function makeDailyTemplate(title: string, dateStr: string): Block[] {
 //   WeeklyPlannerBlock → 이번 주 목표 → 요일별 계획 → 주간 회고
 // Python으로 치면: def make_weekly_template(title, week_start) -> list[Block]: ...
 // -----------------------------------------------
-function makeWeeklyTemplate(title: string, weekStart: string): Block[] {
+export function makeWeeklyTemplate(title: string, weekStart: string): Block[] {
   // WeeklyPlannerBlock 초기 content: weekStart만 설정, 나머지는 컴포넌트 내부에서 초기화
   // Python으로 치면: planner_content = json.dumps({'weekStart': week_start, 'days': {}, 'location': ''})
   const plannerContent  = JSON.stringify({ weekStart, days: {}, location: '' })
@@ -171,7 +176,7 @@ function makeWeeklyTemplate(title: string, weekStart: string): Block[] {
 //   → 독서/학습 → 인사이트 → 월말 회고
 // Python으로 치면: def make_monthly_template(title, year, month) -> list[Block]: ...
 // -----------------------------------------------
-function makeMonthlyTemplate(title: string, year: number, month: number): Block[] {
+export function makeMonthlyTemplate(title: string, year: number, month: number): Block[] {
   // MonthlyCalendarBlock 초기 content: 해당 연/월로 초기화
   // Python으로 치면: cal_content = json.dumps({'year': year, 'month': month, 'memos': {}})
   const calContent = JSON.stringify({ year, month, memos: {} })
@@ -232,7 +237,7 @@ function makeMonthlyTemplate(title: string, year: number, month: number): Block[
 // QuarterlyPlannerBlock + 분기 회고 토글
 // Python으로 치면: def make_quarterly_template(title, year, quarter) -> list[Block]: ...
 // -----------------------------------------------
-function makeQuarterlyTemplate(title: string, year: number, quarter: 1|2|3|4): Block[] {
+export function makeQuarterlyTemplate(title: string, year: number, quarter: 1|2|3|4): Block[] {
   const plannerContent = JSON.stringify({ year, quarter, objectives: [] })
   return [
     { ...createBlock('heading1'), content: title },
@@ -253,7 +258,7 @@ function makeQuarterlyTemplate(title: string, year: number, quarter: 1|2|3|4): B
 // YearlyPlannerBlock + 연간 회고 토글
 // Python으로 치면: def make_yearly_template(title, year) -> list[Block]: ...
 // -----------------------------------------------
-function makeYearlyTemplate(title: string, year: number): Block[] {
+export function makeYearlyTemplate(title: string, year: number): Block[] {
   const plannerContent = JSON.stringify({ year, goals: [] })
   return [
     { ...createBlock('heading1'), content: title },
@@ -321,7 +326,9 @@ export default function PeriodicNotesPanel() {
   } = usePageStore()
 
   // 주기 노트 기본 템플릿 설정 — Python으로 치면: self.periodic_templates = settings.periodic_note_templates
-  const periodicNoteTemplates = useSettingsStore(s => s.periodicNoteTemplates)
+  const periodicNoteTemplates    = useSettingsStore(s => s.periodicNoteTemplates)
+  // 내장 기본 템플릿 오버라이드 — Python: self.builtin_overrides = settings.periodic_builtin_overrides
+  const periodicBuiltinOverrides = useSettingsStore(s => s.periodicBuiltinOverrides)
 
   // 사용자 지정 템플릿 ID로 Block[] 빌드, 없으면 null 반환
   // Python으로 치면: async def build_blocks_from_template(id) -> list[Block] | None: ...
@@ -335,6 +342,15 @@ export default function PeriodicNotesPanel() {
     } catch {
       return null
     }
+  }
+
+  // 내장 오버라이드 마크다운 → Block[], 첫 heading1을 실제 제목으로 교체
+  // Python으로 치면: def build_blocks_from_builtin_override(md, title) -> list[Block]: ...
+  function buildBlocksFromBuiltinOverride(markdown: string, actualTitle: string): Block[] {
+    const blocks = parseTemplateContent(markdown)
+    return blocks.map((b, i) =>
+      i === 0 && b.type === 'heading1' ? { ...b, content: actualTitle } : b
+    )
   }
 
   // ── 오늘 기준 날짜 정보 ──────────────────────
@@ -382,8 +398,11 @@ export default function PeriodicNotesPanel() {
     updatePageIcon(newId, '📅')
     // 사용자 지정 템플릿 우선, 없으면 하드코딩 기본값 사용
     // Python으로 치면: blocks = await build_blocks_from_template(...) or make_daily_template(...)
-    const customBlocks = await buildBlocksFromTemplate(periodicNoteTemplates.daily)
-    setPageBlocks(newId, customBlocks ?? makeDailyTemplate(title, todayDateStr))
+    const customBlocks  = await buildBlocksFromTemplate(periodicNoteTemplates.daily)
+    const builtinBlocks = periodicBuiltinOverrides.daily
+      ? buildBlocksFromBuiltinOverride(periodicBuiltinOverrides.daily, title)
+      : null
+    setPageBlocks(newId, customBlocks ?? builtinBlocks ?? makeDailyTemplate(title, todayDateStr))
   }
 
   // -----------------------------------------------
@@ -410,8 +429,11 @@ export default function PeriodicNotesPanel() {
     if (!newId) return
     updatePageIcon(newId, '📆')
     // 사용자 지정 템플릿 우선, 없으면 하드코딩 기본값 사용
-    const customBlocks = await buildBlocksFromTemplate(periodicNoteTemplates.weekly)
-    setPageBlocks(newId, customBlocks ?? makeWeeklyTemplate(title, weekStartStr))
+    const customBlocks  = await buildBlocksFromTemplate(periodicNoteTemplates.weekly)
+    const builtinBlocks = periodicBuiltinOverrides.weekly
+      ? buildBlocksFromBuiltinOverride(periodicBuiltinOverrides.weekly, title)
+      : null
+    setPageBlocks(newId, customBlocks ?? builtinBlocks ?? makeWeeklyTemplate(title, weekStartStr))
   }
 
   // -----------------------------------------------
@@ -432,8 +454,11 @@ export default function PeriodicNotesPanel() {
     if (!newId) return
     updatePageIcon(newId, '🗓️')
     // 사용자 지정 템플릿 우선, 없으면 하드코딩 기본값 사용
-    const customBlocks = await buildBlocksFromTemplate(periodicNoteTemplates.monthly)
-    setPageBlocks(newId, customBlocks ?? makeMonthlyTemplate(title, todayYear, todayMonth))
+    const customBlocks  = await buildBlocksFromTemplate(periodicNoteTemplates.monthly)
+    const builtinBlocks = periodicBuiltinOverrides.monthly
+      ? buildBlocksFromBuiltinOverride(periodicBuiltinOverrides.monthly, title)
+      : null
+    setPageBlocks(newId, customBlocks ?? builtinBlocks ?? makeMonthlyTemplate(title, todayYear, todayMonth))
   }
 
   // -----------------------------------------------
@@ -453,8 +478,11 @@ export default function PeriodicNotesPanel() {
     if (!newId) return
     updatePageIcon(newId, '📊')
     // 사용자 지정 템플릿 우선, 없으면 하드코딩 기본값 사용
-    const customBlocks = await buildBlocksFromTemplate(periodicNoteTemplates.quarterly)
-    setPageBlocks(newId, customBlocks ?? makeQuarterlyTemplate(title, year, quarter))
+    const customBlocks  = await buildBlocksFromTemplate(periodicNoteTemplates.quarterly)
+    const builtinBlocks = periodicBuiltinOverrides.quarterly
+      ? buildBlocksFromBuiltinOverride(periodicBuiltinOverrides.quarterly, title)
+      : null
+    setPageBlocks(newId, customBlocks ?? builtinBlocks ?? makeQuarterlyTemplate(title, year, quarter))
   }
 
   // -----------------------------------------------
@@ -474,8 +502,11 @@ export default function PeriodicNotesPanel() {
     if (!newId) return
     updatePageIcon(newId, '🌟')
     // 사용자 지정 템플릿 우선, 없으면 하드코딩 기본값 사용
-    const customBlocks = await buildBlocksFromTemplate(periodicNoteTemplates.yearly)
-    setPageBlocks(newId, customBlocks ?? makeYearlyTemplate(title, year))
+    const customBlocks  = await buildBlocksFromTemplate(periodicNoteTemplates.yearly)
+    const builtinBlocks = periodicBuiltinOverrides.yearly
+      ? buildBlocksFromBuiltinOverride(periodicBuiltinOverrides.yearly, title)
+      : null
+    setPageBlocks(newId, customBlocks ?? builtinBlocks ?? makeYearlyTemplate(title, year))
   }
 
   // 현재 분기 계산

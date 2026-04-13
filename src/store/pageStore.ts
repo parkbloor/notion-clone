@@ -56,6 +56,11 @@ export const usePageStore = create<PageStore>()(
     // Python으로 치면: self.history_version = 0
     historyVersion: 0,
 
+    // 엔터로 새 블록 생성 시 포커스를 받아야 할 블록 ID
+    // Editor 마운트 후 해당 블록만 자동 포커스 → 소비 즉시 null로 클리어
+    // Python으로 치면: self.pending_focus_block_id = None
+    pendingFocusBlockId: null as string | null,
+
     // 저장 상태 — 저장 버튼 UI 표시용
     // 'saved': 서버와 동기화됨 | 'saving': 저장 중 | 'unsaved': 미저장 변경사항 있음
     // Python으로 치면: self.save_status = 'saved'
@@ -610,18 +615,29 @@ export const usePageStore = create<PageStore>()(
       // 변경 전 스냅샷 저장 (undo용)
       const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
       if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      // 새 블록 ID를 미리 생성해서 pendingFocusBlockId에 저장
+      // Python으로 치면: new_id = uuid4(); state.pending_focus_block_id = new_id
+      const newBlock = createBlock('paragraph')
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
-        const newBlock = createBlock('paragraph')
         if (afterBlockId) {
           const index = page.blocks.findIndex(b => b.id === afterBlockId)
-          if (index !== -1) { page.blocks.splice(index + 1, 0, newBlock); return }
+          if (index !== -1) { page.blocks.splice(index + 1, 0, newBlock); }
+          else { page.blocks.push(newBlock) }
+        } else {
+          page.blocks.push(newBlock)
         }
-        page.blocks.push(newBlock)
+        state.pendingFocusBlockId = newBlock.id  // Editor 마운트 시 자동 포커스 대상
         state.historyVersion++  // undo 버튼 활성화 트리거
       })
       scheduleSave(pageId, get, set)
+    },
+
+    // Editor 마운트 시 pendingFocusBlockId 소비 후 클리어
+    // Python으로 치면: def clear_pending_focus(self): self.pending_focus_block_id = None
+    clearPendingFocus: () => {
+      set((state) => { state.pendingFocusBlockId = null })
     },
 
     // 타이핑마다 호출 → 반드시 디바운스

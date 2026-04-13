@@ -110,7 +110,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
   const t = useLocale()
 
-  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage, ungroupToggle, deleteToggleChild, updateToggleChild } = usePageStore()
+  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage, ungroupToggle, deleteToggleChild, updateToggleChild, pendingFocusBlockId, clearPendingFocus } = usePageStore()
 
   // ── 일괄 선택 UI 공통 변수 ─────────────────────
   // 블록 래퍼 클래스 — 선택 시 파란 하이라이트, 아닐 때 기본 hover 스타일
@@ -506,6 +506,18 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (!editor) return
     applyBlockType(editor, block.type)
   }, [block.type, editor])
+
+  // ── 새 블록 생성(엔터) 시 자동 포커스 ──────────────────────────────
+  // addBlock 호출 시 pendingFocusBlockId에 새 블록 ID가 저장됨
+  // 이 블록의 Editor가 마운트되면 한 번만 포커스 후 즉시 클리어
+  // 마운트 시 무조건 포커스 금지 (페이지 로드 시 스크롤 부작용) → 대기 ID 일치할 때만
+  // Python으로 치면: if self.block.id == store.pending_focus_block_id: self.editor.focus(); store.clear()
+  useEffect(() => {
+    if (!editor || pendingFocusBlockId !== block.id) return
+    clearPendingFocus()
+    editor.commands.focus('end')
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor])  // editor 마운트 시 1회만 실행
 
   // ── 테이블 툴바 활성화: selectionUpdate + blur 이벤트 구독 ──
   // selectionUpdate: 커서 이동마다 isActive('table') 체크 → tableActive 갱신

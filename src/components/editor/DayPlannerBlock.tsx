@@ -15,7 +15,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Block, PlanEvent, SubTask, Routine } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
-import { Plus, Trash2, ChevronLeft, ChevronRight, Check, X, Bot, Timer, TimerOff, Eye, EyeOff, Archive, Pencil, Zap } from 'lucide-react'
+import { Plus, Trash2, ChevronLeft, ChevronRight, Check, X, Bot, Timer, TimerOff, Eye, EyeOff, Archive, Pencil, Zap, Download, Upload } from 'lucide-react'
 import AIChatPanel, { ChatMsg } from '@/components/ai/AIChatPanel'
 import { useLocale } from '@/locales'
 
@@ -198,6 +198,83 @@ function yToTime(y: number, hourPx: number): string {
 
 
 // =============================================
+// TimeInput — 24시간제 시:분 분리 입력 컴포넌트
+// Python으로 치면: class TimeInput(QWidget): ...
+// =============================================
+interface TimeInputProps {
+  value: string                        // "HH:MM" 형식
+  onChange: (v: string) => void
+  focusColor?: string                  // focus 테두리 색 (Tailwind 클래스)
+}
+
+function TimeInput({ value, onChange, focusColor = 'focus:border-emerald-400' }: TimeInputProps) {
+  const minRef = useRef<HTMLInputElement>(null)
+
+  // "HH:MM" → [hh, mm] 파싱
+  const [hh, mm] = value.split(':')
+
+  // 시간 값 변경 핸들러 — 2자리 입력 시 분으로 자동 포커스 이동
+  const handleHour = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '').slice(0, 2)
+    const num = parseInt(raw || '0', 10)
+    const clamped = Math.min(23, num)
+    const padded = raw.length === 2 ? String(clamped).padStart(2, '0') : raw
+    onChange(`${padded}:${mm ?? '00'}`)
+    if (raw.length === 2) minRef.current?.focus()
+  }
+
+  // 분 값 변경 핸들러
+  const handleMin = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '').slice(0, 2)
+    const num = parseInt(raw || '0', 10)
+    const clamped = Math.min(59, num)
+    const padded = raw.length === 2 ? String(clamped).padStart(2, '0') : raw
+    onChange(`${hh ?? '00'}:${padded}`)
+  }
+
+  // 방향키 위/아래로 값 조정 (시간/분 공통)
+  const handleKeyDown = (type: 'h' | 'm') => (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      const delta = e.key === 'ArrowUp' ? 1 : -1
+      if (type === 'h') {
+        const next = ((parseInt(hh || '0', 10) + delta + 24) % 24)
+        onChange(`${String(next).padStart(2, '0')}:${mm ?? '00'}`)
+      } else {
+        const next = ((parseInt(mm || '0', 10) + delta + 60) % 60)
+        onChange(`${hh ?? '00'}:${String(next).padStart(2, '0')}`)
+      }
+    }
+  }
+
+  const base = `w-7 text-center text-xs border-0 outline-none bg-transparent p-0 leading-none`
+
+  return (
+    <div className={`flex items-center border border-gray-200 rounded-lg px-2 py-1.5 focus-within:border-emerald-400 ${focusColor.replace('focus:', 'focus-within:')}`}>
+      {/* lang="en" — 한글 IME 비활성화, 숫자 직접 입력 보장 */}
+      <input
+        type="text" inputMode="numeric" maxLength={2} lang="en"
+        placeholder="HH" value={hh ?? ''}
+        onChange={handleHour}
+        onKeyDown={handleKeyDown('h')}
+        onFocus={e => e.target.select()}
+        className={base}
+      />
+      <span className="text-xs text-gray-400 select-none">:</span>
+      <input
+        ref={minRef}
+        type="text" inputMode="numeric" maxLength={2} lang="en"
+        placeholder="MM" value={mm ?? ''}
+        onChange={handleMin}
+        onKeyDown={handleKeyDown('m')}
+        onFocus={e => e.target.select()}
+        className={base}
+      />
+    </div>
+  )
+}
+
+// =============================================
 // RoutineForm — 루틴 추가/수정 인라인 폼 컴포넌트
 // Python으로 치면: class RoutineForm(QWidget): ...
 // =============================================
@@ -209,27 +286,40 @@ interface RoutineFormProps {
   onCancel:     () => void
 }
 function RoutineForm({ form, onChange, onToggleDay, onSave, onCancel }: RoutineFormProps) {
+  // 로컬 title 상태 — 한글 IME 조합 중 리렌더로 인한 조합 깨짐 방지
+  const [localTitle, setLocalTitle] = useState(form.title)
+  const composingRef = useRef(false)
+
+  // 조합 완료 또는 blur 시 상위에 전파
+  const flushTitle = (v: string) => onChange({ ...form, title: v })
+
   return (
     <div className="p-3 flex flex-col gap-2">
-      {/* 제목 */}
+      {/* 제목 — IME 조합 중에는 상위 전파 지연 */}
       <input
         autoFocus
         type="text"
         placeholder="루틴 이름 (예: 기상, 운동, 취침)"
-        value={form.title}
-        onChange={e => onChange({ ...form, title: e.target.value })}
+        value={localTitle}
+        onChange={e => {
+          setLocalTitle(e.target.value)
+          if (!composingRef.current) flushTitle(e.target.value)
+        }}
+        onCompositionStart={() => { composingRef.current = true }}
+        onCompositionEnd={e => {
+          composingRef.current = false
+          flushTitle((e.target as HTMLInputElement).value)
+        }}
         onKeyDown={e => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
+        onBlur={e => flushTitle(e.target.value)}
         className="text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-400 w-full"
       />
       {/* 시간 */}
       <div className="flex items-center gap-2">
-        <input type="time" value={form.start}
-          onChange={e => onChange({ ...form, start: e.target.value })}
-          className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-400" />
+        {/* TimeInput — 24시간 분리 입력 (시/분 자동 포커스 이동) */}
+        <TimeInput value={form.start} onChange={v => onChange({ ...form, start: v })} />
         <span className="text-xs text-gray-400">~</span>
-        <input type="time" value={form.end}
-          onChange={e => onChange({ ...form, end: e.target.value })}
-          className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-400" />
+        <TimeInput value={form.end} onChange={v => onChange({ ...form, end: v })} />
       </div>
       {/* 요일 선택 */}
       <div className="flex items-center gap-1.5">
@@ -1475,6 +1565,69 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // Python으로 치면: self.routine_modal_open: bool = False
   const [routineOpen, setRoutineOpen] = useState(false)
 
+  // ── 파일 Import용 숨겨진 input ref ─────────────
+  // Python으로 치면: self.import_file_input = QFileDialog()
+  const importFileRef = useRef<HTMLInputElement>(null)
+
+  // ── 플래너 전체 데이터 Export (루틴 + 이벤트) ─────
+  // Python으로 치면: def export_planner_data(): json.dump({routines, events}, file)
+  function exportPlannerData() {
+    const payload = {
+      version:     1,
+      exportedAt:  new Date().toISOString(),
+      routines:    plannerRoutines,
+      eventsByDate: data.eventsByDate,
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `planner-backup-${new Date().toISOString().slice(0,10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // ── 플래너 전체 데이터 Import (루틴 + 이벤트 병합) ─
+  // Python으로 치면: def import_planner_data(file): routines = json.load(file)['routines']
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const json = JSON.parse(ev.target?.result as string)
+        if (json.version !== 1) { alert('지원하지 않는 백업 형식입니다.'); return }
+        // 루틴: 기존 루틴과 병합 (id 기준, 중복 시 가져온 것 우선)
+        if (Array.isArray(json.routines)) {
+          const merged = [...plannerRoutines]
+          for (const r of json.routines) {
+            const idx = merged.findIndex(x => x.id === r.id)
+            if (idx >= 0) merged[idx] = r
+            else merged.push(r)
+          }
+          setPlannerRoutines(merged)
+        }
+        // 이벤트: 기존 eventsByDate와 병합 (날짜 기준, 중복 시 가져온 것 우선)
+        if (json.eventsByDate && typeof json.eventsByDate === 'object') {
+          const latest = (() => {
+            try { return JSON.parse(block.content || '{}') } catch { return {} }
+          })()
+          const mergedEvents = { ...(latest.eventsByDate ?? {}), ...json.eventsByDate }
+          updateBlock(pageId, block.id, JSON.stringify({
+            eventsByDate:  mergedEvents,
+            reviewByDate:  latest.reviewByDate ?? {},
+          }))
+        }
+        alert('가져오기 완료! 루틴과 이벤트가 복원됐습니다.')
+      } catch {
+        alert('파일을 읽는 중 오류가 발생했습니다. 올바른 백업 파일인지 확인하세요.')
+      }
+    }
+    reader.readAsText(file)
+    // 같은 파일 재선택 가능하도록 초기화
+    e.target.value = ''
+  }
+
   // ── 아카이브 모달 상태 ────────────────────────
   // Python으로 치면: self.archive_open: bool = False
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -1776,6 +1929,16 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             className="text-gray-400 hover:text-gray-600 disabled:opacity-30 px-1 text-xs font-bold leading-none transition-colors"
           >+</button>
         </div>
+
+        {/* 데이터 백업 Export 버튼 */}
+        <button
+          type="button"
+          onClick={exportPlannerData}
+          title="루틴·일정 전체 백업 (JSON 다운로드)"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200"
+        >
+          <Download size={13} /> 백업
+        </button>
 
         {/* 루틴 관리 버튼 */}
         <button
@@ -2467,14 +2630,33 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
             {/* 모달 푸터 */}
             <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setRoutineForm(EMPTY_ROUTINE())}
-                disabled={!!routineForm}
-                className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-medium disabled:opacity-40 transition-colors"
-              >
-                <Plus size={13} /> 루틴 추가
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRoutineForm(EMPTY_ROUTINE())}
+                  disabled={!!routineForm}
+                  className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-700 font-medium disabled:opacity-40 transition-colors"
+                >
+                  <Plus size={13} /> 루틴 추가
+                </button>
+                {/* 숨겨진 파일 선택 input — Import 버튼 클릭 시 트리거 */}
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+                {/* 백업 복원 버튼 */}
+                <button
+                  type="button"
+                  onClick={() => importFileRef.current?.click()}
+                  title="JSON 백업 파일에서 루틴·일정 복원"
+                  className="flex items-center gap-1 text-xs text-sky-600 hover:text-sky-700 font-medium transition-colors"
+                >
+                  <Upload size={12} /> 복원
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => { applyRoutinesToday(); setRoutineOpen(false) }}
@@ -2514,11 +2696,10 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
             {/* 시간 */}
             <div className="flex items-center gap-2">
-              <input type="time" value={editStart} onChange={e => setEditStart(e.target.value)}
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+              {/* TimeInput — 24시간 분리 입력 */}
+              <TimeInput value={editStart} onChange={setEditStart} focusColor="focus:border-blue-400" />
               <span className="text-xs text-gray-400">~</span>
-              <input type="time" value={editEnd} onChange={e => setEditEnd(e.target.value)}
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-blue-400" />
+              <TimeInput value={editEnd} onChange={setEditEnd} focusColor="focus:border-blue-400" />
             </div>
 
             {/* 색상 — flex-wrap으로 2행 표시 */}

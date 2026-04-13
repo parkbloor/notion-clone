@@ -470,7 +470,26 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     if (!page) return
     setExportOpen(false)
     try {
-      const res = await fetch(`http://localhost:8000/api/export/html/${page.id}`)
+      // DayPlanner 블록 표시 날짜 결정:
+      // 1) 페이지 제목에서 YYYY-MM-DD 추출 (일간 노트: "일간 노트 2026-04-13")
+      // 2) 없으면 dayplanner 블록 content의 eventsByDate 최신 키 사용
+      // Python으로 치면: page_date = title_date or max(eventsByDate.keys(), default='')
+      let plannerDate = ''
+      const titleMatch = page.title.match(/(\d{4}-\d{2}-\d{2})/)
+      if (titleMatch) {
+        plannerDate = titleMatch[1]
+      } else {
+        const dpBlock = page.blocks.find(b => b.type === 'dayplanner' || b.type === 'dayPlanner')
+        if (dpBlock?.content) {
+          try {
+            const data = JSON.parse(dpBlock.content)
+            const keys = Object.keys(data.eventsByDate ?? {}).sort()
+            if (keys.length > 0) plannerDate = keys[keys.length - 1]
+          } catch { /* ignore */ }
+        }
+      }
+      const dateParam = plannerDate ? `?date=${plannerDate}` : ''
+      const res = await fetch(`http://localhost:8000/api/export/html/${page.id}${dateParam}`)
       if (!res.ok) {
         const detail = await res.text().catch(() => '')
         throw new Error(`서버 오류 ${res.status}: ${detail}`)

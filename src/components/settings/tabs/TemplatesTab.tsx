@@ -14,6 +14,14 @@ import { isGridTemplate } from '@/lib/templateGrid'
 import TemplateEditorModal from '@/components/editor/TemplateEditorModal'
 import { useLocale } from '@/locales'
 import { useSettingsStore } from '@/store/settingsStore'
+import { blocksToMarkdown } from '@/lib/templateParser'
+import {
+  makeDailyTemplate,
+  makeWeeklyTemplate,
+  makeMonthlyTemplate,
+  makeQuarterlyTemplate,
+  makeYearlyTemplate,
+} from '@/components/editor/PeriodicNotesPanel'
 
 // ── 특수 블록 메타데이터 ────────────────────────────────────────────────
 // 버튼 바 + 도움말 모달에서 공통으로 사용
@@ -77,15 +85,80 @@ export default function TemplatesTab() {
   const t = useLocale()
 
   // 주기 노트 기본 템플릿 설정 — Python으로 치면: self.periodic_settings = store.periodic_note_templates
-  const periodicNoteTemplates  = useSettingsStore(s => s.periodicNoteTemplates)
-  const setPeriodicNoteTemplate = useSettingsStore(s => s.setPeriodicNoteTemplate)
+  const periodicNoteTemplates       = useSettingsStore(s => s.periodicNoteTemplates)
+  const setPeriodicNoteTemplate     = useSettingsStore(s => s.setPeriodicNoteTemplate)
+  const periodicBuiltinOverrides    = useSettingsStore(s => s.periodicBuiltinOverrides)
+  const setPeriodicBuiltinOverride  = useSettingsStore(s => s.setPeriodicBuiltinOverride)
+  const resetPeriodicBuiltinOverride = useSettingsStore(s => s.resetPeriodicBuiltinOverride)
 
   // 도움말 모달 열림 여부 — Python으로 치면: self.help_open = False
   const [helpOpen, setHelpOpen] = useState(false)
 
+  // 내장 템플릿 인라인 편집 상태 — Python: self.builtin_edit_kind: str | None = None
+  type PeriodicKind = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  const [builtinEditKind, setBuiltinEditKind] = useState<PeriodicKind | null>(null)
+  const [builtinEditContent, setBuiltinEditContent] = useState('')
+
+  // 특정 kind의 기본 마크다운 생성 (편집기 초기값용 — 날짜는 샘플 고정)
+  // Python으로 치면: def get_default_markdown(kind) -> str: ...
+  function getDefaultMarkdown(kind: PeriodicKind): string {
+    switch (kind) {
+      case 'daily':     return blocksToMarkdown(makeDailyTemplate('일간 노트', '2026-01-01'))
+      case 'weekly':    return blocksToMarkdown(makeWeeklyTemplate('주간 노트', '2026-01-05'))
+      case 'monthly':   return blocksToMarkdown(makeMonthlyTemplate('월간 노트', 2026, 1))
+      case 'quarterly': return blocksToMarkdown(makeQuarterlyTemplate('분기 노트', 2026, 1))
+      case 'yearly':    return blocksToMarkdown(makeYearlyTemplate('연간 노트', 2026))
+    }
+  }
+
+  // 내장 템플릿 편집 시작 — 현재 override 또는 기본값으로 textarea 초기화
+  // Python으로 치면: def open_builtin_editor(self, kind): ...
+  function openBuiltinEditor(kind: PeriodicKind) {
+    const current = periodicBuiltinOverrides[kind]
+    setBuiltinEditContent(current ?? getDefaultMarkdown(kind))
+    setBuiltinEditKind(kind)
+  }
+
+  // 내장 템플릿 저장
+  // Python으로 치면: def save_builtin_override(self): store.set(kind, content)
+  function saveBuiltinOverride() {
+    if (!builtinEditKind) return
+    setPeriodicBuiltinOverride(builtinEditKind, builtinEditContent)
+    setBuiltinEditKind(null)
+    toast.success('기본 템플릿이 저장됐습니다.')
+  }
+
+  // 내장 템플릿 초기화 — override 삭제 → 하드코딩 기본값으로 복귀
+  // Python으로 치면: def reset_builtin_override(self, kind): store.reset(kind)
+  function handleBuiltinReset(kind: PeriodicKind) {
+    if (!confirm('기본값으로 초기화하면 수정 내용이 삭제됩니다. 계속할까요?')) return
+    resetPeriodicBuiltinOverride(kind)
+    if (builtinEditKind === kind) setBuiltinEditKind(null)
+    toast.success('기본 템플릿으로 초기화됐습니다.')
+  }
+
   // textarea ref — 커서 위치에 특수 블록 삽입 시 사용
   // Python으로 치면: self.textarea_ref = None
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 내장 템플릿 에디터 textarea ref — Python: self.builtin_textarea_ref = None
+  const builtinTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // 내장 에디터 커서 위치에 특수 블록 삽입
+  // Python으로 치면: def insert_at_builtin_cursor(self, syntax): ...
+  function insertAtBuiltinCursor(syntax: string) {
+    const el = builtinTextareaRef.current
+    if (!el) return
+    const start = el.selectionStart ?? el.value.length
+    const end   = el.selectionEnd   ?? el.value.length
+    const insert = `${syntax}\n`
+    const newVal = el.value.slice(0, start) + insert + el.value.slice(end)
+    setBuiltinEditContent(newVal)
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + insert.length, start + insert.length)
+    })
+  }
 
   // 현재 활성 textarea의 커서 위치에 텍스트 삽입
   // Python으로 치면: def insert_at_cursor(self, text): ... textarea.setSelectionRange(...)
@@ -580,30 +653,112 @@ export default function TemplatesTab() {
             : kind === 'quarterly'         ? t.settings.templates.periodicQuarterly
             : t.settings.templates.periodicYearly
 
-          const currentId = periodicNoteTemplates[kind]
+          const currentId    = periodicNoteTemplates[kind]
+          const hasOverride  = !!periodicBuiltinOverrides[kind]
+          const isEditing    = builtinEditKind === kind
 
           return (
-            <div key={kind} className="flex items-center gap-3">
-              <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
-              {/* 템플릿 선택 셀렉트 — Python으로 치면: <select> tag */}
-              <select
-                value={currentId}
-                onChange={e => setPeriodicNoteTemplate(kind, e.target.value)}
-                className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:border-blue-400 text-gray-700"
-              >
-                <option value="">{t.settings.templates.periodicNone}</option>
-                {/* 마크다운 템플릿만 표시 (그리드 템플릿은 주기 노트에 적용 불가) */}
-                {templates.filter(tmpl => !isGridTemplate(tmpl.content)).map(tmpl => (
-                  <option key={tmpl.id} value={tmpl.id}>
-                    {tmpl.icon} {tmpl.name}
-                  </option>
-                ))}
-              </select>
-              {/* 현재 기본값 뱃지 */}
-              {currentId && (
-                <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-600 rounded-md shrink-0">
-                  {t.settings.templates.periodicActive}
-                </span>
+            <div key={kind} className="space-y-2">
+              {/* 커스텀 템플릿 선택 행 */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-500 w-16 shrink-0">{label}</span>
+                {/* 커스텀 템플릿 드롭다운 */}
+                <select
+                  value={currentId}
+                  onChange={e => setPeriodicNoteTemplate(kind, e.target.value)}
+                  className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:border-blue-400 text-gray-700"
+                >
+                  <option value="">{t.settings.templates.periodicNone}</option>
+                  {templates.filter(tmpl => !isGridTemplate(tmpl.content)).map(tmpl => (
+                    <option key={tmpl.id} value={tmpl.id}>
+                      {tmpl.icon} {tmpl.name}
+                    </option>
+                  ))}
+                </select>
+                {currentId && (
+                  <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-600 rounded-md shrink-0">
+                    {t.settings.templates.periodicActive}
+                  </span>
+                )}
+              </div>
+
+              {/* 내장 기본 템플릿 편집 행 — Python: render_builtin_edit_row(kind) */}
+              <div className="flex items-center gap-2 pl-19">
+                {/* 수정됨 뱃지 */}
+                {hasOverride && !isEditing && (
+                  <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-600 rounded shrink-0">
+                    수정됨
+                  </span>
+                )}
+                {/* 편집 버튼 */}
+                <button
+                  type="button"
+                  onClick={() => isEditing ? setBuiltinEditKind(null) : openBuiltinEditor(kind)}
+                  className="text-xs px-2.5 py-1 rounded border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                >
+                  {isEditing ? '닫기' : '기본 템플릿 편집'}
+                </button>
+                {/* 초기화 버튼 — override 있을 때만 표시 */}
+                {hasOverride && (
+                  <button
+                    type="button"
+                    onClick={() => handleBuiltinReset(kind)}
+                    className="text-xs px-2.5 py-1 rounded border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    기본값으로 초기화
+                  </button>
+                )}
+              </div>
+
+              {/* 인라인 마크다운 에디터 — 편집 중일 때만 표시 */}
+              {/* Python으로 치면: if is_editing: render_markdown_editor() */}
+              {isEditing && (
+                <div className="pl-19 space-y-2">
+                  {/* 특수 블록 삽입 버튼 바 — Python: render_special_block_buttons() */}
+                  <div className="flex flex-wrap gap-1.5 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                    <span className="text-xs text-gray-400 w-full mb-0.5">특수 블록 삽입:</span>
+                    {SPECIAL_BLOCKS.map(b => (
+                      <button
+                        key={b.syntax}
+                        type="button"
+                        onClick={() => insertAtBuiltinCursor(b.syntax)}
+                        title={b.desc}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-gray-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-gray-600 transition-colors"
+                      >
+                        <span>{b.icon}</span>
+                        <span>{b.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    ref={builtinTextareaRef}
+                    value={builtinEditContent}
+                    onChange={e => setBuiltinEditContent(e.target.value)}
+                    rows={18}
+                    spellCheck={false}
+                    className="w-full text-xs font-mono border border-gray-200 rounded-lg px-3 py-2.5 bg-gray-50 outline-none focus:border-blue-400 resize-y text-gray-700 leading-relaxed"
+                    placeholder="마크다운 형식으로 입력 (# 제목, ## 소제목, - 항목, - [ ] 체크박스, :::dayplanner 등)"
+                  />
+                  <p className="text-xs text-gray-400">
+                    날짜는 실제 노트 생성 시 자동 치환됩니다.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={saveBuiltinOverride}
+                      className="text-xs px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                    >
+                      저장
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBuiltinEditKind(null)}
+                      className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )

@@ -229,20 +229,35 @@ def _embed_static_urls(text: str) -> str:
     return _STATIC_URL_RE.sub(replacer, text)
 
 
-def _dayplanner_to_html(content: str) -> str:
+def _dayplanner_to_html(content: str, target_date: str = '') -> str:
     """
     DayPlanner 블록 JSON → 시각적 타임테이블 HTML 변환
-    Python으로 치면: def render_planner(data: PlannerData) -> str: ...
+    Python으로 치면: def render_planner(data: PlannerData, target_date: str) -> str: ...
     앱과 동일한 레이아웃: 좌측 시간 레이블 + 우측 절대좌표 이벤트 블록 + 우측 이벤트 목록
+    target_date: 'YYYY-MM-DD' — 지정 시 해당 날짜만 렌더 (일간 노트 HTML 내보내기)
+                               미지정 시 전체 날짜 렌더 (일반 블록 내보내기)
     """
     try:
         data = json.loads(content) if isinstance(content, str) else {}
     except Exception:
         return '<p><em>[일정표 데이터 오류]</em></p>'
 
+    # ── 구 포맷 호환 처리 (date + events → eventsByDate 로 정규화) ──
+    # Python으로 치면: if 'date' in data: data = {'eventsByDate': {data['date']: data['events']}}
     events_by_date: dict = data.get("eventsByDate", {})
+    if not events_by_date and data.get("date") and isinstance(data.get("events"), list):
+        events_by_date = {data["date"]: data["events"]}
+
     if not events_by_date:
         return '<p><em>[일정표 — 등록된 일정 없음]</em></p>'
+
+    # ── target_date 필터링: 지정된 날짜만 렌더 ──────────────────────
+    # Python으로 치면: if target_date: events_by_date = {target_date: events_by_date.get(target_date, [])}
+    if target_date:
+        events_for_date: list = events_by_date.get(target_date, [])
+        if not events_for_date:
+            return '<p><em>[일정표 — 해당 날짜에 등록된 일정 없음]</em></p>'
+        events_by_date = {target_date: events_for_date}
 
     # 색상 팔레트 (Tailwind 400 계열 hex 값)
     # Python으로 치면: COLOR_MAP: dict[str, tuple[str, str]] = {...}  → (bg, text)
@@ -384,12 +399,13 @@ def _dayplanner_to_html(content: str) -> str:
             strike = 'text-decoration:line-through;' if done else ''
             title  = _html_mod.escape(ev.get('title', ''))
 
-            # 상세 데이터 수집
-            clock_in   = ev.get('clockIn', '')
-            clock_out  = ev.get('clockOut', '')
+            # 상세 데이터 수집 — or '' 로 null(None) 방어
+            # Python으로 치면: clock_in = ev.get('clockIn') or '' (None 방어)
+            clock_in   = ev.get('clockIn')  or ''
+            clock_out  = ev.get('clockOut') or ''
             elapsed    = ev.get('elapsed')          # 분 단위 int|None
-            log_text   = ev.get('log', '').strip()  # 자유 텍스트 기록
-            subtasks   = ev.get('subtasks', [])     # [{text, done}]
+            log_text   = (ev.get('log') or '').strip()   # 자유 텍스트 기록
+            subtasks   = ev.get('subtasks') or []   # [{text, done}]
             energy     = ev.get('energy')           # 1~5|None
 
             # 상세 내용이 하나라도 있으면 details 사용, 없으면 단순 div
@@ -464,25 +480,41 @@ def _dayplanner_to_html(content: str) -> str:
                 f'</div></div>'
             )
 
-            if has_detail:
-                # <details>로 펼치기/접기
-                list_items_html.append(
-                    f'<details style="border-bottom:1px solid #f3f4f6;padding:5px 0;">'
-                    f'<summary style="list-style:none;cursor:pointer;'
-                    f'-webkit-appearance:none;outline:none;">'
-                    f'{header_html}'
-                    f'</summary>'
-                    f'<div style="margin:6px 0 4px 18px;padding:8px;'
-                    f'background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">'
-                    f'{detail_html}'
-                    f'</div>'
-                    f'</details>'
+            # 항상 <details>로 렌더 — 상세 데이터 없을 시 "기록 없음" 표시
+            # Python으로 치면: detail_html = detail_html or '<p>기록 없음</p>'
+            if not has_detail:
+                detail_html = (
+                    f'<div style="font-size:11px;color:#9ca3af;font-style:italic;">기록 없음</div>'
                 )
-            else:
-                list_items_html.append(
-                    f'<div style="border-bottom:1px solid #f3f4f6;padding:5px 0;">'
-                    f'{header_html}</div>'
-                )
+
+            # 헤더 우측 ▸ 표시 — 클릭 가능함을 시각적으로 안내
+            header_html_clickable = (
+                f'<div style="display:flex;align-items:center;gap:8px;">'
+                f'<div style="width:10px;height:10px;border-radius:50%;background:{bg};'
+                f'flex-shrink:0;margin-top:1px;"></div>'
+                f'<div style="flex:1;min-width:0;">'
+                f'<div style="font-size:12px;font-weight:600;color:#374151;{strike}'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title}</div>'
+                f'<div style="font-size:10px;color:#9ca3af;">'
+                f'{ev.get("start","")} – {ev.get("end","")}</div>'
+                f'</div>'
+                f'<span style="font-size:10px;color:#d1d5db;flex-shrink:0;">▸</span>'
+                f'</div>'
+            )
+
+            list_items_html.append(
+                f'<details style="border-bottom:1px solid #f3f4f6;padding:5px 0;">'
+                f'<summary style="list-style:none;cursor:pointer;'
+                f'-webkit-appearance:none;-moz-appearance:none;outline:none;'
+                f'user-select:none;">'
+                f'{header_html_clickable}'
+                f'</summary>'
+                f'<div style="margin:6px 0 4px 18px;padding:8px;'
+                f'background:#f9fafb;border-radius:8px;border:1px solid #e5e7eb;">'
+                f'{detail_html}'
+                f'</div>'
+                f'</details>'
+            )
 
         sections.append(f'''
 <div class="dp-section" style="margin-bottom:32px;">
@@ -513,10 +545,11 @@ def _dayplanner_to_html(content: str) -> str:
     return "\n".join(sections) if sections else '<p><em>[일정표 — 등록된 일정 없음]</em></p>'
 
 
-def _blocks_to_html(blocks: list) -> str:
+def _blocks_to_html(blocks: list, page_date: str = '') -> str:
     """
     블록 배열 → HTML 문자열 변환 (재귀)
-    Python으로 치면: def blocks_to_html(blocks): return '\\n'.join(render(b) for b in blocks)
+    Python으로 치면: def blocks_to_html(blocks, page_date='') -> str: ...
+    page_date: 'YYYY-MM-DD' — 일간 노트 제목에서 추출, dayPlanner 날짜 필터에 사용
     """
     parts = []
     for block in blocks:
@@ -553,7 +586,7 @@ def _blocks_to_html(blocks: list) -> str:
             except Exception:
                 header = content
                 children = block.get("children", [])
-            inner = _blocks_to_html(children) if children else ''
+            inner = _blocks_to_html(children, page_date) if children else ''
             parts.append(f'<details><summary>{header}</summary>{inner}</details>')
 
         elif btype == "code":
@@ -699,8 +732,9 @@ def _blocks_to_html(blocks: list) -> str:
                 parts.append(f'<div>[칸반 보드]</div>')
 
         elif btype in ("dayPlanner", "dayplanner"):
-            # Python으로 치면: parts.append(render_planner(json.loads(content)))
-            parts.append(_dayplanner_to_html(content))
+            # page_date 전달 → 해당 날짜만 렌더 (일간 노트 내보내기)
+            # Python으로 치면: parts.append(render_planner(content, page_date))
+            parts.append(_dayplanner_to_html(content, target_date=page_date))
 
         else:
             parts.append(f'<p>{content}</p>')
@@ -708,7 +742,7 @@ def _blocks_to_html(blocks: list) -> str:
         # 토글이 아닌 블록에 자식 블록이 있을 경우 재귀 렌더
         # Python으로 치면: if children and btype != 'toggle': append(blocks_to_html(children))
         if btype != "toggle" and block.get("children"):
-            parts.append(f'<div class="block-children">{_blocks_to_html(block["children"])}</div>')
+            parts.append(f'<div class="block-children">{_blocks_to_html(block["children"], page_date)}</div>')
 
     return "\n".join(parts)
 
@@ -787,10 +821,11 @@ def _make_html_doc(title: str, icon: str, body_html: str,
 
 
 @router.get("/export/html/{page_id}")
-def export_html(page_id: str):
+def export_html(page_id: str, date: str = ''):
     """
     단일 페이지를 자기완결형 HTML 파일로 내보내기
     이미지·비디오는 base64로 인라인 임베딩
+    date: 'YYYY-MM-DD' — 프론트엔드가 전달하는 DayPlanner 표시 날짜 필터
     Python으로 치면: return send_file(html_bytes, filename='{title}.html')
     """
     validate_uuid(page_id, "page_id")
@@ -835,7 +870,15 @@ def export_html(page_id: str):
     # 내용이 있는 mermaid 블록이 하나라도 있을 때만 CDN 로드
     has_mermaid = any(b.get("type") == "mermaid" and b.get("content", "").strip() for b in all_blocks)
 
-    body_html = _blocks_to_html(blocks)
+    # 쿼리 파라미터 date 우선, 없으면 제목에서 추출 (폴백)
+    # Python으로 치면: page_date = date or re.search(r'\d{4}-\d{2}-\d{2}', title).group(1) or ''
+    if date:
+        page_date: str = date
+    else:
+        _m = re.search(r'(\d{4}-\d{2}-\d{2})', title)
+        page_date = _m.group(1) if _m else ''
+
+    body_html = _blocks_to_html(blocks, page_date)
     html_doc = _make_html_doc(title, icon, body_html, has_math, has_mermaid)
     html_bytes = html_doc.encode("utf-8")
 
@@ -908,6 +951,25 @@ def _patch_xhtml2pdf_named_tmp_file() -> None:
         _xfiles.BaseFile.get_named_tmp_file = _win32_get_named_tmp_file
     except Exception:
         pass  # 패치 실패해도 계속 진행 (폰트만 깨질 뿐 PDF는 생성됨)
+
+
+def _sanitize_css_for_pdf(html_str: str) -> str:
+    """
+    xhtml2pdf가 처리할 수 없는 CSS 함수(calc, min, max 등)를 제거/치환
+    Python으로 치면: def sanitize_css(html): re.sub(...)
+    — calc(X% ± Ypx) → X%  /  나머지 calc() → 프로퍼티 통째 제거
+    """
+    # calc(숫자% 연산자 ...) → 숫자%  예: width:calc(33.3% - 4px) → width:33.3%
+    html_str = re.sub(
+        r'([\w-]+)\s*:\s*calc\((\d+(?:\.\d+)?)%[^)]*\)',
+        lambda m: f"{m.group(1)}:{m.group(2)}%",
+        html_str,
+    )
+    # 그 외 남은 calc() 표현식 — 속성 전체 제거
+    html_str = re.sub(r'[\w-]+\s*:\s*calc\([^)]*\)\s*;?', '', html_str)
+    # min-width:0 / min-width:0px — xhtml2pdf 파서가 건너뜀; 제거
+    html_str = re.sub(r'min-width\s*:\s*0\w*\s*;?', '', html_str)
+    return html_str
 
 
 def _make_pdf_html(title: str, icon: str, body_html: str, font_path: "Path | None" = None) -> str:
@@ -1036,6 +1098,8 @@ def export_pdf(page_id: str):
     # Python으로 치면: body = blocks_to_html(blocks)
     body_html = _blocks_to_html(blocks)
     html_str = _make_pdf_html(title, icon, body_html, font_path)
+    # xhtml2pdf 미지원 CSS 함수(calc 등) 제거
+    html_str = _sanitize_css_for_pdf(html_str)
 
     # xhtml2pdf로 HTML → PDF 변환
     # Python으로 치면: pisa.CreatePDF(html, dest=pdf_buffer)

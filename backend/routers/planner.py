@@ -27,7 +27,47 @@ router = APIRouter(prefix="/api/planner", tags=["planner"])
 
 # 아카이브 파일명 (vault 루트에 위치)
 # Python으로 치면: ARCHIVE_FILE = '_planner_archive.json'
-ARCHIVE_FILE = "_planner_archive.json"
+ARCHIVE_FILE   = "_planner_archive.json"
+
+# 루틴 파일명 (vault 루트에 위치) — localStorage 대신 파일 시스템에 영속 저장
+# Python으로 치면: ROUTINES_FILE = '_planner_routines.json'
+ROUTINES_FILE  = "_planner_routines.json"
+
+
+def _routines_path() -> Path:
+    """루틴 파일의 절대 경로 반환. vault 하위 여부 검증 포함."""
+    path = get_vault_dir() / ROUTINES_FILE
+    assert_inside_vault(path)
+    return path
+
+
+def _load_routines() -> list[Any]:
+    """루틴 파일 읽기. 없으면 빈 리스트 반환.
+    Python으로 치면: json.load(f) if os.path.exists(path) else []
+    """
+    path = _routines_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError) as e:
+        log.warning("루틴 파일 읽기 실패 (빈 리스트 반환): %s", e)
+        return []
+
+
+def _save_routines(routines: list[Any]) -> None:
+    """루틴 파일 atomic write 저장.
+    Python으로 치면: with open(path, 'w') as f: json.dump(routines, f, ensure_ascii=False)
+    """
+    path = _routines_path()
+    tmp  = path.with_suffix(".tmp")
+    try:
+        tmp.write_text(json.dumps(routines, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(path)
+    except OSError as e:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"루틴 저장 실패: {e}") from e
 
 
 def _archive_path() -> Path:
@@ -114,3 +154,23 @@ async def append_archive(body: dict[str, Any]) -> dict[str, str]:
         log.info("아카이브에 %d일치 데이터 추가됨", added)
 
     return {"status": "ok", "added": str(added)}
+
+
+# ── GET /api/planner/routines ─────────────────
+# 루틴 목록 반환 (localStorage 대신 파일 시스템에서 로드)
+# Python으로 치면: def get_routines(): return json.load(routines_file)
+@router.get("/routines")
+async def get_routines() -> list[Any]:
+    """루틴 목록 전체 반환. 파일 없으면 빈 리스트."""
+    return _load_routines()
+
+
+# ── PUT /api/planner/routines ─────────────────
+# 루틴 목록 전체 저장 (전체 교체 방식 — 병합 아님)
+# Python으로 치면: def save_routines(body): json.dump(body, routines_file)
+@router.put("/routines")
+async def save_routines(body: list[Any]) -> dict[str, str]:
+    """루틴 목록 전체를 파일에 저장. 기존 파일 전체 교체."""
+    _save_routines(body)
+    log.info("루틴 %d개 저장됨", len(body))
+    return {"status": "ok", "count": str(len(body))}

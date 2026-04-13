@@ -11,6 +11,7 @@ import { immer } from 'zustand/middleware/immer'
 import { getFontPreset, DEFAULT_FONT_ID } from '@/lib/fonts'
 import { PRESET_VARS, DEFAULT_VARS } from '@/lib/themeVars'
 import type { Routine } from '@/types/block'
+import { plannerApi } from '@/lib/api'
 
 // -----------------------------------------------
 // 커스텀 레이아웃 템플릿 저장 포맷
@@ -120,6 +121,7 @@ export interface SettingsStore {
   setPlannerNotifyBefore:(m: number) => void
   setPlannerRoutines:    (r: Routine[]) => void
   setPlannerAutoApply:   (v: boolean) => void
+  loadRoutinesFromFile:  () => Promise<void>
 
   // ── AI 설정 ─────────────────────────────────
   // 제공자: 'openai' | 'claude' | 'ollama'
@@ -171,6 +173,14 @@ export interface SettingsStore {
   // Python으로 치면: self.periodic_note_templates: dict[str, str] = {}
   periodicNoteTemplates: { daily: string; weekly: string; monthly: string; quarterly: string; yearly: string }
   setPeriodicNoteTemplate: (kind: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly', templateId: string) => void
+
+  // ── 주기 노트 내장 템플릿 오버라이드 ─────────────────────────────
+  // 내장 기본 템플릿을 사용자가 직접 수정한 경우 마크다운 문자열로 저장
+  // undefined = 하드코딩 기본 함수 사용 / 문자열 = parseTemplateContent()로 파싱
+  // Python으로 치면: self.periodic_builtin_overrides: dict[str, str | None] = {}
+  periodicBuiltinOverrides: { daily?: string; weekly?: string; monthly?: string; quarterly?: string; yearly?: string }
+  setPeriodicBuiltinOverride: (kind: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly', markdown: string) => void
+  resetPeriodicBuiltinOverride: (kind: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly') => void
 
   // ── 언어 설정 ───────────────────────────────
   // 지원 로케일: 'ko' | 'en' — 새 언어 추가 시 src/locales/ 에 파일 추가 후 여기도 확장
@@ -333,6 +343,7 @@ export const useSettingsStore = create<SettingsStore>()(
       customLayoutTemplates: [],
       // 주기 노트 기본 템플릿 — 빈 문자열 = 하드코딩 기본값 사용
       periodicNoteTemplates: { daily: '', weekly: '', monthly: '', quarterly: '', yearly: '' },
+      periodicBuiltinOverrides: {},
       // 언어 기본값 — 한국어
       // Python으로 치면: self.locale = 'ko'
       locale: 'ko',
@@ -462,15 +473,37 @@ export const useSettingsStore = create<SettingsStore>()(
       setPlannerZoom:        (z)   => { set((state) => { state.plannerZoom        = z   }) },
       setWeekStartDay:          (d) => { set((state) => { state.weekStartDay          = d }) },
       setPlannerNotifyBefore:   (m) => { set((state) => { state.plannerNotifyBefore   = m }) },
-      // 루틴 프리셋 전체 교체 (추가/수정/삭제 모두 이 setter로 처리)
-      // Python으로 치면: def set_planner_routines(self, r): self.planner_routines = r
-      setPlannerRoutines:    (r) => { set((state) => { state.plannerRoutines    = r }) },
+      // 루틴 프리셋 전체 교체 + vault 파일에 영속 저장
+      // Python으로 치면: def set_planner_routines(self, r): self.planner_routines = r; save_to_file(r)
+      setPlannerRoutines: (r) => {
+        set((state) => { state.plannerRoutines = r })
+        // vault/_planner_routines.json에 비동기 저장 (백엔드가 꺼져있으면 조용히 무시)
+        plannerApi.saveRoutines(r).catch(() => {})
+      },
+      // vault 파일에서 루틴 로드 (앱 시작 시 호출) — localStorage보다 파일 우선
+      // Python으로 치면: def load_routines_from_file(self): self.planner_routines = json.load(file)
+      loadRoutinesFromFile: async () => {
+        try {
+          const routines = await plannerApi.getRoutines()
+          set((state) => { state.plannerRoutines = routines as Routine[] })
+        } catch {
+          // 백엔드 미실행 시 기존 localStorage 값 유지
+        }
+      },
       setPlannerAutoApply:   (v) => { set((state) => { state.plannerAutoApply   = v }) },
 
       // ── 주기 노트 기본 템플릿 변경 ──────────────
       // Python으로 치면: def set_periodic_note_template(self, kind, id): self.periodic_note_templates[kind] = id
       setPeriodicNoteTemplate: (kind, templateId) => {
         set((state) => { state.periodicNoteTemplates[kind] = templateId })
+      },
+      // 내장 템플릿 오버라이드 저장 — Python: def set_builtin_override(kind, md): ...
+      setPeriodicBuiltinOverride: (kind, markdown) => {
+        set((state) => { state.periodicBuiltinOverrides[kind] = markdown })
+      },
+      // 내장 템플릿 초기화 — Python: def reset_builtin_override(kind): del overrides[kind]
+      resetPeriodicBuiltinOverride: (kind) => {
+        set((state) => { delete state.periodicBuiltinOverrides[kind] })
       },
 
       // ── 언어 변경 ────────────────────────────
@@ -489,6 +522,56 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       // localStorage 키 이름
       name: 'notion-clone-settings',
+
+      // ── 스토어 버전 관리 ────────────────────────
+      // 새 키 추가 시: version 증가 + migrate에 해당 버전 블록 추가
+      // Python으로 치면: SCHEMA_VERSION = 1; def migrate(old, from_ver): ...
+      version: 1,
+
+      // migrate: 구버전 저장값 → 현재 구조로 안전하게 업그레이드
+      // 전략: "덮어쓰기 금지" — 기존 사용자 설정은 반드시 보존하고 누락된 키만 채움
+      // Python으로 치면:
+      //   def migrate(state, from_version):
+      //       if from_version < 1: state['plugins'] = {**defaults, **state.get('plugins', {})}
+      //       return state
+      migrate: (persisted: unknown, fromVersion: number) => {
+        const state = (persisted ?? {}) as Record<string, unknown>
+
+        if (fromVersion < 1) {
+          // v0 → v1: plugins 중첩 객체 deep merge
+          //   문제: Zustand persist는 최상위만 shallow merge → plugins 통째로 교체됨
+          //   → 새 플러그인 키(globalAiChat, math, arrowConnect 등) 누락 버그
+          //   해결: 저장된 plugins에 없는 키만 기본값으로 채움 (기존 OFF 설정 유지)
+          const defaultPlugins: Record<string, boolean> = {
+            kanban: true, calendar: true, admonition: true, excalidraw: false,
+            recentFiles: true, quickAdd: true, wordCount: true, focusMode: true,
+            pomodoro: true, tableOfContents: true, periodicNotes: true, canvas: true,
+            videoAutoplay: false, videoLoop: false, layoutEnabled: true, backlinks: true,
+            chart: true, gantt: true, mindmap: true, globalAiChat: true, math: true,
+            arrowConnect: true,
+          }
+          const saved = (state.plugins ?? {}) as Record<string, boolean>
+          state.plugins = { ...defaultPlugins, ...saved }
+
+          // plannerRoutines 누락 또는 잘못된 타입 시 빈 배열로 초기화
+          if (!Array.isArray(state.plannerRoutines)) state.plannerRoutines = []
+
+          // periodicNoteTemplates 누락 시 기본값
+          if (!state.periodicNoteTemplates || typeof state.periodicNoteTemplates !== 'object') {
+            state.periodicNoteTemplates = { daily: '', weekly: '', monthly: '', quarterly: '', yearly: '' }
+          }
+
+          // periodicBuiltinOverrides 누락 시 빈 객체
+          if (!state.periodicBuiltinOverrides || typeof state.periodicBuiltinOverrides !== 'object') {
+            state.periodicBuiltinOverrides = {}
+          }
+
+          // customLayoutTemplates 누락 시 빈 배열
+          if (!Array.isArray(state.customLayoutTemplates)) state.customLayoutTemplates = []
+        }
+
+        return state
+      },
     }
   )
 )

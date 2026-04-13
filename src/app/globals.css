@@ -184,6 +184,7 @@ html.dark .tiptap h6 { color: #6b7280; }
 .tiptap ul {
   list-style-type: disc;
   padding-left: 1.5rem;
+  margin: 0;
 }
 
 /* 순서 있는 목록: counters() 함수로 계층 번호 자동 생성
@@ -195,6 +196,7 @@ html.dark .tiptap h6 { color: #6b7280; }
   list-style: none;
   padding-left: 2rem;
   counter-reset: tiptap-ol;
+  margin: 0;
 }
 .tiptap ol > li {
   counter-increment: tiptap-ol;
@@ -203,18 +205,33 @@ html.dark .tiptap h6 { color: #6b7280; }
   content: counters(tiptap-ol, ".") ". ";
 }
 
+/* 리스트 아이템 내부 <p> 태그 margin 제거
+   Tiptap은 li 내용을 <li><p>...</p></li> 구조로 감싸므로
+   p의 기본 margin이 리스트 하단에 불필요한 여백을 만든다
+   Python으로 치면: li.p.margin = 0 */
+.tiptap ul > li > p,
+.tiptap ol > li > p {
+  margin: 0;
+}
+
 /* -----------------------------------------------
    체크박스(Task List) 스타일
    ----------------------------------------------- */
 .tiptap ul[data-type="taskList"] {
   list-style: none;
   padding-left: 0;
+  margin: 0;
 }
 
 .tiptap ul[data-type="taskList"] li {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
+}
+
+/* 체크리스트 아이템 내부 <p> margin 제거 */
+.tiptap ul[data-type="taskList"] li > div > p {
+  margin: 0;
 }
 
 .tiptap ul[data-type="taskList"] li input[type="checkbox"] {

@@ -439,3 +439,28 @@ export const historyApi = {
     if (!res.ok) throw new Error('버전 복원 실패')
   },
 }
+
+// ── 플래너 루틴 API ──────────────────────────────
+// 루틴을 localStorage 대신 vault 파일(_planner_routines.json)에 영속 저장
+// Python으로 치면: import requests; def get_routines(): return requests.get(...).json()
+export const plannerApi = {
+
+  // 루틴 목록 로드 (앱 시작 시 settingsStore에서 호출)
+  // Python으로 치면: requests.get('/api/planner/routines').json()
+  getRoutines: async (): Promise<unknown[]> => {
+    const res = await fetch(`${BASE_URL}/api/planner/routines`)
+    if (!res.ok) throw new Error('루틴 로드 실패')
+    return res.json()
+  },
+
+  // 루틴 목록 전체 저장 (setPlannerRoutines 호출 시 자동 실행)
+  // Python으로 치면: requests.put('/api/planner/routines', json=routines)
+  saveRoutines: async (routines: unknown[]): Promise<void> => {
+    const res = await fetch(`${BASE_URL}/api/planner/routines`, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(routines),
+    })
+    if (!res.ok) throw new Error('루틴 저장 실패')
+  },
+}

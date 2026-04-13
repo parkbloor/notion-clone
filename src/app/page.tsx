@@ -232,7 +232,7 @@ export default function Home() {
   // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
   // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
   // -----------------------------------------------
-  const { theme, fontFamily, fontSize, lineHeight, editorMaxWidth, themePreset } = useSettingsStore()
+  const { theme, fontFamily, fontSize, lineHeight, editorMaxWidth, themePreset, loadRoutinesFromFile } = useSettingsStore()
   useEffect(() => {
     applyTheme(theme)
     // 색상 테마 프리셋 복원 — html[data-theme] 속성 설정
@@ -241,6 +241,10 @@ export default function Home() {
     // editorMaxWidth도 함께 전달 → --editor-max-width CSS 변수 초기화
     // Python으로 치면: apply_editor_style(font, size, lh, max_width)
     applyEditorStyle(fontFamily, fontSize, lineHeight, editorMaxWidth)
+    // vault 파일에서 루틴 로드 (localStorage보다 파일 우선)
+    // 백엔드 미실행 시 기존 localStorage 값 유지 (내부에서 catch 처리됨)
+    // Python으로 치면: self.settings.load_routines_from_file()
+    loadRoutinesFromFile()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
