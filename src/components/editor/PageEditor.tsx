@@ -479,7 +479,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       if (titleMatch) {
         plannerDate = titleMatch[1]
       } else {
-        const dpBlock = page.blocks.find(b => b.type === 'dayplanner' || b.type === 'dayPlanner')
+        const dpBlock = page.blocks.find(b => b.type === 'dayplanner')
         if (dpBlock?.content) {
           try {
             const data = JSON.parse(dpBlock.content)
