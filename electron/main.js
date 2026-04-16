@@ -97,25 +97,37 @@ function waitForServer(url, timeoutMs = 40000) {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs
     function poll() {
-      const req = http.get(url, (res) => {
+      // req.destroy() 호출 시 'error' 이벤트도 함께 발생하므로
+      // handled 플래그로 콜백이 두 번 실행되지 않도록 보호
+      // Python으로 치면: handled = False; def guard(): nonlocal handled; if handled: return; handled = True
+      let handled = false
+      function once(fn) {
+        return (...args) => {
+          if (handled) return
+          handled = true
+          fn(...args)
+        }
+      }
+
+      const req = http.get(url, once((res) => {
         res.resume() // body 소비 (메모리 누수 방지)
         resolve()
-      })
-      req.on('error', () => {
+      }))
+      req.on('error', once(() => {
         if (Date.now() >= deadline) {
           reject(new Error(`서버 시작 타임아웃: ${url}`))
         } else {
           setTimeout(poll, 500)
         }
-      })
-      req.setTimeout(1000, () => {
+      }))
+      req.setTimeout(1000, once(() => {
         req.destroy()
         if (Date.now() >= deadline) {
           reject(new Error(`서버 시작 타임아웃: ${url}`))
         } else {
           setTimeout(poll, 500)
         }
-      })
+      }))
     }
     poll()
   })
@@ -202,7 +214,7 @@ function createMainWindow() {
     webPreferences: {
       nodeIntegration: false,       // Node.js API 렌더러에 비노출 (보안)
       contextIsolation: true,       // preload 와 페이지 컨텍스트 분리 (보안)
-      sandbox: false,               // preload에서 require 사용을 위해 false
+      // sandbox: preload에서 require('electron')만 사용하므로 기본값(true) 유지
       preload: isDev
         ? path.join(__dirname, 'preload.js')
         : path.join(process.resourcesPath, 'electron', 'preload.js'),
@@ -281,9 +293,10 @@ function createMainWindow() {
   mainWindow.on('unmaximize', () => saveWindowState(mainWindow))
 
   mainWindow.on('closed', () => {
+    // app.quit()은 window-all-closed 핸들러에 위임
+    // 여기서 호출하면 before-quit → window-all-closed 이벤트 체인에서
+    // killAllProcesses() 와 app.quit() 이 중복 실행됨
     mainWindow = null
-    killAllProcesses()
-    app.quit()
   })
 }
 
@@ -382,10 +395,13 @@ ipcMain.handle('get-version', () => app.getVersion())
 // -----------------------------------------------
 app.whenReady().then(async () => {
   // ── 1단계: 포트 사용 가능 여부 확인 ─────────────────────
-  const [backendPortOk, nextPortOk] = await Promise.all([
-    isPortAvailable(BACKEND_PORT),
-    isPortAvailable(NEXT_PORT),
-  ])
+  // 개발 모드에서 Next.js는 이미 외부에서 실행 중이므로 체크 제외
+  const portsToCheck = isDev
+    ? [isPortAvailable(BACKEND_PORT)]
+    : [isPortAvailable(BACKEND_PORT), isPortAvailable(NEXT_PORT)]
+  const portResults = await Promise.all(portsToCheck)
+  const backendPortOk = portResults[0]
+  const nextPortOk    = isDev ? true : portResults[1]
 
   if (!backendPortOk || !nextPortOk) {
     const taken = []
@@ -444,6 +460,14 @@ app.whenReady().then(async () => {
 // Python으로 치면: atexit.register(kill_all)
 app.on('before-quit', killAllProcesses)
 
+// force-kill(SIGKILL 등) 대비 동기 최후 정리
+// before-quit가 발화하지 않는 비정상 종료 경로에서 자식 프로세스 고아 방지
+// Python으로 치면: atexit.register(sync_kill_all)
+process.on('exit', () => {
+  if (backendProcess) { try { backendProcess.kill() } catch (_) {} }
+  if (nextProcess) { try { nextProcess.kill() } catch (_) {} }
+})
+
 app.on('window-all-closed', () => {
   // macOS는 모든 창이 닫혀도 앱이 살아있는 관례 → 여기서는 무시
   // Windows/Linux: 모든 창 닫히면 앱 종료
@@ -454,8 +478,22 @@ app.on('window-all-closed', () => {
 })
 
 // macOS: Dock 아이콘 클릭 시 창 재생성
-app.on('activate', () => {
+// 서버가 살아있을 때만 창을 여는지 확인 후 생성
+// Python으로 치면: if servers_alive(): open_window()
+app.on('activate', async () => {
   if (BrowserWindow.getAllWindows().length === 0 && !isQuitting) {
-    createMainWindow()
+    try {
+      await Promise.all([
+        waitForServer(`http://127.0.0.1:${BACKEND_PORT}/api/pages`, 2000),
+        waitForServer(`http://127.0.0.1:${NEXT_PORT}`, 2000),
+      ])
+      createMainWindow()
+    } catch {
+      dialog.showErrorBox(
+        '서버가 응답하지 않습니다',
+        '앱 서버가 실행 중이 아닙니다. 앱을 다시 시작해주세요.'
+      )
+      app.quit()
+    }
   }
 })

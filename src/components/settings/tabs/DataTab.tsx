@@ -96,8 +96,11 @@ export default function DataTab() {
       const a = document.createElement('a')
       a.href = url
       a.download = `notion-clone-backup-${new Date().toISOString().slice(0, 10)}.nct`
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      // revokeObjectURL을 다음 태스크로 지연 — Firefox에서 click() 직후 revoke 시 다운로드 실패 방지
+      setTimeout(() => URL.revokeObjectURL(url), 100)
     } catch {
       toast.error(t.settings.data.exportError)
     } finally {
@@ -119,8 +122,11 @@ export default function DataTab() {
       const a = document.createElement('a')
       a.href = url
       a.download = `notion-clone-markdown-${new Date().toISOString().slice(0, 10)}.zip`
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      // revokeObjectURL을 다음 태스크로 지연 — Firefox에서 click() 직후 revoke 시 다운로드 실패 방지
+      setTimeout(() => URL.revokeObjectURL(url), 100)
     } catch {
       toast.error(t.settings.data.exportMarkdownError)
     } finally {

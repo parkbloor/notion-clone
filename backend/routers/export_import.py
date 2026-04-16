@@ -410,6 +410,9 @@ def _dayplanner_to_html(content: str, target_date: str = '') -> str:
 
             # 상세 내용이 하나라도 있으면 details 사용, 없으면 단순 div
             has_detail = bool(clock_in or clock_out or log_text or subtasks or energy)
+            # 앱과 동일: log 또는 subtasks 있으면 주황 dot 표시
+            # Python으로 치면: has_record = bool(log_text or subtasks)
+            has_record = bool(log_text or subtasks)
 
             # ── 상세 블록 조립 ──────────────────────────────────────
             detail_parts: list[str] = []
@@ -488,13 +491,21 @@ def _dayplanner_to_html(content: str, target_date: str = '') -> str:
                 )
 
             # 헤더 우측 ▸ 표시 — 클릭 가능함을 시각적으로 안내
+            # has_record 시 앱과 동일하게 제목 옆 주황 dot 렌더
+            record_dot_html = (
+                '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;'
+                'background:#fb923c;flex-shrink:0;vertical-align:middle;margin-left:4px;"></span>'
+            ) if has_record else ''
             header_html_clickable = (
                 f'<div style="display:flex;align-items:center;gap:8px;">'
                 f'<div style="width:10px;height:10px;border-radius:50%;background:{bg};'
                 f'flex-shrink:0;margin-top:1px;"></div>'
                 f'<div style="flex:1;min-width:0;">'
-                f'<div style="font-size:12px;font-weight:600;color:#374151;{strike}'
-                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title}</div>'
+                f'<div style="display:flex;align-items:center;gap:4px;">'
+                f'<span style="font-size:12px;font-weight:600;color:#374151;{strike}'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title}</span>'
+                f'{record_dot_html}'
+                f'</div>'
                 f'<div style="font-size:10px;color:#9ca3af;">'
                 f'{ev.get("start","")} – {ev.get("end","")}</div>'
                 f'</div>'

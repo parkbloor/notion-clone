@@ -36,6 +36,16 @@
 
 ---
 
+## 3-1. i18n / 다국어 (Locales)
+
+| 파일 | 역할 |
+|------|------|
+| [src/locales/index.ts](src/locales/index.ts) | 로케일 진입점 — `useLocale()` (컴포넌트용) + `getLocale()` (외부용) |
+| [src/locales/ko.ts](src/locales/ko.ts) | 한국어 문자열 맵 |
+| [src/locales/en.ts](src/locales/en.ts) | 영어 문자열 맵 |
+
+---
+
 ## 4. Tiptap 확장 (Extensions) → [상세 문서](docs/04_Extensions.md)
 
 | 파일 | 역할 |
@@ -61,6 +71,8 @@
 | [src/lib/canvasLayout.ts](src/lib/canvasLayout.ts) | 캔버스 블록 자동 배치 레이아웃 알고리즘 |
 | [src/lib/themeVars.ts](src/lib/themeVars.ts) | 테마 CSS 변수 상수 (PRESET_VARS / DEFAULT_VARS) |
 | [src/lib/utils.ts](src/lib/utils.ts) | 공통 유틸 함수 (cn 등) |
+| [src/lib/magazineAnalyzer.ts](src/lib/magazineAnalyzer.ts) | 블록 분석 → ContentProfile + 레이아웃 템플릿 선택 유틸 (analyzeBlocks / pickTemplate) |
+| [src/lib/magazineLayout.ts](src/lib/magazineLayout.ts) | 블록 목록 → MagazineSection 그룹화 + AI 레이아웃 적용 유틸 |
 
 ---
 
@@ -118,6 +130,7 @@
 | [src/components/editor/CanvasPageEditor.tsx](src/components/editor/CanvasPageEditor.tsx) | 캔버스 내부 페이지 에디터 (캔버스 노드용 미니 에디터) |
 | [src/components/editor/LayoutBlock.tsx](src/components/editor/LayoutBlock.tsx) | 8종 다단 레이아웃 블록 (열/행/높이 조절) |
 | [src/components/editor/LayoutSlot.tsx](src/components/editor/LayoutSlot.tsx) | 레이아웃 블록의 개별 슬롯 컴포넌트 |
+| [src/components/editor/MagazineGrid.tsx](src/components/editor/MagazineGrid.tsx) | 존 기반 잡지 레이아웃 렌더러 (섹션 = 헤딩 + 피처존 + 본문존) |
 
 ---
 
@@ -128,6 +141,7 @@
 | [src/components/editor/DayPlannerBlock.tsx](src/components/editor/DayPlannerBlock.tsx) | 일간 플래너 블록 |
 | [src/components/editor/DayPlannerPanel.tsx](src/components/editor/DayPlannerPanel.tsx) | 일간 플래너 사이드 패널 |
 | [src/components/editor/WeeklyPlannerBlock.tsx](src/components/editor/WeeklyPlannerBlock.tsx) | 주간 플래너 블록 |
+| [src/components/editor/WeekPlannerBlock.tsx](src/components/editor/WeekPlannerBlock.tsx) | 멀티데이 주간 타임라인 블록 (7/5/3컬럼 그리드, DayPlannerBlock 이벤트 수집) |
 | [src/components/editor/MonthlyCalendarBlock.tsx](src/components/editor/MonthlyCalendarBlock.tsx) | 월간 달력 블록 |
 | [src/components/editor/QuarterlyPlannerBlock.tsx](src/components/editor/QuarterlyPlannerBlock.tsx) | 분기 플래너 블록 |
 | [src/components/editor/YearlyPlannerBlock.tsx](src/components/editor/YearlyPlannerBlock.tsx) | 연간 플래너 블록 |
@@ -229,8 +243,17 @@
 | [backend/routers/templates.py](backend/routers/templates.py) | 기본 템플릿 5종 시드 |
 | [backend/routers/system.py](backend/routers/system.py) | Vault 경로 조회·변경, 디버그 로그 |
 | [backend/routers/cloud_sync.py](backend/routers/cloud_sync.py) | Google Drive / OneDrive OAuth 2.0 + vault 전체 업로드/다운로드 |
+| [backend/routers/planner.py](backend/routers/planner.py) | Day Planner 아카이브 API (GET/POST /api/planner/archive, 90일 초과 이벤트 저장) |
 | [backend/requirements.txt](backend/requirements.txt) | Python 의존성 목록 |
 | [backend/backend.spec](backend/backend.spec) | PyInstaller 빌드 스펙 (hiddenimports 포함) |
+
+---
+
+## 15-1. Next.js API 라우트 (App Router)
+
+| 파일 | 역할 |
+|------|------|
+| [src/app/api/magazine-layout/route.ts](src/app/api/magazine-layout/route.ts) | Claude/OpenAI API로 블록 목록 → 잡지 레이아웃 계획(JSON) 반환 (POST) |
 
 ---
 

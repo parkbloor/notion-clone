@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSettingsStore, applyEditorStyle } from '@/store/settingsStore'
 import { FONT_PRESETS, CATEGORY_LABELS, getFontPreset, type FontCategory } from '@/lib/fonts'
 import { useLocale } from '@/locales'
@@ -33,6 +33,10 @@ export default function EditorTab() {
   // 날씨 위치 입력 로컬 상태 (저장 버튼 누를 때까지 임시 보관)
   // Python으로 치면: self._loc_input: str = weather_location
   const [locInput, setLocInput] = useState(weatherLocation)
+
+  // weatherLocation이 스토어에서 외부 변경될 때 locInput 동기화
+  // Python으로 치면: @property def loc_input(self): return self._loc_input; @weather_location.setter ...
+  useEffect(() => { setLocInput(weatherLocation) }, [weatherLocation])
 
   // -----------------------------------------------
   // 편집기 스타일 즉시 반영 헬퍼
@@ -223,7 +227,7 @@ export default function EditorTab() {
               onChange={e => setPlannerStartHour(Number(e.target.value))}
               className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
             >
-              {Array.from({ length: 13 }, (_, i) => (
+              {Array.from({ length: 24 }, (_, i) => (
                 <option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>
               ))}
             </select>

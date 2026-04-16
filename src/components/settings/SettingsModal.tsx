@@ -42,16 +42,16 @@ const TAB_ICONS: Record<TabId, string> = {
 
 const TAB_IDS: TabId[] = ['appearance', 'editor', 'plugins', 'templates', 'ai', 'data', 'storage', 'cloud', 'debug']
 
-// 탭 ID → 컴포넌트 매핑
+// 탭 ID → 컴포넌트 매핑 (storage 탭은 onClose prop이 필요해 별도 렌더링)
 // Python으로 치면: TAB_COMPONENTS = {'appearance': AppearanceTab, ...}
-const TAB_COMPONENTS: Record<TabId, React.ComponentType> = {
+type NonStorageTabId = Exclude<TabId, 'storage'>
+const TAB_COMPONENTS: Record<NonStorageTabId, React.ComponentType> = {
   appearance: AppearanceTab,
   editor:     EditorTab,
   plugins:    PluginsTab,
   templates:  TemplatesTab,
   ai:         AITab,
   data:       DataTab,
-  storage:    StorageTab,
   cloud:      CloudSyncTab,
   debug:      DebugTab,
 }
@@ -82,8 +82,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
     if (e.target === e.currentTarget) onClose()
   }
 
-  // 현재 탭 컴포넌트 (StorageTab 제외)
-  const ActiveTabComponent = TAB_COMPONENTS[activeTab]
+  // 현재 탭 컴포넌트 (storage 탭은 onClose prop이 필요해 별도 렌더링)
+  const ActiveTabComponent = activeTab !== 'storage'
+    ? TAB_COMPONENTS[activeTab]
+    : null
 
   return (
     // 오버레이 (반투명 배경)
@@ -137,7 +139,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           <div className="flex-1 overflow-y-auto">
             {activeTab === 'storage'
               ? <StorageTab onClose={onClose} />
-              : <ActiveTabComponent />
+              : ActiveTabComponent && <ActiveTabComponent />
             }
           </div>
         </div>

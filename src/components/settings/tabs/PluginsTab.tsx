@@ -511,9 +511,12 @@ function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void;
       onClick={onToggle}
       disabled={disabled}
       aria-label={on ? 'Switch OFF' : 'Switch ON'}
-      className={on && !disabled
-        ? "relative w-11 h-6 rounded-full bg-blue-500 transition-colors shrink-0"
-        : "relative w-11 h-6 rounded-full bg-gray-200 transition-colors shrink-0 cursor-not-allowed opacity-40"
+      className={
+        disabled
+          ? "relative w-11 h-6 rounded-full bg-gray-200 transition-colors shrink-0 cursor-not-allowed opacity-40"
+          : on
+            ? "relative w-11 h-6 rounded-full bg-blue-500 transition-colors shrink-0"
+            : "relative w-11 h-6 rounded-full bg-gray-200 transition-colors shrink-0"
       }
     >
       <span
@@ -603,7 +606,7 @@ export default function PluginsTab() {
           )}
           {filtered.map((plugin, idx) => (
             <button
-              key={`${plugin.id}-${idx}`}
+              key={plugin.id}
               type="button"
               onClick={() => setSelectedIdx(idx)}
               className={idx === safeIdx
@@ -700,7 +703,7 @@ export default function PluginsTab() {
               <Toggle
                 on={plugins.videoLoop}
                 onToggle={() => togglePlugin('videoLoop')}
-                disabled={false}
+                disabled={!plugins.videoAutoplay}
               />
             </div>
           </div>

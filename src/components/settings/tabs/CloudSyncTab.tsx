@@ -78,11 +78,12 @@ interface ProviderCardProps {
   setGoogleClientSecret:(v: string) => void
   setOnedriveClientId:  (v: string) => void
   // 액션 핸들러
-  onUpload:     (p: Provider) => void
-  onDownload:   (p: Provider) => void
-  onDisconnect: (p: Provider) => void
-  onSaveConfig: (p: Provider) => void
-  onConnect:    (p: Provider) => void
+  onUpload:        (p: Provider) => void
+  onDownload:      (p: Provider) => void
+  onDisconnect:    (p: Provider) => void
+  onSaveConfig:    (p: Provider) => void
+  onConnect:       (p: Provider) => void
+  onCancelConnect: (p: Provider) => void
   // 번역
   t: ReturnType<typeof useLocale>
 }
@@ -95,7 +96,7 @@ function ProviderCard({
   status, polling, actionState, actionMsg,
   googleClientId, googleClientSecret, onedriveClientId,
   setGoogleClientId, setGoogleClientSecret, setOnedriveClientId,
-  onUpload, onDownload, onDisconnect, onSaveConfig, onConnect,
+  onUpload, onDownload, onDisconnect, onSaveConfig, onConnect, onCancelConnect,
   t,
 }: ProviderCardProps) {
   const ps = status?.[provider]
@@ -163,8 +164,9 @@ function ProviderCard({
               </button>
             </div>
 
-            <Msg actionKey={`${provider}_upload`}   actionState={actionState} actionMsg={actionMsg} />
-            <Msg actionKey={`${provider}_download`} actionState={actionState} actionMsg={actionMsg} />
+            <Msg actionKey={`${provider}_upload`}      actionState={actionState} actionMsg={actionMsg} />
+            <Msg actionKey={`${provider}_download`}    actionState={actionState} actionMsg={actionMsg} />
+            <Msg actionKey={`${provider}_disconnect`}  actionState={actionState} actionMsg={actionMsg} />
           </>
         ) : (
           <>
@@ -212,19 +214,31 @@ function ProviderCard({
               </button>
 
               {/* 연결 (자격증명이 저장된 경우에만 활성) */}
-              {isConfigured && (
+              {isConfigured && !isPolling && (
                 <button
                   type="button"
                   onClick={() => onConnect(provider)}
-                  disabled={actionState[`${provider}_connect`] === 'loading' || isPolling}
+                  disabled={actionState[`${provider}_connect`] === 'loading'}
                   className="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50"
                 >
-                  {isPolling
-                    ? `⏳ ${t.settings.cloud.connectWaiting}`
-                    : actionState[`${provider}_connect`] === 'loading'
-                      ? t.settings.cloud.connecting
-                      : t.settings.cloud.connectBtn}
+                  {actionState[`${provider}_connect`] === 'loading'
+                    ? t.settings.cloud.connecting
+                    : t.settings.cloud.connectBtn}
                 </button>
+              )}
+
+              {/* 폴링 중: 대기 표시 + 취소 버튼 */}
+              {isPolling && (
+                <>
+                  <span className="text-xs text-gray-400">⏳ {t.settings.cloud.connectWaiting}</span>
+                  <button
+                    type="button"
+                    onClick={() => onCancelConnect(provider)}
+                    className="px-3 py-1.5 text-xs bg-gray-200 text-gray-600 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    {t.settings.cloud.connectCancelBtn}
+                  </button>
+                </>
               )}
             </div>
 
@@ -308,30 +322,50 @@ export default function CloudSyncTab() {
 
   // ── OAuth 완료 폴링 ────────────────────────────
   // window.open() 후 백엔드가 토큰 저장할 때까지 2초마다 상태 확인
-  // Python으로 치면: while not connected: sleep(2); check_status()
+  // 최대 60회(2분) 후 자동 타임아웃 → polling 리셋 + 재시도 가능하게 복원
+  // Python으로 치면: for _ in range(60): sleep(2); if connected: break else: timeout()
   useEffect(() => {
     const providers: Provider[] = ['google', 'onedrive']
     const timers: ReturnType<typeof setInterval>[] = []
+    // 제공자별 폴링 횟수 카운터
+    const counts: Record<Provider, number> = { google: 0, onedrive: 0 }
+    const MAX_POLLS = 60  // 2초 × 60 = 최대 2분
 
     providers.forEach(provider => {
       if (!polling[provider]) return
       const timer = setInterval(async () => {
-        await fetchStatus()
-        setStatus(prev => {
-          if (prev?.[provider]?.connected) {
+        counts[provider] += 1
+
+        // 타임아웃: 최대 횟수 초과 시 폴링 종료 + 버튼 복원
+        if (counts[provider] > MAX_POLLS) {
+          clearInterval(timer)  // cleanup 전까지 중복 fire 방지
+          setPolling(p => ({ ...p, [provider]: false }))
+          setActionState(s => ({ ...s, [`${provider}_connect`]: 'error' }))
+          setActionMsg(m => ({ ...m, [`${provider}_connect`]: t.settings.cloud.connectTimeout }))
+          return
+        }
+
+        // updater 내 side effects 방지 — 직접 fetch 후 결과로 분기
+        // Python으로 치면: result = requests.get('/api/cloud/status').json(); if result[provider]['connected']: ...
+        try {
+          const r = await fetch(`${BASE_URL}/api/cloud/status`)
+          if (!r.ok) return
+          const newStatus: CloudStatus = await r.json()
+          setStatus(newStatus)
+          if (newStatus[provider]?.connected) {
+            clearInterval(timer)
             setPolling(p => ({ ...p, [provider]: false }))
             setActionState(s => ({ ...s, [`${provider}_connect`]: 'success' }))
             setActionMsg(m => ({ ...m, [`${provider}_connect`]: t.settings.cloud.connectSuccess }))
           }
-          return prev
-        })
+        } catch { /* 서버 미연결 시 무시 */ }
       }, 2000)
       timers.push(timer)
     })
 
     return () => timers.forEach(clearInterval)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [polling, fetchStatus])
+  }, [polling])
 
   // ── 자격증명 저장 ──────────────────────────────
   // Python으로 치면: def save_config(provider, client_id, client_secret): requests.post('/api/cloud/config', ...)
@@ -390,8 +424,18 @@ export default function CloudSyncTab() {
   // Python으로 치면: def disconnect(provider): requests.delete(f'/api/cloud/{provider}/disconnect')
   async function disconnect(provider: Provider) {
     if (!confirm(t.settings.cloud.disconnectConfirm)) return
-    await fetch(`${BASE_URL}/api/cloud/${provider}/disconnect`, { method: 'DELETE' })
-    await fetchStatus()
+    const key = `${provider}_disconnect`
+    setActionState(s => ({ ...s, [key]: 'loading' }))
+    setActionMsg(m => ({ ...m, [key]: '' }))
+    try {
+      const r = await fetch(`${BASE_URL}/api/cloud/${provider}/disconnect`, { method: 'DELETE' })
+      if (!r.ok) throw new Error()
+      await fetchStatus()
+      setActionState(s => ({ ...s, [key]: 'idle' }))
+    } catch {
+      setActionState(s => ({ ...s, [key]: 'error' }))
+      setActionMsg(m => ({ ...m, [key]: t.settings.cloud.disconnectFail }))
+    }
   }
 
   // ── 업로드 ─────────────────────────────────────
@@ -411,6 +455,15 @@ export default function CloudSyncTab() {
       setActionState(s => ({ ...s, [key]: 'error' }))
       setActionMsg(m => ({ ...m, [key]: t.settings.cloud.uploadFail }))
     }
+  }
+
+  // ── OAuth 연결 취소 ────────────────────────────
+  // 폴링 중 사용자가 취소 → polling 리셋 + actionState 복원
+  // Python으로 치면: def cancel_connect(provider): self.polling[provider] = False; reset_state()
+  function cancelConnect(provider: Provider) {
+    setPolling(p => ({ ...p, [provider]: false }))
+    setActionState(s => ({ ...s, [`${provider}_connect`]: 'idle' }))
+    setActionMsg(m => ({ ...m, [`${provider}_connect`]: '' }))
   }
 
   // ── 다운로드 ────────────────────────────────────
@@ -439,7 +492,7 @@ export default function CloudSyncTab() {
     googleClientId, googleClientSecret, onedriveClientId,
     setGoogleClientId, setGoogleClientSecret, setOnedriveClientId,
     onUpload: upload, onDownload: download, onDisconnect: disconnect,
-    onSaveConfig: saveConfig, onConnect: connect,
+    onSaveConfig: saveConfig, onConnect: connect, onCancelConnect: cancelConnect,
     t,
   }
 
