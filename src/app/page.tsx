@@ -105,6 +105,8 @@ export default function Home() {
   const splitContainerRef = useRef<HTMLDivElement>(null)
   // 스플릿 드래그 중 mousemove 핸들러 ref — 언마운트 시 좀비 리스너 방지
   const splitMoveRef = useRef<((e: MouseEvent) => void) | null>(null)
+  // mouseup 핸들러 ref — 드래그 도중 언마운트 시 document.mouseup 리스너도 함께 제거
+  const splitMouseUpRef = useRef<(() => void) | null>(null)
   // 메인 에디터 스크롤 컨테이너 ref — 페이지 전환 시 스크롤 위치 복원에 사용
   // Python으로 치면: self.editor_scroll = QScrollArea()
   const editorScrollRef = useRef<HTMLDivElement>(null)
@@ -115,9 +117,9 @@ export default function Home() {
   // Python으로 치면: self._prev_page_id: str | None = None
   const prevPageIdRef = useRef<string | null>(null)
 
-  // 플러그인 설정 + 집중 모드 상태/토글
-  // Python으로 치면: plugins, is_focus_mode = settings.plugins, settings.is_focus_mode
-  const { plugins, isFocusMode, toggleFocusMode } = useSettingsStore()
+  // 플러그인 설정 + 집중 모드 + 초기 스타일 복원용 값 — 단일 구독으로 통합
+  // Python으로 치면: plugins, is_focus_mode, theme, ... = settings.__dict__
+  const { plugins, isFocusMode, toggleFocusMode, theme, fontFamily, fontSize, lineHeight, editorMaxWidth, themePreset, loadRoutinesFromFile } = useSettingsStore()
 
   // -----------------------------------------------
   // Ctrl+Alt+N 단축키 → 빠른 노트 팝업 열기
@@ -203,27 +205,46 @@ export default function Home() {
   //   def on_split_resize_start(e):
   //       self.is_resizing = True; attach_mousemove_handler()
   // -----------------------------------------------
-  function handleSplitResizeStart(e: React.MouseEvent) {
+  // useCallback([]): splitContainerRef/splitMoveRef/splitMouseUpRef는 ref(stable), setSplitRatio는 setter(stable)
+  // Python으로 치면: @cached_property def handle_split_resize_start(self): ...
+  const handleSplitResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
+    // 이전 드래그 중 mousedown이 재발생하면 이전 리스너 누출 방지 — 덮어쓰기 전 명시적 제거
+    if (splitMoveRef.current) {
+      document.removeEventListener('mousemove', splitMoveRef.current)
+      splitMoveRef.current = null
+    }
+    if (splitMouseUpRef.current) {
+      document.removeEventListener('mouseup', splitMouseUpRef.current)
+      splitMouseUpRef.current = null
+    }
     const onMove = (ev: MouseEvent) => {
       const rect = splitContainerRef.current?.getBoundingClientRect()
       if (!rect) return
       setSplitRatio(Math.max(0.2, Math.min(0.8, (ev.clientX - rect.left) / rect.width)))
     }
-    splitMoveRef.current = onMove  // 언마운트 cleanup용 참조 저장
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', () => {
+    const onMouseUp = () => {
       document.removeEventListener('mousemove', onMove)
       splitMoveRef.current = null
-    }, { once: true })
-  }
+      splitMouseUpRef.current = null
+    }
+    splitMoveRef.current = onMove          // mousemove cleanup용 참조 저장
+    splitMouseUpRef.current = onMouseUp   // mouseup cleanup용 참조 저장
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onMouseUp, { once: true })
+  }, [])
 
   // 언마운트 시 스플릿 드래그 리스너 정리 — 드래그 중 페이지 이동 등으로 좀비 리스너 방지
-  // Python으로 치면: def __del__(self): detach(self._split_move_handler)
+  // mouseup 리스너도 함께 제거해 { once: true } 콜백이 메모리에 남지 않도록 처리
+  // Python으로 치면: def __del__(self): detach(self._split_move_handler); detach(self._split_mouseup_handler)
   useEffect(() => () => {
     if (splitMoveRef.current) {
       document.removeEventListener('mousemove', splitMoveRef.current)
       splitMoveRef.current = null
+    }
+    if (splitMouseUpRef.current) {
+      document.removeEventListener('mouseup', splitMouseUpRef.current)
+      splitMouseUpRef.current = null
     }
   }, [])
 
@@ -232,7 +253,6 @@ export default function Home() {
   // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
   // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
   // -----------------------------------------------
-  const { theme, fontFamily, fontSize, lineHeight, editorMaxWidth, themePreset, loadRoutinesFromFile } = useSettingsStore()
   useEffect(() => {
     applyTheme(theme)
     // 색상 테마 프리셋 복원 — html[data-theme] 속성 설정
@@ -288,12 +308,20 @@ export default function Home() {
     if (!editorScrollRef.current || !currentPageId) return
 
     // 저장된 스크롤 위치 복원 (처음 방문이면 0)
-    // requestAnimationFrame: key 교체로 새 PageEditor가 DOM에 마운트된 후 스크롤 적용
+    // 이중 RAF: 첫 번째 RAF는 React 리렌더 직후, 두 번째는 Tiptap 초기화 포함한 레이아웃 완료 후
+    // 단일 RAF만 쓰면 key 교체 후 Tiptap이 아직 마운트되지 않아 scrollTop이 0으로 리셋될 수 있음
     const saved = scrollPositions.current.get(currentPageId) ?? 0
-    const rafId = requestAnimationFrame(() => {
-      if (editorScrollRef.current) editorScrollRef.current.scrollTop = saved
+    let outerRafId: number
+    let innerRafId = 0  // 0: outer RAF 캔슬 시 inner는 미실행 → cancelAnimationFrame(0)은 no-op
+    outerRafId = requestAnimationFrame(() => {
+      innerRafId = requestAnimationFrame(() => {
+        if (editorScrollRef.current) editorScrollRef.current.scrollTop = saved
+      })
     })
-    return () => cancelAnimationFrame(rafId)
+    return () => {
+      cancelAnimationFrame(outerRafId)
+      cancelAnimationFrame(innerRafId)
+    }
   }, [currentPageId])
 
   // -----------------------------------------------
@@ -329,7 +357,14 @@ export default function Home() {
     // 이미 알림된 항목 ID 집합 (새로고침 후 중복 방지)
     // Python으로 치면: notified = set(json.loads(localStorage['notion-clone-notified']))
     const notifiedRaw = localStorage.getItem('notion-clone-notified')
-    const notified = new Set<string>(notifiedRaw ? JSON.parse(notifiedRaw) : [])
+    // JSON.parse 실패(손상된 localStorage) 시 빈 Set으로 폴백
+    // Python으로 치면: notified = set(json.loads(raw)) if raw else set()
+    let notified: Set<string>
+    try {
+      notified = new Set<string>(notifiedRaw ? JSON.parse(notifiedRaw) : [])
+    } catch {
+      notified = new Set<string>()
+    }
 
     // reminder=true + 날짜가 오늘이거나 이미 지난 속성 탐색
     // Python으로 치면: targets = [(page, prop) for page in pages for prop in page.properties if prop.reminder and prop.value <= today]
@@ -348,20 +383,21 @@ export default function Home() {
 
     // Notification 권한 요청 → 알림 발송
     // Python으로 치면: Notification.requestPermission().then(lambda p: send_if_granted(p))
+    // target: 외부 스코프의 로케일 변수 t와 충돌하지 않도록 루프 변수명을 target으로 변경
     Notification.requestPermission().then(permission => {
       if (permission !== 'granted') return
-      for (const t of targets) {
-        new Notification(`📅 ${t.pageTitle}`, {
-          body: `${t.propName} 알림`,
+      for (const target of targets) {
+        new Notification(`📅 ${target.pageTitle}`, {
+          body: t.property.reminderNotify.replace('{propName}', target.propName),
           icon: '/favicon.ico',
         })
-        notified.add(t.propId)
+        notified.add(target.propId)
       }
       // 알림된 항목 저장 (최대 500개 유지)
       const arr = [...notified].slice(-500)
       localStorage.setItem('notion-clone-notified', JSON.stringify(arr))
     })
-  }, [reminderKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [reminderKey, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------
   // ISO 8601 주차 계산 헬퍼 (1월 첫째 목요일이 속한 주 = 1주)
@@ -574,7 +610,7 @@ export default function Home() {
 
       const isUndo = e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'
       const isRedo = e.ctrlKey && (
-        e.key.toLowerCase() === 'y' ||
+        (!e.shiftKey && e.key.toLowerCase() === 'y') ||
         (e.shiftKey && e.key.toLowerCase() === 'z')
       )
 
@@ -623,7 +659,9 @@ export default function Home() {
   // Python으로 치면: def on_state_change(): local_storage.save(session)
   // -----------------------------------------------
   useEffect(() => {
-    if (openTabs.length === 0) return
+    // openTabs도 없고 currentPageId도 없으면 아직 초기화 전 → 저장 스킵
+    // openTabs가 비어있어도 currentPageId나 splitRatio 변경은 저장해야 함
+    if (openTabs.length === 0 && !currentPageId) return
     try {
       localStorage.setItem('notion-clone-session', JSON.stringify({
         openTabs,
@@ -785,7 +823,10 @@ export default function Home() {
   //       elif active.type == 'page' and over.type == 'page':
   //           reorder_pages(active.id, over.id)
   // -----------------------------------------------
-  function handleDragEnd(event: DragEndEvent) {
+  // useCallback([categoryOrder, categoryChildOrder]): indexOf 계산에 배열 클로저 필요
+  // Zustand 액션들(movePageToCategory 등)은 stable reference → deps 불필요
+  // Python으로 치면: @lru_cache(lambda self: (self.category_order, self.child_order))
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event
     if (!over) return
 
@@ -834,7 +875,7 @@ export default function Home() {
       // 메모 목록 내 순서 변경
       reorderPages(active.id as string, over.id as string)
     }
-  }
+  }, [categoryOrder, categoryChildOrder, movePageToCategory, reorderCategories, reorderChildCategories, moveCategoryToParent, reorderPages])
 
   return (
     // -----------------------------------------------

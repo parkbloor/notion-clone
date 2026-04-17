@@ -1386,6 +1386,7 @@ export const ko = {
     tagDelete: '{tag} 태그 삭제',
     reminderOn: '알림 끄기',
     reminderOff: '이 날짜에 알림 받기',
+    reminderNotify: '{propName} 알림',
     weatherFetch: '{city} 날씨 가져오기',
     weatherNoCity: '설정 > 편집기 탭에서 위치를 먼저 설정하세요',
     weatherRefresh: '날씨 새로고침',

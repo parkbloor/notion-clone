@@ -1384,6 +1384,7 @@ export const en: Locale = {
     tagDelete: 'Remove {tag} tag',
     reminderOn: 'Turn off reminder',
     reminderOff: 'Get reminder on this date',
+    reminderNotify: '{propName} reminder',
     weatherFetch: 'Get weather for {city}',
     weatherNoCity: 'Set location in Settings > Editor tab first',
     weatherRefresh: 'Refresh weather',

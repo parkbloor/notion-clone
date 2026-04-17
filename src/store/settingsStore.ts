@@ -523,6 +523,10 @@ export const useSettingsStore = create<SettingsStore>()(
       // localStorage 키 이름
       name: 'notion-clone-settings',
 
+      // isFocusMode는 휘발성 — 앱 재시작 시 항상 false로 시작 (false로 고정 직렬화)
+      // Python으로 치면: serialized['is_focus_mode'] = False  # 세션 상태는 저장하지 않음
+      partialize: (state) => ({ ...state, isFocusMode: false }),
+
       // ── 스토어 버전 관리 ────────────────────────
       // 새 키 추가 시: version 증가 + migrate에 해당 버전 블록 추가
       // Python으로 치면: SCHEMA_VERSION = 1; def migrate(old, from_ver): ...
@@ -542,7 +546,8 @@ export const useSettingsStore = create<SettingsStore>()(
           //   문제: Zustand persist는 최상위만 shallow merge → plugins 통째로 교체됨
           //   → 새 플러그인 키(globalAiChat, math, arrowConnect 등) 누락 버그
           //   해결: 저장된 plugins에 없는 키만 기본값으로 채움 (기존 OFF 설정 유지)
-          const defaultPlugins: Record<string, boolean> = {
+          // PluginSettings 타입 사용 → 새 키 추가 시 TypeScript가 누락 감지
+          const defaultPlugins: PluginSettings = {
             kanban: true, calendar: true, admonition: true, excalidraw: false,
             recentFiles: true, quickAdd: true, wordCount: true, focusMode: true,
             pomodoro: true, tableOfContents: true, periodicNotes: true, canvas: true,
@@ -550,14 +555,17 @@ export const useSettingsStore = create<SettingsStore>()(
             chart: true, gantt: true, mindmap: true, globalAiChat: true, math: true,
             arrowConnect: true,
           }
-          const saved = (state.plugins ?? {}) as Record<string, boolean>
+          // localStorage 손상 시 plugins가 객체가 아닐 수 있으므로 타입 방어
+          const saved = (state.plugins && typeof state.plugins === 'object')
+            ? (state.plugins as Partial<PluginSettings>)
+            : {}
           state.plugins = { ...defaultPlugins, ...saved }
 
           // plannerRoutines 누락 또는 잘못된 타입 시 빈 배열로 초기화
           if (!Array.isArray(state.plannerRoutines)) state.plannerRoutines = []
 
           // periodicNoteTemplates 누락 시 기본값
-          if (!state.periodicNoteTemplates || typeof state.periodicNoteTemplates !== 'object') {
+          if (state.periodicNoteTemplates == null || typeof state.periodicNoteTemplates !== 'object') {
             state.periodicNoteTemplates = { daily: '', weekly: '', monthly: '', quarterly: '', yearly: '' }
           }
 

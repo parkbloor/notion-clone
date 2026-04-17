@@ -96,7 +96,13 @@ export const usePageStore = create<PageStore>()(
         state.selectedBlockIds = []
         state.layoutDescriptors = {}
         state.magazineModePages = {}
+        // 볼트 전환 시 휘발성 필드도 초기화
+        state.recentPageIds = []
+        state.pendingFocusBlockId = null
+        state.saveStatus = 'saved'
       })
+      // 볼트 전환 시 모든 페이지 히스토리 초기화 — 이전 볼트 항목이 메모리에 잔류하지 않도록
+      pageHistoryMap.clear()
     },
 
     // -----------------------------------------------
@@ -123,6 +129,7 @@ export const usePageStore = create<PageStore>()(
               state.pages = [initialPage]
             }
             state.currentPageId = initialPage.id
+            state.openTabs = [initialPage.id]
           })
           return
         }
@@ -191,6 +198,10 @@ export const usePageStore = create<PageStore>()(
         set((state) => {
           state.pages.push(serverPage)
           state.currentPageId = serverPage.id
+          // 탭 목록에 추가 — setCurrentPage 액션과 동일한 tab 관리 로직
+          if (!state.openTabs.includes(serverPage.id)) {
+            state.openTabs.push(serverPage.id)
+          }
           // categoryId가 있으면 categoryMap에 기록
           if (categoryId) {
             state.categoryMap[serverPage.id] = categoryId
@@ -205,6 +216,10 @@ export const usePageStore = create<PageStore>()(
         set((state) => {
           state.pages.push(newPage)
           state.currentPageId = newPage.id
+          // 탭 목록에 추가 (오프라인 폴백도 동일하게 tab 관리)
+          if (!state.openTabs.includes(newPage.id)) {
+            state.openTabs.push(newPage.id)
+          }
           if (categoryId) {
             state.categoryMap[newPage.id] = categoryId
           }
@@ -283,14 +298,18 @@ export const usePageStore = create<PageStore>()(
     deletePage: (pageId) => {
       set((state) => {
         state.pages = state.pages.filter(p => p.id !== pageId)
-        // 탭 목록에서도 제거
+        // 탭 목록에서도 제거 — closeTab과 동일하게 이전 탭(idx-1)으로 전환
         // Python으로 치면: open_tabs = [t for t in open_tabs if t != page_id]
+        const tabIdx = state.openTabs.indexOf(pageId)
         state.openTabs = state.openTabs.filter(id => id !== pageId)
         if (state.currentPageId === pageId) {
-          // 이전 탭으로 전환하거나 남은 첫 페이지로 전환
-          state.currentPageId = state.openTabs.length > 0
-            ? state.openTabs[state.openTabs.length - 1]
-            : state.pages.length > 0 ? state.pages[0].id : null
+          if (state.openTabs.length > 0) {
+            // closeTab과 동일 로직: 이전 탭, 없으면 현재 위치 탭
+            const nextIdx = Math.max(0, tabIdx - 1)
+            state.currentPageId = state.openTabs[nextIdx] ?? state.openTabs[0]
+          } else {
+            state.currentPageId = state.pages.length > 0 ? state.pages[0].id : null
+          }
         }
         if (state.pages.length === 0) {
           const newPage = createPage('첫 번째 페이지')
@@ -301,6 +320,8 @@ export const usePageStore = create<PageStore>()(
         // categoryMap에서도 제거
         delete state.categoryMap[pageId]
       })
+      // 페이지 히스토리 Map 정리 — 삭제된 페이지 항목이 메모리에 남지 않도록
+      pageHistoryMap.delete(pageId)
       api.deletePage(pageId).catch(() => {})
     },
 
@@ -463,12 +484,18 @@ export const usePageStore = create<PageStore>()(
           ...page,
           id: newId,
           title: page.title + ' (복사본)',
-          // 블록도 새 ID로 복사
+          // 블록도 새 ID로 복사 — children(토글 자식)까지 재귀적으로 새 ID 부여
           blocks: page.blocks.map(b => ({
             ...b,
             id: crypto.randomUUID(),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
+            children: b.children?.map(c => ({
+              ...c,
+              id: crypto.randomUUID(),
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            })),
           })),
           starred: false, // 복사본은 즐겨찾기 해제
           createdAt: new Date().toISOString(),
@@ -759,7 +786,14 @@ export const usePageStore = create<PageStore>()(
         // 블록 순서를 유지하며 각 선택 블록 바로 뒤에 복제본 삽입
         page.blocks = page.blocks.flatMap(b => {
           if (!toClone.has(b.id)) return [b]
-          const clone: Block = { ...b, id: crypto.randomUUID(), createdAt: now, updatedAt: now }
+          // children(토글 자식)도 새 ID로 복사 — duplicateBlock과 동일 패턴
+          const clone: Block = {
+            ...b,
+            id: crypto.randomUUID(),
+            createdAt: now,
+            updatedAt: now,
+            children: b.children?.map(c => ({ ...c, id: crypto.randomUUID(), createdAt: now, updatedAt: now })),
+          }
           newBlocks.push(clone.id)
           return [b, clone]
         })
@@ -899,11 +933,18 @@ export const usePageStore = create<PageStore>()(
         const index = page.blocks.findIndex(b => b.id === blockId)
         if (index === -1) return
         const original = page.blocks[index]
+        // children(토글 자식)도 새 ID로 복사 — 같은 페이지에 중복 ID 방지
         const duplicate: Block = {
           ...original,
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
+          children: original.children?.map(c => ({
+            ...c,
+            id: crypto.randomUUID(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          })),
         }
         page.blocks.splice(index + 1, 0, duplicate)
         state.historyVersion++
@@ -1168,10 +1209,25 @@ export const usePageStore = create<PageStore>()(
           } else {
             delete state.categoryMap[pageId]
           }
-          // 이미지 URL이 바뀐 경우 pages 업데이트
+          // 이미지 URL이 바뀐 경우 pages 업데이트 — 로컬 전용 필드 보존
+          // Python으로 치면: merged = {**server_page, **{k: local[k] for k in local_only}}
           if (result.page) {
             const idx = state.pages.findIndex(p => p.id === pageId)
-            if (idx !== -1) state.pages[idx] = result.page!
+            if (idx !== -1) {
+              const local = state.pages[idx]
+              // local.blocks 순서 기준으로 서버↔로컬 병합 — scheduleSave/saveNow와 동일 패턴
+              // Python으로 치면: [merged_map.get(b.id, b) for b in local.blocks]
+              const mergedById = new Map(result.page!.blocks.map(b => [b.id, b]))
+              state.pages[idx] = {
+                ...result.page!,
+                properties: local.properties,
+                isLocked: local.isLocked,
+                lockPin: local.lockPin,
+                canvasMode: local.canvasMode,
+                canvasBoxes: local.canvasBoxes,
+                blocks: local.blocks.map(b => mergedById.get(b.id) ?? b),
+              }
+            }
           }
         })
       } catch {

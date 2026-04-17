@@ -38,7 +38,7 @@ export function scheduleSave(
     const page = state0.pages.find(p => p.id === pageId)
     // 신규 페이지(로컬 폴백으로 생성된 경우) categoryId 전달 → 서버가 카테고리 폴더에 배치
     // Python으로 치면: cat_id = state.category_map.get(page_id)
-    const categoryId = state0.categoryMap?.[pageId] ?? null
+    const categoryId = state0.categoryMap[pageId] ?? null
     if (page) {
       try {
         const updatedPage = await api.savePage(pageId, page, categoryId)
@@ -68,13 +68,18 @@ export function scheduleSave(
                   children: localBlock.children,
                 }
               })
+              // local.blocks 순서 기준으로 인터리브 — merged 결과 있으면 merged, 없으면 local 원본(신규 블록)
+              // [...mergedBlocks, ...newLocalBlocks] 패턴은 신규 블록을 맨 끝으로 밀어버리므로 위치 손실 발생
+              // Python으로 치면: [merged_map.get(b.id, b) for b in local.blocks]
+              const mergedById = new Map(mergedBlocks.map(b => [b.id, b]))
               state.pages[idx] = {
                 ...updatedPage,
                 properties: local.properties,
                 isLocked: local.isLocked,
+                lockPin: local.lockPin,
                 canvasMode: local.canvasMode,
                 canvasBoxes: local.canvasBoxes,
-                blocks: mergedBlocks,
+                blocks: local.blocks.map(b => mergedById.get(b.id) ?? b),
               }
             }
           })
@@ -109,7 +114,7 @@ export async function saveNow(
   const state0 = getState()
   const page = state0.pages.find(p => p.id === pageId)
   if (!page) return
-  const categoryId = state0.categoryMap?.[pageId] ?? null
+  const categoryId = state0.categoryMap[pageId] ?? null
   setState((state) => { state.saveStatus = 'saving' })
   try {
     const updatedPage = await api.savePage(pageId, page, categoryId)
@@ -136,13 +141,17 @@ export async function saveNow(
               children: localBlock.children,
             }
           })
+          // local.blocks 순서 기준으로 인터리브 — merged 결과 있으면 merged, 없으면 local 원본(신규 블록)
+          // Python으로 치면: [merged_map.get(b.id, b) for b in local.blocks]
+          const mergedById = new Map(mergedBlocks.map(b => [b.id, b]))
           state.pages[idx] = {
             ...updatedPage,
             properties: local.properties,
             isLocked: local.isLocked,
+            lockPin: local.lockPin,
             canvasMode: local.canvasMode,
             canvasBoxes: local.canvasBoxes,
-            blocks: mergedBlocks,
+            blocks: local.blocks.map(b => mergedById.get(b.id) ?? b),
           }
         }
       })
