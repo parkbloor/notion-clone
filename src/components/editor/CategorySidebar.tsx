@@ -26,7 +26,7 @@ import DraggablePageRow from '@/components/sidebar/DraggablePageRow'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 // 테이블 뷰 아이콘
-import { Table2, ChevronsDown, ChevronsUp, GitFork } from 'lucide-react'
+import { Table2, ChevronsDown, ChevronsUp, GitFork, Settings, Trash2 } from 'lucide-react'
 
 
 // -----------------------------------------------
@@ -405,11 +405,13 @@ export default function CategorySidebar({
               }}
               onBlur={() => { if (!childFolderName.trim()) setAddingChildOf(null) }}
               placeholder={t.sidebar.subfolderPlaceholder}
-              className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-gray-300 rounded outline-none"
+              className="flex-1 min-w-0 px-2 py-1 text-xs rounded outline-none border"
+              style={{ background: "var(--color-surface)", borderColor: "var(--color-border-strong)", color: "var(--color-text)" }}
             />
             <button
               onClick={() => handleAddChildFolder(catId)}
-              className="px-1.5 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 shrink-0"
+              className="px-1.5 py-1 text-xs rounded shrink-0 transition-colors"
+              style={{ background: "var(--color-accent)", color: "#fff" }}
             >
               {t.common.confirm}
             </button>
@@ -472,11 +474,13 @@ export default function CategorySidebar({
                   }}
                   onBlur={() => { if (!newPageName.trim()) setAddingPageInCat(null) }}
                   placeholder={t.sidebar.newNote + '...'}
-                  className="flex-1 min-w-0 px-2 py-1 text-xs bg-white border border-gray-300 rounded outline-none"
+                  className="flex-1 min-w-0 px-2 py-1 text-xs rounded outline-none border"
+              style={{ background: "var(--color-surface)", borderColor: "var(--color-border-strong)", color: "var(--color-text)" }}
                 />
                 <button
                   onClick={() => handleAddPageInCat(catId)}
-                  className="px-1.5 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 shrink-0"
+                  className="px-1.5 py-1 text-xs rounded shrink-0 transition-colors"
+              style={{ background: "var(--color-accent)", color: "#fff" }}
                 >
                   {t.common.confirm}
                 </button>
@@ -513,13 +517,13 @@ export default function CategorySidebar({
   // ── 접힘 모드 렌더링 ────────────────────────────
   if (sidebarCollapsed) {
     return (
-      <aside className="w-12 h-screen bg-[#ede9e4] dark:bg-[#1e1e1e] flex flex-col shrink-0 transition-[width] duration-200">
+      <aside className="w-12 h-screen flex flex-col shrink-0 transition-[width] duration-200 border-r hairline">
         {/* 헤더: 펼치기 버튼 */}
-        <div className="px-2 py-3 border-b border-gray-200 flex items-center justify-center">
+        <div className="px-2 py-3 border-b hairline flex items-center justify-center">
           <button
             onClick={toggleSidebarCollapsed}
             title={t.sidebar.expandSidebar}
-            className="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm font-bold"
+            className="icon-btn w-7 h-7 text-sm font-bold"
           >
             ›
           </button>
@@ -531,7 +535,14 @@ export default function CategorySidebar({
             <button
               onClick={() => setCurrentCategory(null)}
               title={t.sidebar.allPages}
-              className={isOverAll ? "w-full flex items-center justify-center py-2 rounded-md text-base bg-blue-100 text-blue-800" : currentCategoryId === null ? "w-full flex items-center justify-center py-2 rounded-md text-base bg-gray-200 text-gray-900" : "w-full flex items-center justify-center py-2 rounded-md text-base text-gray-600 hover:bg-gray-100"}
+              className="w-full flex items-center justify-center py-2 rounded-md text-base transition-colors"
+              style={isOverAll
+                ? { background: "var(--color-accent-soft)", color: "var(--color-accent-ink)" }
+                : currentCategoryId === null
+                  ? { background: "var(--color-active)", color: "var(--color-text)" }
+                  : { color: "var(--color-text-muted)" }}
+              onMouseEnter={e => { if (currentCategoryId !== null && !isOverAll) (e.currentTarget as HTMLElement).style.background = "var(--color-hover)" }}
+              onMouseLeave={e => { if (currentCategoryId !== null && !isOverAll) (e.currentTarget as HTMLElement).style.background = "" }}
             >
               📋
             </button>
@@ -552,11 +563,11 @@ export default function CategorySidebar({
         </div>
 
         {/* 하단 버튼들 */}
-        <div className="mt-auto px-1.5 py-3 border-t border-gray-200 flex flex-col gap-1">
+        <div className="mt-auto px-1.5 py-3 border-t hairline flex flex-col gap-1">
           <button
             onClick={() => setNewPageDialogOpen(true)}
             title={t.sidebar.newNote}
-            className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
+            className="icon-btn w-full py-2 h-auto text-base"
           >
             📄
           </button>
@@ -564,7 +575,7 @@ export default function CategorySidebar({
             type="button"
             onClick={onOpenSettings}
             title={t.sidebar.settings}
-            className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
+            className="icon-btn w-full py-2 h-auto text-base"
           >
             ⚙️
           </button>
@@ -572,7 +583,7 @@ export default function CategorySidebar({
             type="button"
             onClick={onOpenTrash}
             title={t.sidebar.trash}
-            className="w-full flex items-center justify-center py-2 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base"
+            className="icon-btn w-full py-2 h-auto text-base"
           >
             🗑️
           </button>
@@ -589,102 +600,51 @@ export default function CategorySidebar({
   return (
     <>
       <aside
-        style={{ width: `${sidebarWidth}px` }}
-        className="h-screen bg-[#ede9e4] dark:bg-[#1e1e1e] flex flex-col shrink-0 relative"
+        style={{ width: `${sidebarWidth}px`, background: "var(--color-surface)" }}
+        className="h-screen flex flex-col shrink-0 relative border-r hairline"
       >
 
-        {/* ── 헤더 ────────────────────────────────── */}
-        <div className="px-2 py-2.5 border-b border-black/5 dark:border-white/5 flex items-center gap-1">
+        {/* ── 헤더 — 접기 + 볼트명 + 펼치기/접기 + DB뷰 ── */}
+        <div className="px-2 py-2 border-b hairline flex items-center gap-1">
           {/* 접기 버튼 */}
           <button
             onClick={toggleSidebarCollapsed}
             title={t.sidebar.collapseSidebar}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm font-bold shrink-0"
+            className="icon-btn text-sm font-bold shrink-0"
           >
             ‹
           </button>
 
-          {/* 볼트 이름 + NOTES 부제 */}
+          {/* 볼트 이름 */}
           <div className="flex-1 px-1 min-w-0">
             {currentVaultName ? (
-              <div className="truncate text-xs font-semibold text-gray-600 dark:text-gray-300 leading-tight">
+              <div className="truncate text-xs font-semibold leading-tight" style={{ color: "var(--color-text-muted)" }}>
                 🗂 {currentVaultName}
               </div>
             ) : (
-              <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
-                {t.sidebar.notes}
-              </span>
+              <span className="label">{t.sidebar.notes}</span>
             )}
           </div>
 
-          {/* 전체 펼치기 버튼 */}
-          <button
-            type="button"
-            onClick={expandAllFolders}
-            title={t.sidebar.expandAllFolders}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
-          >
+          {/* 전체 펼치기 */}
+          <button type="button" onClick={expandAllFolders} title={t.sidebar.expandAllFolders} className="icon-btn shrink-0">
             <ChevronsDown size={13} />
           </button>
 
-          {/* 전체 접기 버튼 */}
-          <button
-            type="button"
-            onClick={collapseAllFolders}
-            title={t.sidebar.collapseAllFolders}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
-          >
+          {/* 전체 접기 */}
+          <button type="button" onClick={collapseAllFolders} title={t.sidebar.collapseAllFolders} className="icon-btn shrink-0">
             <ChevronsUp size={13} />
           </button>
 
-          {/* 그래프 뷰 버튼 (Ctrl+G) */}
-          <button
-            type="button"
-            onClick={onOpenGraphView}
-            title={`${t.sidebar.graphView} (Ctrl+G)`}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"
-          >
-            <GitFork size={13} />
-          </button>
-
-          {/* 데이터베이스 테이블 뷰 버튼 */}
+          {/* 데이터베이스 테이블 뷰 */}
           <button
             type="button"
             onClick={onToggleDbView}
             title={t.sidebar.tableView}
-            className={dbViewActive
-              ? "flex items-center justify-center w-6 h-6 rounded-md text-blue-500 bg-blue-50 transition-colors shrink-0"
-              : "flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors shrink-0"}
+            className="icon-btn shrink-0"
+            style={dbViewActive ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
           >
             <Table2 size={13} />
-          </button>
-
-          {/* 새 메모 버튼 */}
-          <button
-            onClick={() => setNewPageDialogOpen(true)}
-            title={t.sidebar.newNote}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-base shrink-0"
-          >
-            📄
-          </button>
-
-          {/* 설정 버튼 */}
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            title={t.sidebar.settings}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm shrink-0"
-          >
-            ⚙️
-          </button>
-          {/* 휴지통 버튼 */}
-          <button
-            type="button"
-            onClick={onOpenTrash}
-            title={t.sidebar.trash}
-            className="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-colors text-sm shrink-0"
-          >
-            🗑️
           </button>
         </div>
 
@@ -733,10 +693,48 @@ export default function CategorySidebar({
         {/* ===================================================== */}
         {sidebarTab === 'notes' && (
           <>
-        {/* ── 검색바 ───────────────────────────────── */}
-        <div className="px-2 py-2 border-b border-gray-100 shrink-0">
-          <div className="flex items-center gap-1.5 px-2 py-1.5 bg-white border border-gray-200 rounded-md focus-within:border-blue-400 transition-colors">
-            <span className="text-gray-400 text-xs shrink-0">🔍</span>
+        {/* ── 새 노트 CTA 버튼 영역 ───────────────────
+            accent 풀-width 버튼 + 캘린더·그래프 아이콘
+            Python으로 치면: cta_bar = HBox([NewNoteButton(), CalBtn(), GraphBtn()]) */}
+        <div className="px-3 py-2 border-b hairline shrink-0 flex items-center gap-1.5">
+          <button
+            onClick={() => setNewPageDialogOpen(true)}
+            title={t.sidebar.newNote}
+            className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[12px] font-semibold"
+            style={{ background: "var(--color-accent)", color: "#fff" }}
+          >
+            <span className="text-[14px] leading-none">+</span>
+            <span>{t.sidebar.newNote}</span>
+          </button>
+          {/* 캘린더 탭 빠른 이동 */}
+          <button
+            type="button"
+            onClick={() => { setSidebarTab('plan'); setSelectedDate(null) }}
+            title={t.sidebar.tabPlan}
+            className="icon-btn shrink-0"
+          >
+            📅
+          </button>
+          {/* 그래프 뷰 */}
+          <button
+            type="button"
+            onClick={onOpenGraphView}
+            title={`${t.sidebar.graphView} (Ctrl+G)`}
+            className="icon-btn shrink-0"
+          >
+            <GitFork size={14} />
+          </button>
+        </div>
+
+        {/* ── 검색바 ─────────────────────────────────
+            --bg-sunken 배경 + ⌘P 단축키 힌트 표시
+            Python으로 치면: SearchBar(placeholder="페이지 검색", hint="⌘P") */}
+        <div className="px-2 py-2 border-b hairline shrink-0">
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-colors"
+            style={{ background: "var(--color-sunken)", border: "1px solid transparent" }}
+          >
+            <span className="text-[12px] shrink-0" style={{ color: "var(--color-text-subtle)" }}>🔍</span>
             <input
               ref={searchInputRef}
               type="text"
@@ -746,16 +744,20 @@ export default function CategorySidebar({
                 if (e.key === 'Escape') { setSearchQuery(''); searchInputRef.current?.blur() }
               }}
               placeholder={t.sidebar.searchPlaceholder}
-              className="flex-1 text-xs bg-transparent outline-none text-gray-700 placeholder:text-gray-400"
+              className="flex-1 text-xs bg-transparent outline-none"
+              style={{ color: "var(--color-text)" }}
             />
-            {searchQuery && (
+            {searchQuery ? (
               <button
                 type="button"
                 onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }}
-                className="text-gray-400 hover:text-gray-600 text-xs shrink-0"
+                className="text-xs shrink-0"
+                style={{ color: "var(--color-text-subtle)" }}
               >
                 ✕
               </button>
+            ) : (
+              <span className="kbd shrink-0">⌘P</span>
             )}
           </div>
         </div>
@@ -765,53 +767,61 @@ export default function CategorySidebar({
             클릭 시 해당 태그 필터 ON/OFF (다중 선택 가능)
             Python으로 치면: tag_browser = TagBrowser(all_tags_with_count) */}
         {allTagsWithCount.length > 0 && (
-          <div className="border-b border-gray-100 shrink-0">
+          <div className="border-b hairline shrink-0">
             <button
               type="button"
               onClick={() => setTagSectionOpen(v => !v)}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-medium text-gray-400 uppercase tracking-wide hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center justify-between px-3 py-1.5 hover:bg-(--color-hover) transition-colors"
             >
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1 label">
                 <span>🏷</span>
                 <span>{t.sidebar.tags}</span>
                 {selectedTags.size > 0 && (
-                  <span className="ml-0.5 px-1 py-0 rounded-full bg-blue-500 text-white text-[9px] leading-4">
+                  <span className="ml-0.5 px-1 py-0 rounded-full text-[9px] leading-4" style={{ background: "var(--color-accent)", color: "#fff" }}>
                     {selectedTags.size}
                   </span>
                 )}
               </span>
-              <span className="text-gray-300">{tagSectionOpen ? '▾' : '▸'}</span>
+              <span style={{ color: "var(--color-text-faint)", fontSize: "10px" }}>{tagSectionOpen ? '▾' : '▸'}</span>
             </button>
             {tagSectionOpen && (
-              <div className="px-2 pb-2">
-                <div className="flex flex-wrap gap-1">
-                  {allTagsWithCount.map(([tag, count]) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => {
-                        setSelectedTags(prev => {
-                          const next = new Set(prev)
-                          if (next.has(tag)) { next.delete(tag) } else { next.add(tag) }
-                          return next
-                        })
-                      }}
-                      title={`#${tag} — ${count}${t.sidebar.pagesCountSuffix}`}
-                      className={selectedTags.has(tag)
-                        ? "inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-full bg-blue-500 text-white transition-colors"
-                        : "inline-flex items-center gap-0.5 px-2 py-0.5 text-[10px] rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"}
-                    >
-                      <span className="text-[9px] opacity-60">#</span>
-                      <span>{tag}</span>
-                      <span className={selectedTags.has(tag) ? "opacity-70" : "opacity-50"}>({count})</span>
-                    </button>
-                  ))}
+              <div className="px-2 pb-2.5 pt-1">
+                <div className="flex flex-wrap gap-1.5">
+                  {allTagsWithCount.map(([tag, count]) => {
+                    // tag 문자열 hash → 팔레트 색상 결정
+                    const TAG_PALETTE = ['#5B7F5A','#4A6B8A','#B88A5A','#8A7BAA','#B85A8A','#5A8AB8','#8A5A5A','#5A8A7B']
+                    const dotColor = TAG_PALETTE[tag.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % TAG_PALETTE.length]
+                    const isOn = selectedTags.has(tag)
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          setSelectedTags(prev => {
+                            const next = new Set(prev)
+                            if (next.has(tag)) { next.delete(tag) } else { next.add(tag) }
+                            return next
+                          })
+                        }}
+                        title={`#${tag} — ${count}${t.sidebar.pagesCountSuffix}`}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full transition-colors"
+                        style={isOn
+                          ? { background: dotColor + '28', border: `1px solid ${dotColor}66`, color: dotColor }
+                          : { background: "var(--color-sunken)", border: "1px solid var(--color-border)", color: "var(--color-text-muted)" }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+                        <span className="text-[10.5px]">{tag}</span>
+                        <span className="text-[9.5px]" style={{ color: isOn ? dotColor + 'aa' : "var(--color-text-subtle)" }}>{count}</span>
+                      </button>
+                    )
+                  })}
                 </div>
                 {selectedTags.size > 0 && (
                   <button
                     type="button"
                     onClick={() => setSelectedTags(new Set())}
-                    className="mt-1.5 text-[10px] text-blue-400 hover:text-blue-600 transition-colors"
+                    className="mt-1.5 text-[10px] transition-colors"
+                    style={{ color: "var(--color-accent)" }}
                   >
                     ✕ {t.sidebar.clearTagFilter}
                   </button>
@@ -823,14 +833,15 @@ export default function CategorySidebar({
 
         {/* ── 태그 필터 활성 안내 배너 ─────────────── */}
         {selectedTags.size > 0 && !searchQuery && (
-          <div className="px-2 py-1 flex items-center gap-1 bg-blue-50 border-b border-blue-100 shrink-0">
-            <span className="text-xs text-blue-600 flex-1 truncate">
-              🏷 {[...selectedTags].map(t => `#${t}`).join(', ')}
+          <div className="px-2 py-1 flex items-center gap-1 border-b hairline shrink-0" style={{ background: "var(--color-accent-soft)" }}>
+            <span className="text-xs flex-1 truncate" style={{ color: "var(--color-accent-ink)" }}>
+              🏷 {[...selectedTags].map(tg => `#${tg}`).join(', ')}
             </span>
             <button
               type="button"
               onClick={() => setSelectedTags(new Set())}
-              className="text-xs text-blue-400 hover:text-blue-600 shrink-0"
+              className="text-xs shrink-0"
+              style={{ color: "var(--color-accent)" }}
               title={t.sidebar.clearTagFilter}
             >
               ✕
@@ -840,12 +851,13 @@ export default function CategorySidebar({
 
         {/* ── 날짜 필터 활성 안내 ─────────────────── */}
         {selectedDate && !searchQuery && (
-          <div className="px-2 py-1 flex items-center gap-1 bg-blue-50 border-b border-blue-100 shrink-0">
-            <span className="text-xs text-blue-600 flex-1">{selectedDate} {t.sidebar.dateFilter}</span>
+          <div className="px-2 py-1 flex items-center gap-1 border-b hairline shrink-0" style={{ background: "var(--color-accent-soft)" }}>
+            <span className="text-xs flex-1" style={{ color: "var(--color-accent-ink)" }}>{selectedDate} {t.sidebar.dateFilter}</span>
             <button
               type="button"
               onClick={() => setSelectedDate(null)}
-              className="text-xs text-blue-400 hover:text-blue-600"
+              className="text-xs"
+              style={{ color: "var(--color-accent)" }}
             >
               ✕
             </button>
@@ -900,7 +912,8 @@ export default function CategorySidebar({
                 Python으로 치면: if starred_pages: render StarredSection() */}
             {starredPages.length > 0 && (
               <>
-                <div className="px-2 py-0.5 text-[10px] text-yellow-500 font-medium uppercase tracking-wide flex items-center gap-1">
+                {/* 즐겨찾기 섹션 헤더 — label 스타일 시각적 분리 */}
+                <div className="px-2 pt-1 pb-0.5 flex items-center gap-1 label">
                   <span>★</span><span>{t.sidebar.favorites}</span>
                 </div>
                 {starredPages.map(page => (
@@ -911,15 +924,16 @@ export default function CategorySidebar({
                       if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(page.id); return }
                       handleSelectPage(page.id)
                     }}
-                    className={currentPageId === page.id
-                      ? "w-full flex items-center gap-1 py-1 pr-2 pl-2 rounded-md text-sm text-left bg-gray-200 text-gray-900"
-                      : "w-full flex items-center gap-1 py-1 pr-2 pl-2 rounded-md text-sm text-left text-gray-600 hover:bg-gray-100 transition-colors"}
+                    className="w-full flex items-center gap-1 py-1 pr-2 pl-2 rounded-md text-sm text-left transition-colors"
+                    style={currentPageId === page.id
+                      ? { background: "var(--color-active)", color: "var(--color-text)", fontWeight: 600 }
+                      : { color: "var(--color-text-muted)" }}
                   >
                     <span className="text-sm shrink-0">{page.icon}</span>
                     <span className="truncate flex-1">{page.title || t.common.untitled}</span>
                   </button>
                 ))}
-                <div className="border-t border-gray-200 my-1" />
+                <div className="border-t hairline my-1.5" />
               </>
             )}
 
@@ -1034,29 +1048,38 @@ export default function CategorySidebar({
           </div>
         )}
 
-        {/* ── 하단: 새 메모 + 새 폴더 버튼 ─────────────── */}
-        <div className="px-2 py-2 border-t border-gray-200 shrink-0 space-y-0.5">
-          {/* 새 메모 버튼 — 현재 선택된 폴더에 페이지 생성 */}
-          <button
-            onClick={() => setNewPageDialogOpen(true)}
-            className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-200 transition-colors"
-          >
-            <span className="text-base leading-none">📄</span>
-            <span>{t.sidebar.newPage}</span>
-          </button>
-          {/* 새 폴더 버튼 */}
-          {!isAddingTopFolder && (
-            <button
-              onClick={() => setIsAddingTopFolder(true)}
-              className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-sm text-gray-500 hover:bg-gray-200 transition-colors"
-            >
-              <span className="text-base leading-none">+</span>
-              <span>{t.sidebar.newFolder}</span>
-            </button>
-          )}
-        </div>
           </>
         )} {/* 노트 탭 끝 */}
+
+        {/* ── 풋터 — 볼트 정보 + 액션 아이콘 ─────────────
+            그래프/설정/휴지통을 헤더에서 여기로 이동
+            Python으로 치면: class SidebarFooter(Widget): ... */}
+        <div className="px-3 py-2 border-t hairline shrink-0 flex items-center gap-2" style={{ background: "var(--color-surface)" }}>
+          {/* 볼트 아이콘 + 이름 + 페이지 수 */}
+          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: "var(--color-accent)", color: "#fff" }}>
+            N
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="truncate text-[11.5px] font-semibold leading-tight" style={{ color: "var(--color-text)" }}>
+              {currentVaultName || t.sidebar.notes}
+            </div>
+            <div className="text-[10px] leading-tight" style={{ color: "var(--color-text-subtle)" }}>
+              {pages.length} pages
+            </div>
+          </div>
+          {/* 그래프 뷰 */}
+          <button type="button" onClick={onOpenGraphView} title={`${t.sidebar.graphView} (Ctrl+G)`} className="icon-btn shrink-0">
+            <GitFork size={13} />
+          </button>
+          {/* 설정 */}
+          <button type="button" onClick={onOpenSettings} title={t.sidebar.settings} className="icon-btn shrink-0">
+            <Settings size={13} />
+          </button>
+          {/* 휴지통 */}
+          <button type="button" onClick={onOpenTrash} title={t.sidebar.trash} className="icon-btn shrink-0">
+            <Trash2 size={13} />
+          </button>
+        </div>
 
         {/* ── 리사이즈 핸들 ──────────────────────────
             사이드바 오른쪽 가장자리 4px 영역

@@ -14,11 +14,11 @@ import { Block } from '@/types/block'
 
 interface TocPanelProps {
   blocks: Block[]
-  // 접힌 헤딩 ID 집합 (PageEditor와 공유 — 동기화 목적)
-  // Python으로 치면: collapsed_ids: set[str]
   collapsedIds: Set<string>
-  // 접기/펼치기 토글 콜백
   onToggleCollapse: (blockId: string) => void
+  // RightPanel 내부 탭 모드 — sticky 래퍼 없이 콘텐츠만 렌더
+  // Python으로 치면: inline: bool = False
+  inline?: boolean
 }
 
 // -----------------------------------------------
@@ -48,7 +48,7 @@ const HEADING_LEVEL: Record<string, number> = {
 // 레벨별 들여쓰기 클래스 (level-1 인덱스로 사용)
 const INDENT_CLASSES = ['', 'pl-3', 'pl-5', 'pl-7', 'pl-9', 'pl-11'] as const
 
-export default function TocPanel({ blocks, collapsedIds, onToggleCollapse }: TocPanelProps) {
+export default function TocPanel({ blocks, collapsedIds, onToggleCollapse, inline }: TocPanelProps) {
   // 현재 클릭된 항목 ID (스크롤 피드백용)
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -137,13 +137,15 @@ export default function TocPanel({ blocks, collapsedIds, onToggleCollapse }: Toc
   return (
     // sticky top-20: 스크롤 시 고정 (main.overflow-y-auto 기준)
     // print-hide: 인쇄 시 숨김
-    <div className="print-hide w-52 shrink-0 sticky top-20 self-start pr-4">
+    <div className={inline ? "px-3 pt-3 pb-32" : "print-hide w-52 shrink-0 sticky top-20 self-start pr-4"}>
 
-      {/* 헤더 */}
-      <div className="flex items-center gap-1.5 mb-2 px-2">
-        <span className="text-xs text-gray-400">📑</span>
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">목차</span>
-      </div>
+      {/* 헤더 — inline 모드에서는 탭 헤더가 있으므로 숨김 */}
+      {!inline && (
+        <div className="flex items-center gap-1.5 mb-2 px-2">
+          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>📑</span>
+          <span className="label">목차</span>
+        </div>
+      )}
 
       {/* 헤딩 목록 */}
       {/* Python으로 치면: for heading in visible_headings: render_toc_item(heading) */}
@@ -186,15 +188,16 @@ export default function TocPanel({ blocks, collapsedIds, onToggleCollapse }: Toc
                 title={title}
                 className={[
                   'flex-1 text-left px-1.5 py-0.5 text-xs rounded-lg transition-colors truncate',
-                  isActive
-                    ? 'bg-blue-50 text-blue-600 font-medium'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800',
-                  // 레벨별 스타일 차별화
                   level === 1 ? 'font-semibold' : '',
                   level === 2 ? 'font-medium' : '',
                   level >= 5 ? 'text-[10px] italic' : '',
                   level === 6 ? 'uppercase tracking-wide' : '',
                 ].join(' ')}
+                style={isActive
+                  ? { background: "var(--color-accent-soft)", color: "var(--color-accent-ink)", borderLeft: "2px solid var(--color-accent)", paddingLeft: "8px" }
+                  : { color: "var(--color-text-muted)" }}
+                onMouseEnter={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "var(--color-hover)"; (e.currentTarget as HTMLElement).style.color = "var(--color-text)" }}}
+                onMouseLeave={e => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = ""; (e.currentTarget as HTMLElement).style.color = "var(--color-text-muted)" }}}
               >
                 {title}
               </button>
