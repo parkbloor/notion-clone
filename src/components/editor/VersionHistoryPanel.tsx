@@ -17,7 +17,9 @@ import { Page } from '@/types/block'
 
 interface VersionHistoryPanelProps {
   pageId: string
-  onClose: () => void
+  onClose?: () => void
+  // RightPanel 내부 탭 모드 — fixed 오버레이 없이 인라인 렌더
+  inline?: boolean
 }
 
 // ── 타임스탬프 포맷 헬퍼 ────────────────────────────
@@ -66,7 +68,7 @@ const BLOCK_LABELS: Record<string, string> = {
   math: '수식', embed: '임베드', mermaid: 'Mermaid',
 }
 
-export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryPanelProps) {
+export default function VersionHistoryPanel({ pageId, onClose, inline }: VersionHistoryPanelProps) {
   // ── 상태 ─────────────────────────────────────────
   // 버전 목록
   const [versions, setVersions] = useState<HistoryVersion[]>([])
@@ -114,7 +116,7 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
     try {
       await historyApi.restore(pageId, version.filename)
       toast.success('버전이 복원됐습니다. 페이지를 다시 불러옵니다...')
-      onClose()
+      onClose?.()
       // 서버에서 최신 데이터로 재로드
       await loadFromServer()
     } catch {
@@ -133,16 +135,20 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
   return (
     // 오버레이 + 슬라이드인 패널
     // Python으로 치면: self.overlay = QWidget(); self.panel = QWidget()
-    <div className="fixed inset-0 z-50 flex justify-end" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className={inline ? "flex flex-col h-full" : "fixed inset-0 z-50 flex justify-end"} onClick={(e) => { if (!inline && e.target === e.currentTarget && onClose) onClose() }}>
 
-      {/* 반투명 배경 */}
-      <div className="absolute inset-0 bg-black/20" onClick={onClose} />
+      {/* 반투명 배경 — inline 모드에서는 표시 안 함 */}
+      {!inline && <div className="absolute inset-0 bg-black/20" onClick={() => onClose?.()} />}
 
       {/* 패널 본체 */}
-      <div className="relative w-80 h-full bg-white border-l border-gray-200 shadow-xl flex flex-col">
+      <div className={inline
+        ? "flex flex-col h-full"
+        : "relative w-80 h-full shadow-xl flex flex-col border-l hairline"}
+        style={inline ? {} : { background: "var(--color-surface)" }}>
 
-        {/* ── 헤더 ──────────────────────────────────── */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
+        {/* ── 헤더 (inline에서는 RightPanel 탭이 역할) ── */}
+        {!inline && (
+        <div className="flex items-center justify-between px-4 py-3 border-b hairline shrink-0">
           {previewPage ? (
             // 미리보기 모드 헤더
             <button
@@ -161,13 +167,14 @@ export default function VersionHistoryPanel({ pageId, onClose }: VersionHistoryP
           )}
           <button
             type="button"
-            onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+            onClick={() => onClose?.()}
+            className="icon-btn"
             title="닫기"
           >
             ✕
           </button>
         </div>
+        )}
 
         {/* ── 본문 ──────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto">
