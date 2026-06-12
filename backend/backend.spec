@@ -60,9 +60,6 @@ a = Analysis(
             'multipart',
             'multipart.multipart',
             # tkinter (폴더 선택 다이얼로그)
-            'tkinter',
-            'tkinter.filedialog',
-            '_tkinter',
             # 백엔드 패키지 — main.py 가 'from backend.X import ...' 형태로 임포트
             # pathex=[project_root] 이므로 backend.X 형태로 명시
             'backend',
@@ -105,6 +102,7 @@ a = Analysis(
     excludes=[
         'numpy', 'pandas', 'matplotlib', 'scipy',
         'PIL', 'cv2', 'torch', 'tensorflow',
+        'tkinter', '_tkinter',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

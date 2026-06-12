@@ -388,6 +388,19 @@ function startNextJs() {
 // -----------------------------------------------
 ipcMain.handle('get-version', () => app.getVersion())
 
+ipcMain.handle('select-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
+    title: 'vault folder select',
+    properties: ['openDirectory', 'createDirectory'],
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  return result.filePaths[0]
+})
+
 
 // -----------------------------------------------
 // 앱 시작 진입점

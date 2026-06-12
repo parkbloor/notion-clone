@@ -16,6 +16,15 @@ import { useLocale } from '@/locales'
 // Windows에서 localhost가 IPv6(::1)로 해석되는 문제 방지 — api.ts와 동일하게 127.0.0.1 사용
 const BASE_URL = 'http://127.0.0.1:8000'
 
+declare global {
+  interface Window {
+    electronAPI?: {
+      getVersion?: () => Promise<string>
+      selectFolder?: () => Promise<string | null>
+    }
+  }
+}
+
 // 볼트 정보 타입
 // Python으로 치면: @dataclass class VaultInfo: name, path, page_count, initialized, is_current
 interface VaultEntry {
@@ -145,6 +154,12 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
   // Python으로 치면: def browse(setter): path = api.browse(); if path: setter(path)
   const handleBrowse = async (setter: (v: string) => void) => {
     try {
+      const electronPath = await window.electronAPI?.selectFolder?.()
+      if (electronPath) {
+        setter(electronPath)
+        return
+      }
+
       const res = await fetch(BASE_URL + '/api/settings/browse-folder')
       if (!res.ok) return
       const data = await res.json()

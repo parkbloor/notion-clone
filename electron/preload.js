@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 앱 버전 (설정 화면 등에서 사용 가능)
   // Python으로 치면: def get_version(): return pkg_version
   getVersion: () => ipcRenderer.invoke('get-version'),
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
 })
