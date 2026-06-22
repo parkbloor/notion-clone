@@ -12,7 +12,7 @@ import { useLocale } from '@/locales'
 import { Page } from '@/types/block'
 import { templateApi } from '@/lib/api'
 import { toast } from 'sonner'
-import { blocksToMarkdown } from './sidebarUtils'
+import { blocksToMarkdown, FOLDER_COLOR_GROUPS } from './sidebarUtils'
 
 // -----------------------------------------------
 // 페이지 인라인 컨텍스트 메뉴 props
@@ -31,7 +31,7 @@ interface PageInlineMenuProps {
 export default function PageInlineMenu({ page, onClose, onDelete, onDuplicate, anchorX, anchorY }: PageInlineMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   // 즐겨찾기 토글 — 메뉴 내부에서 직접 스토어 접근
-  const { togglePageStar } = usePageStore()
+  const { togglePageStar, updatePageColor } = usePageStore()
   // Python으로 치면: t = get_locale()
   const t = useLocale()
 
@@ -63,6 +63,7 @@ export default function PageInlineMenu({ page, onClose, onDelete, onDuplicate, a
         content: blocksToMarkdown(page),
       })
       toast.success(`"${templateName.trim()}" ${t.common.saveAsTemplate}!`)
+      setIsSaving(false)
       onClose()
     } catch {
       toast.error(t.settings.templates.saveError)
@@ -75,7 +76,7 @@ export default function PageInlineMenu({ page, onClose, onDelete, onDuplicate, a
       ref={menuRef}
       className="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-1"
       style={{
-        width: showSaveForm ? '210px' : '176px',
+        width: showSaveForm ? '210px' : '224px',
         // z-9999는 Tailwind v4에서 생성되지 않으므로 인라인으로 직접 지정
         // Python으로 치면: popup.z_index = 9999
         zIndex: 9999,
@@ -143,6 +144,34 @@ export default function PageInlineMenu({ page, onClose, onDelete, onDuplicate, a
             >
               <span>📑</span><span>{t.common.saveAsTemplate}</span>
             </button>
+            <div className="my-1 border-t border-gray-100" />
+            <div className="px-3 py-1.5">
+              <div className="text-[10px] text-gray-400 mb-1">{t.sidebar.pageColor}</div>
+              <div className="space-y-1.5">
+                {FOLDER_COLOR_GROUPS.map(group => (
+                  <div key={group.id}>
+                    <div className="text-[10px] text-gray-400 mb-1">{(t.sidebar as Record<string, string>)[group.id]}</div>
+                    <div className="flex flex-wrap gap-1">
+                      {group.colors.map((color, index) => (
+                        <button
+                          key={index}
+                          type="button"
+                          title={color ?? t.sidebar.folderColorDefault}
+                          onClick={() => { updatePageColor(page.id, color); onClose() }}
+                          className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-110"
+                          style={{
+                            background: color ?? '#e5e7eb',
+                            borderColor: page.color === color ? '#1d4ed8'
+                              : (color === null && !page.color) ? '#93c5fd'
+                              : 'transparent',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="my-1 border-t border-gray-100" />
             <button
               onClick={() => { onDelete(); onClose() }}

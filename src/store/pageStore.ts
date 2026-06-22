@@ -14,6 +14,17 @@ import { useSettingsStore } from '@/store/settingsStore'
 import type { PageStore } from '@/types/pageStore'
 import { scheduleSave, saveNow, pageHistoryMap, getHistory, pushBlockHistory, parseBlocksFromJson } from '@/store/pageStoreHelpers'
 
+// 블록을 재귀적으로 복제 (children 다단계 중첩 보존)
+// Python으로 치면: def clone_block(b): return {**b, id: uuid(), children: [clone_block(c) for c in b.children]}
+function cloneBlock(block: Block, now: string = new Date().toISOString()): Block {
+  return {
+    ...block,
+    id: crypto.randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+    children: block.children?.map(c => cloneBlock(c, now)),
+  }
+}
 
 // -----------------------------------------------
 // 스토어 생성
@@ -334,6 +345,18 @@ export const usePageStore = create<PageStore>()(
       scheduleSave(pageId, get, set)
     },
 
+    // 페이지 리스트 색상 변경
+    updatePageColor: (pageId, color) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (page) {
+          page.color = color
+          page.updatedAt = new Date().toISOString()
+        }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
     // 커버 이미지 변경/삭제
     updatePageCover: (pageId, cover) => {
       set((state) => {
@@ -485,19 +508,10 @@ export const usePageStore = create<PageStore>()(
           id: newId,
           title: page.title + ' (복사본)',
           // 블록도 새 ID로 복사 — children(토글 자식)까지 재귀적으로 새 ID 부여
-          blocks: page.blocks.map(b => ({
-            ...b,
-            id: crypto.randomUUID(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            children: b.children?.map(c => ({
-              ...c,
-              id: crypto.randomUUID(),
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            })),
-          })),
-          starred: false, // 복사본은 즐겨찾기 해제
+          blocks: page.blocks.map(b => cloneBlock(b)),
+          starred: false,    // 복사본은 즐겨찾기 해제
+          isLocked: false,   // 복사본은 잠금 해제 — 원본 PIN으로 잠긴 채 생성 방지
+          lockPin: undefined,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         }
@@ -520,11 +534,13 @@ export const usePageStore = create<PageStore>()(
 
     // 페이지 잠금 토글 → 저장
     // Python으로 치면: def toggle_page_lock(self, page_id): page.is_locked = not page.is_locked
-    togglePageLock: (pageId) => {
+    togglePageLock: (pageId, pinHash) => {
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
         page.isLocked = !page.isLocked
+        // 잠금 활성화 시 pinHash 저장, 해제 시 유지 (unlockPage와 동일 — 재잠금 시 재사용)
+        if (page.isLocked) page.lockPin = pinHash
         page.updatedAt = new Date().toISOString()
       })
       scheduleSave(pageId, get, set)
@@ -787,13 +803,7 @@ export const usePageStore = create<PageStore>()(
         page.blocks = page.blocks.flatMap(b => {
           if (!toClone.has(b.id)) return [b]
           // children(토글 자식)도 새 ID로 복사 — duplicateBlock과 동일 패턴
-          const clone: Block = {
-            ...b,
-            id: crypto.randomUUID(),
-            createdAt: now,
-            updatedAt: now,
-            children: b.children?.map(c => ({ ...c, id: crypto.randomUUID(), createdAt: now, updatedAt: now })),
-          }
+          const clone: Block = cloneBlock(b, now)
           newBlocks.push(clone.id)
           return [b, clone]
         })
@@ -934,18 +944,7 @@ export const usePageStore = create<PageStore>()(
         if (index === -1) return
         const original = page.blocks[index]
         // children(토글 자식)도 새 ID로 복사 — 같은 페이지에 중복 ID 방지
-        const duplicate: Block = {
-          ...original,
-          id: crypto.randomUUID(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          children: original.children?.map(c => ({
-            ...c,
-            id: crypto.randomUUID(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          })),
-        }
+        const duplicate: Block = cloneBlock(original)
         page.blocks.splice(index + 1, 0, duplicate)
         state.historyVersion++
       })
@@ -998,13 +997,8 @@ export const usePageStore = create<PageStore>()(
         if (!fromPage || !toPage) return
         const block = fromPage.blocks.find(b => b.id === blockId)
         if (!block) return
-        // 새 ID + 새 날짜로 복사본 생성
-        const copy: Block = {
-          ...block,
-          id: crypto.randomUUID(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        }
+        // 새 ID + 새 날짜로 복사본 생성 (children 재귀 포함)
+        const copy: Block = cloneBlock(block)
         toPage.blocks.push(copy)
         state.historyVersion++
       })

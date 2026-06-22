@@ -56,6 +56,9 @@ export interface PageStore {
   updatePageTitle: (pageId: string, title: string) => void
   deletePage: (pageId: string) => void
   updatePageIcon: (pageId: string, icon: string) => void
+  // 사이드바 메모 리스트 색상 변경 (null이면 기본 색상)
+  // Python으로 치면: def update_page_color(self, page_id, color): ...
+  updatePageColor: (pageId: string, color: string | null) => void
   updatePageCover: (pageId: string, cover: string | undefined) => void
   // 커버 이미지 Y 위치 변경 (0~100, 드래그로 조정)
   // Python으로 치면: def update_cover_position(self, page_id, position): ...
@@ -87,8 +90,9 @@ export interface PageStore {
   duplicatePage: (pageId: string) => void
 
   // 페이지 잠금 토글 (잠금 ↔ 해제) — 잠긴 페이지는 편집 불가
-  // Python으로 치면: def toggle_page_lock(self, page_id): page.is_locked = not page.is_locked
-  togglePageLock: (pageId: string) => void
+  // 잠금 방향으로 토글할 때 pinHash 필수 (미전달 시 lockPin 없는 단순 잠금)
+  // Python으로 치면: def toggle_page_lock(self, page_id, pin_hash=None): page.is_locked = not page.is_locked
+  togglePageLock: (pageId: string, pinHash?: string) => void
 
   // ── 캔버스 모드 액션 ──────────────────────────
   // Python으로 치면: def toggle_canvas_mode(self, page_id): page.canvas_mode = not page.canvas_mode

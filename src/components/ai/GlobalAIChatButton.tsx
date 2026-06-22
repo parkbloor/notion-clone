@@ -195,8 +195,8 @@ export default function GlobalAIChatButton() {
   // Python으로 치면: def __init__(self): self.move(screen.width - 100, screen.height - 100)
   useEffect(() => {
     const BTN = 44   // 버튼 크기 (w-11 = 44px)
-    const RIGHT = 80 // 오른쪽 여백
-    const BOTTOM = 80 // 하단 여백 (글자수 바 위로)
+    const RIGHT = 16 // 오른쪽 여백 — ? 버튼(right-4=16px)과 정렬
+    const BOTTOM = 96 // 하단 여백 — ? 버튼(48px) 바로 위 (48 + 44 + 4)
     const initial = {
       left: window.innerWidth  - RIGHT - BTN,
       top:  window.innerHeight - BOTTOM - BTN,
@@ -310,12 +310,7 @@ export default function GlobalAIChatButton() {
     if (applyEventRef.current === 'ai-apply-mindmap')  return t.ai.toastMindmap
     if (applyEventRef.current === 'ai-apply-chart')    return t.ai.toastChart
     return t.ai.toastText
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t])
-
-  // ── 현재 설정 ─────────────────────────────────
-  // aiTarget.blockType 변경 시 자동으로 새 설정 적용
-  const isSpecialBlock = aiTarget && !TEXT_BLOCK_TYPES.has(aiTarget.blockType)
 
   // ── FAB 버튼 인라인 스타일 (드래그 위치 반영) ───
   // fabPos가 null(SSR)이면 display:none으로 숨김 → hydration 불일치 방지
@@ -336,7 +331,7 @@ export default function GlobalAIChatButton() {
         right: window.innerWidth  - fabPos.left - 44,
         bottom: window.innerHeight - fabPos.top + 8,
       }
-    : { right: 16, bottom: 80 }
+    : { right: 16, bottom: 96 }
 
   return (
     <>

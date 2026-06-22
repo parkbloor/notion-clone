@@ -124,7 +124,9 @@ export function blocksToMarkdown(page: Page): string {
         if (header) lines.push(`> ${header}`)
         if (body) lines.push(body)
       } catch {
-        // JSON 파싱 실패 시 무시
+        // JSON 파싱 실패 시 원본 텍스트라도 보존 (데이터 손실 방지)
+        const fallback = block.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+        if (fallback) lines.push(fallback)
       }
       continue
     }

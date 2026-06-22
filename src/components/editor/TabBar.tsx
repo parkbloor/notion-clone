@@ -85,7 +85,8 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
     // shrink-0: 세로 flex 부모 안에서 높이 고정
     // border-b: 탭 바 아래 구분선
     // Python으로 치면: HBox(overflow='scroll', border_bottom=True)
-    <div className="flex items-stretch overflow-x-auto shrink-0 border-b border-gray-200 bg-gray-50 print-hide" style={{ scrollbarWidth: 'none' }}>
+    <div className="flex items-end overflow-x-auto shrink-0 px-2 pt-1.5 print-hide border-b hairline"
+         style={{ background: "var(--color-bg)", scrollbarWidth: "none", minHeight: 40, whiteSpace: "nowrap" }}>
 
       {/* 탭 목록 렌더링 */}
       {/* Python으로 치면: for tab_id in open_tabs: render_tab(tab_id) */}
@@ -103,16 +104,7 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
             ref={isActive ? activeTabRef : undefined}
             onClick={() => setCurrentPage(tabId)}
             title={page.title || '제목 없음'}
-            className={[
-              // 탭 공통 스타일
-              'group flex items-center gap-1 px-3 py-2 min-w-25 max-w-45 cursor-pointer',
-              'border-b-2 shrink-0 select-none transition-colors',
-              // 활성/비활성 스타일 분기
-              // Python으로 치면: 'active' if is_active else 'inactive'
-              isActive
-                ? 'border-blue-500 bg-white text-gray-800 shadow-sm'
-                : 'border-transparent text-gray-500 hover:bg-gray-100 hover:text-gray-700',
-            ].join(' ')}
+            className={["ds-tab group min-w-20 max-w-45 shrink-0 select-none", isActive ? "active" : ""].join(" ")}
           >
             {/* 페이지 아이콘 */}
             {/* Python으로 치면: icon = page.icon or '📄' */}
@@ -131,12 +123,12 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onSplit(tabId) }}
                 title={isSplit ? '분할 뷰 닫기 (Ctrl+\\)' : '분할 뷰로 열기'}
-                className={[
-                  'shrink-0 w-4 h-4 flex items-center justify-center rounded transition-all',
-                  isSplit
-                    ? 'opacity-100 text-blue-500 bg-blue-50'
-                    : 'opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-600 hover:bg-gray-200',
-                ].join(' ')}
+                className="shrink-0 w-4 h-4 flex items-center justify-center rounded transition-all"
+                style={isSplit
+                  ? { opacity: 1, color: "var(--color-accent)", background: "var(--color-accent-soft)" }
+                  : { opacity: 0, color: "var(--color-text-muted)" }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "var(--color-hover)"; (e.currentTarget as HTMLElement).style.color = "var(--color-text)" }}
+                onMouseLeave={e => { if (!isSplit) { (e.currentTarget as HTMLElement).style.background = ""; (e.currentTarget as HTMLElement).style.color = "var(--color-text-muted)" } }}
               >
                 <Columns2 size={10} />
               </button>
@@ -148,12 +140,10 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
               type="button"
               onClick={(e) => { e.stopPropagation(); closeTab(tabId) }}
               title="탭 닫기 (Ctrl+W)"
-              className={[
-                'shrink-0 w-4 h-4 flex items-center justify-center rounded',
-                'hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-all',
-                // 활성 탭: 항상 표시 / 비활성 탭: hover 시만 표시
-                isActive ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-100',
-              ].join(' ')}
+              className="shrink-0 w-4 h-4 flex items-center justify-center rounded transition-all"
+              style={{ opacity: isActive ? 0.6 : 0, color: "var(--color-text-muted)" }}
+              onMouseEnter={e => { const el = e.currentTarget as HTMLElement; el.style.opacity = "1"; el.style.background = "var(--color-hover)"; el.style.color = "var(--color-text)" }}
+              onMouseLeave={e => { const el = e.currentTarget as HTMLElement; el.style.opacity = isActive ? "0.6" : "0"; el.style.background = ""; el.style.color = "var(--color-text-muted)" }}
             >
               <X size={10} />
             </button>
@@ -161,37 +151,31 @@ export default function TabBar({ onSplit, splitPageId }: TabBarProps) {
         )
       })}
 
-      {/* 탭 오른쪽 빈 공간 (탭 우측을 채워 배경 통일) */}
-      <div className="flex-1 border-b-2 border-transparent" />
+      {/* 탭 오른쪽 빈 공간 */}
+      <div className="flex-1" />
 
-      {/* ── 저장 상태 버튼 ────────────────────────
-          저장됨: 체크 아이콘 (회색, 클릭 불가)
-          저장 중: 스피너 아이콘 (파란색, 클릭 불가)
-          미저장: 저장 아이콘 (주황색 점 + 버튼, Ctrl+S)
-          Python으로 치면: if save_status == 'saved': render CheckIcon() ... */}
+      {/* 저장 상태 표시 영역 */}
       {currentPageId && (
-        <div className="shrink-0 flex items-center px-2 border-b-2 border-transparent">
+        <div className="shrink-0 flex items-center px-2 pb-1" style={{ fontSize: 11.5 }}>
           {saveStatus === 'saving' ? (
-            // 저장 중 — 스피너
-            <span className="flex items-center gap-1 text-xs text-blue-500 select-none">
+            <span className="flex items-center gap-1 select-none" style={{ color: "var(--color-accent)" }}>
               <Loader2 size={13} className="animate-spin" />
               <span>저장 중</span>
             </span>
           ) : saveStatus === 'unsaved' ? (
-            // 미저장 — 클릭 가능한 저장 버튼
             <button
               type="button"
               onClick={() => savePageNow(currentPageId)}
               title="저장 (Ctrl+S)"
-              className="flex items-center gap-1 text-xs text-orange-500 hover:text-orange-600 transition-colors"
+              className="flex items-center gap-1 transition-colors"
+              style={{ color: "var(--color-warn)" }}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--color-warn)" }} />
               <Save size={13} />
               <span>저장</span>
             </button>
           ) : (
-            // 저장됨 — 정적 표시
-            <span className="flex items-center gap-1 text-xs text-gray-400 select-none">
+            <span className="flex items-center gap-1 select-none" style={{ color: "var(--color-text-faint)" }}>
               <Check size={13} />
               <span>저장됨</span>
             </span>

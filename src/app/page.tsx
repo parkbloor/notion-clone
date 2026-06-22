@@ -9,7 +9,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { saveTimers } from '@/store/pageStoreHelpers'
-import { useSettingsStore, applyTheme, applyEditorStyle, applyThemePreset } from '@/store/settingsStore'
+import { useSettingsStore } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
 import PageEditor from '@/components/editor/PageEditor'
 import DatabaseView from '@/components/editor/DatabaseView'
@@ -33,11 +33,13 @@ import { useLocale } from '@/locales'
 // Python으로 치면: from dnd import DndContext, arrayMove
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
+  DragStartEvent,
   closestCenter,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
@@ -119,7 +121,11 @@ export default function Home() {
 
   // 플러그인 설정 + 집중 모드 + 초기 스타일 복원용 값 — 단일 구독으로 통합
   // Python으로 치면: plugins, is_focus_mode, theme, ... = settings.__dict__
-  const { plugins, isFocusMode, toggleFocusMode, theme, fontFamily, fontSize, lineHeight, editorMaxWidth, themePreset, loadRoutinesFromFile } = useSettingsStore()
+  const { plugins, isFocusMode, toggleFocusMode, loadRoutinesFromFile } = useSettingsStore()
+
+  // 사이드바 메모 드래그 미리보기용 active page id
+  // Python으로 치면: active_drag_page_id: str | None = None
+  const [activeDragPageId, setActiveDragPageId] = useState<string | null>(null)
 
   // -----------------------------------------------
   // Ctrl+Alt+N 단축키 → 빠른 노트 팝업 열기
@@ -250,17 +256,14 @@ export default function Home() {
 
   // -----------------------------------------------
   // 앱 초기화 시 저장된 테마 + 편집기 스타일 복원
-  // localStorage에서 settingsStore가 복원한 값을 DOM에 적용
-  // Python으로 치면: def on_start(self): apply_theme(self.settings.theme)
+  // -----------------------------------------------
+  // 클라이언트 마운트 시 localStorage에서 설정 복원 (skipHydration: true 사용 중)
+  // SSR 환경에서 localStorage 접근을 막고 클라이언트에서만 명시적으로 hydrate
+  // onRehydrateStorage 콜백이 DOM 적용까지 처리함
+  // Python으로 치면: def on_mount(self): self.settings.load(); self.apply_settings()
   // -----------------------------------------------
   useEffect(() => {
-    applyTheme(theme)
-    // 색상 테마 프리셋 복원 — html[data-theme] 속성 설정
-    // Python으로 치면: apply_theme_preset(self.settings.theme_preset)
-    applyThemePreset(themePreset)
-    // editorMaxWidth도 함께 전달 → --editor-max-width CSS 변수 초기화
-    // Python으로 치면: apply_editor_style(font, size, lh, max_width)
-    applyEditorStyle(fontFamily, fontSize, lineHeight, editorMaxWidth)
+    useSettingsStore.persist.rehydrate()
     // vault 파일에서 루틴 로드 (localStorage보다 파일 우선)
     // 백엔드 미실행 시 기존 localStorage 값 유지 (내부에서 catch 처리됨)
     // Python으로 치면: self.settings.load_routines_from_file()
@@ -311,9 +314,8 @@ export default function Home() {
     // 이중 RAF: 첫 번째 RAF는 React 리렌더 직후, 두 번째는 Tiptap 초기화 포함한 레이아웃 완료 후
     // 단일 RAF만 쓰면 key 교체 후 Tiptap이 아직 마운트되지 않아 scrollTop이 0으로 리셋될 수 있음
     const saved = scrollPositions.current.get(currentPageId) ?? 0
-    let outerRafId: number
     let innerRafId = 0  // 0: outer RAF 캔슬 시 inner는 미실행 → cancelAnimationFrame(0)은 no-op
-    outerRafId = requestAnimationFrame(() => {
+    const outerRafId = requestAnimationFrame(() => {
       innerRafId = requestAnimationFrame(() => {
         if (editorScrollRef.current) editorScrollRef.current.scrollTop = saved
       })
@@ -452,7 +454,7 @@ export default function Home() {
       { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.dailyMemo, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
-  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t])
 
   // -----------------------------------------------
   // 이번 주 주간 노트를 열거나 없으면 템플릿으로 생성
@@ -486,7 +488,7 @@ export default function Home() {
       { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.weeklyReview, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
-  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t])
 
   // -----------------------------------------------
   // Ctrl+Alt+D 단축키 → 오늘의 일간 노트 열기/생성 (Periodic Notes)
@@ -558,7 +560,7 @@ export default function Home() {
       { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.monthlyReview, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ])
-  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t])
 
   // -----------------------------------------------
   // Ctrl+Alt+M 단축키 → 이번 달 월간 노트 열기/생성
@@ -632,7 +634,7 @@ export default function Home() {
   // -----------------------------------------------
   useEffect(() => {
     loadFromServer()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadFromServer])
 
   // -----------------------------------------------
   // 탭 숨김/페이지 닫기 시 미저장 데이터 즉시 flush
@@ -652,7 +654,7 @@ export default function Home() {
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // -----------------------------------------------
   // 세션 저장 — 탭/스플릿 상태 변경 시 localStorage에 기록
@@ -806,6 +808,18 @@ export default function Home() {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
   )
 
+  const activeDragPage = activeDragPageId
+    ? pages.find(page => page.id === activeDragPageId) ?? null
+    : null
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const activeType = event.active.data.current?.type as string | undefined
+    if (activeType === 'page') {
+      const pageId = event.active.data.current?.pageId
+      if (pageId) setActiveDragPageId(pageId as string)
+    }
+  }, [])
+
   // -----------------------------------------------
   // 드래그 완료 이벤트 처리
   //
@@ -828,6 +842,7 @@ export default function Home() {
   // Python으로 치면: @lru_cache(lambda self: (self.category_order, self.child_order))
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event
+    setActiveDragPageId(null)
     if (!over) return
 
     const activeType = active.data.current?.type as string | undefined
@@ -877,6 +892,10 @@ export default function Home() {
     }
   }, [categoryOrder, categoryChildOrder, movePageToCategory, reorderCategories, reorderChildCategories, moveCategoryToParent, reorderPages])
 
+  const handleDragCancel = useCallback(() => {
+    setActiveDragPageId(null)
+  }, [])
+
   return (
     // -----------------------------------------------
     // 최외곽 DndContext: CategorySidebar와 PageList를 모두 감싸서
@@ -887,7 +906,9 @@ export default function Home() {
       id="dnd-main"
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
     >
       {/* 모바일 사이드바 오버레이 배경 — 탭하면 사이드바 닫힘
           md 이상(데스크탑)에서는 숨김
@@ -898,7 +919,7 @@ export default function Home() {
 
       {/* 전체 레이아웃: 3패널 가로 배치 */}
       {/* id="app-layout": @media print에서 flex→block으로 전환하여 인쇄 시 사이드바 공간 제거 */}
-      <div id="app-layout" className="flex h-screen bg-[#fcf9f8] dark:bg-[#191919] overflow-hidden relative">
+      <div id="app-layout" className="flex h-screen overflow-hidden relative" style={{ background: "var(--color-bg)" }}>
 
         {/* ── 사이드바 패널 래퍼 ──────────────────────
             데스크탑(md+): 항상 인라인 flex로 표시
@@ -931,7 +952,8 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setSidebarOpen(prev => !prev)}
-            className="md:hidden fixed top-3 left-3 z-50 w-9 h-9 flex items-center justify-center bg-white rounded-lg shadow border border-gray-200 text-gray-600 text-lg"
+            className="md:hidden fixed top-3 left-3 z-50 w-9 h-9 flex items-center justify-center rounded-lg shadow text-lg"
+            style={{ background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-muted)" }}
             title={t.sidebar.menuToggle}
           >
             ☰
@@ -983,7 +1005,10 @@ export default function Home() {
             {splitPageId && (
               <div
                 onMouseDown={handleSplitResizeStart}
-                className="w-px shrink-0 bg-gray-200 hover:bg-blue-400 cursor-col-resize transition-colors print-hide"
+                className="w-px shrink-0 cursor-col-resize transition-colors print-hide"
+                style={{ background: "var(--color-border-strong)" }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "var(--color-accent)" }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "var(--color-border-strong)" }}
                 title={t.sidebar.splitViewResize}
               />
             )}
@@ -994,20 +1019,21 @@ export default function Home() {
               const splitPage = pages.find(p => p.id === splitPageId)
               return (
                 <div
-                  className="flex flex-col min-w-0 border-l border-gray-200 print-hide"
+                  className="flex flex-col min-w-0 border-l hairline print-hide"
                   style={{ flex: `${(1 - splitRatio) * 100} 1 0%` }}
                 >
                   {/* 오른쪽 패널 헤더: 페이지 제목 + 닫기 버튼 */}
                   {/* Python으로 치면: HBox([icon, title, close_btn]) */}
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 border-b border-gray-200 shrink-0">
+                  <div className="flex items-center gap-2 px-3 py-1.5 border-b hairline shrink-0"
+                       style={{ background: "var(--color-surface)" }}>
                     <span className="text-sm shrink-0">{splitPage?.icon || '📄'}</span>
-                    <span className="text-xs font-medium text-gray-600 truncate flex-1">
+                    <span className="text-xs font-medium truncate flex-1" style={{ color: "var(--color-text-muted)" }}>
                       {splitPage?.title || t.common.untitled}
                     </span>
                     <button
                       type="button"
                       onClick={() => setSplitPageId(null)}
-                      className="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors"
+                      className="icon-btn shrink-0 w-5 h-5"
                       title={t.sidebar.splitViewClose}
                     >
                       <X size={12} />
@@ -1052,7 +1078,7 @@ export default function Home() {
         <button
           type="button"
           onClick={() => setShortcutOpen(true)}
-          className="absolute bottom-12 right-5 w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 hover:text-gray-800 text-sm font-bold flex items-center justify-center shadow-sm transition-colors z-40"
+          className="fixed bottom-12 right-4 w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-600 hover:text-gray-800 text-sm font-bold flex items-center justify-center shadow-sm transition-colors z-40"
           title={t.sidebar.shortcutHelp}>
           ?
         </button>
@@ -1117,6 +1143,23 @@ export default function Home() {
 
 
       </div>
+      <DragOverlay dropAnimation={null}>
+        {activeDragPage && (
+          <div
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm shadow-lg pointer-events-none"
+            style={{
+              width: 220,
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+              opacity: 0.96,
+            }}
+          >
+            <span className="text-sm shrink-0">{activeDragPage.icon}</span>
+            <span className="truncate flex-1 font-medium">{activeDragPage.title || t.common.untitled}</span>
+          </div>
+        )}
+      </DragOverlay>
     </DndContext>
   )
 }

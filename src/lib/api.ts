@@ -4,11 +4,11 @@
 // Python으로 치면: import requests; def get_pages(): return requests.get(url).json()
 // ==============================================
 
-import { Page, Category } from '@/types/block'
+import { Page, Category, PlanEvent } from '@/types/block'
 
 // FastAPI 서버 주소 (Windows에서 localhost가 IPv6 ::1로 해석되는 문제로 127.0.0.1 사용)
 // Python으로 치면: BASE_URL = 'http://127.0.0.1:8000'
-const BASE_URL = 'http://127.0.0.1:8000'
+export const BASE_URL = 'http://127.0.0.1:8000'
 
 // -----------------------------------------------
 // Date 직렬화 헬퍼
@@ -462,5 +462,22 @@ export const plannerApi = {
       body:    JSON.stringify(routines),
     })
     if (!res.ok) throw new Error('루틴 저장 실패')
+  },
+
+  // 90일 초과 플래너 기록 로드
+  getArchive: async (): Promise<Record<string, PlanEvent[]>> => {
+    const res = await fetch(`${BASE_URL}/api/planner/archive`)
+    if (!res.ok) throw new Error('아카이브 로드 실패')
+    return res.json()
+  },
+
+  // 90일 초과 플래너 기록 병합 저장
+  appendArchive: async (archive: Record<string, PlanEvent[]>): Promise<void> => {
+    const res = await fetch(`${BASE_URL}/api/planner/archive`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(archive),
+    })
+    if (!res.ok) throw new Error('아카이브 저장 실패')
   },
 }

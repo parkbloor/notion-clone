@@ -147,7 +147,7 @@ export default function CommandPalette({
         id: p.id,
         title: p.title || t.common.untitled,
         icon: p.icon || '📝',
-        section: t.overlay.commandPalette.recentPages,
+        section: t.sidebar.allPages,
       }))
 
     // 액션 라벨로 필터링
@@ -160,7 +160,7 @@ export default function CommandPalette({
     )
 
     return [...filteredPages, ...filteredActions]
-  }, [query, pages, recentPageIds, actions])
+  }, [query, pages, recentPageIds, actions, t.common.untitled, t.overlay.commandPalette.recentPages, t.sidebar.allPages])
 
   // ── 아이템 선택 인덱스 클램프: items 길이에 맞게 ──
   // Python으로 치면: self.selected_index = clamp(self.selected_index, 0, len(items)-1)

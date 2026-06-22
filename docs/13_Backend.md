@@ -16,7 +16,7 @@
 |------|------|
 | 앱 | `FastAPI(title="노션 클론 백엔드", version="2.0.0")` |
 | CORS | `localhost:3000` + `127.0.0.1:3000` 허용 |
-| 정적 파일 | `/static/*` → `VAULT_DIR` 디렉토리 서빙 |
+| 정적 파일 | `/static/{path}` → 현재 활성 vault에서 동적으로 서빙 |
 | 로깅 | `MemoryLogHandler` — uvicorn access/error 로그 100개 보관 |
 
 ### 등록된 라우터
@@ -32,6 +32,8 @@
 | `ai` | AI 텍스트 생성 |
 | `trash` | 휴지통 |
 | `history` | 버전 히스토리 |
+| `cloud_sync` | Google Drive / OneDrive OAuth 및 vault 동기화 |
+| `planner` | Day Planner 아카이브·루틴 영속화 |
 
 ### PyInstaller 진입점
 
@@ -51,12 +53,12 @@ if __name__ == '__main__':
 
 | 상수 | 값 | 설명 |
 |------|-----|------|
-| `VAULT_DIR` | `_APP_BASE/vault` | vault 루트 디렉토리 (사용자 지정 가능) |
+| `get_vault_dir()` | 활성 vault 경로 | `vault_config.json` 및 멀티 vault 설정을 반영해 동적으로 반환 |
 | `CONFIG_FILE` | `_APP_BASE/vault_config.json` | 사용자 지정 vault 경로 설정 파일 |
 | `CONTENT_EXT` | `'.nct'` | 페이지 파일 확장자 (내부는 UTF-8 JSON) |
-| `INDEX_FILE` | `VAULT_DIR/_index.nct` | 페이지 순서/카테고리 인덱스 |
+| `INDEX_FILE` | 활성 vault의 `_index.nct` | 페이지 순서/카테고리 인덱스 |
 | `ALLOWED_IMAGE_EXTS` | `.jpg .jpeg .png .gif .webp .svg .bmp` | 이미지 업로드 화이트리스트 |
-| `MAX_IMAGE_SIZE` | 10MB | 이미지 크기 제한 |
+| `MAX_IMAGE_SIZE` | 20MB | 이미지 크기 제한 |
 | `ALLOWED_VIDEO_EXTS` | `.mp4 .webm .ogg .mov .avi .mkv` | 비디오 업로드 화이트리스트 |
 | `MAX_VIDEO_SIZE` | 500MB | 비디오 크기 제한 |
 | `ALLOWED_FILE_EXTS` | `.pdf .doc .docx .xls .xlsx .ppt .pptx .txt .md .csv .json .zip .rar .7z` | 일반 파일 화이트리스트 |
@@ -92,12 +94,12 @@ if __name__ == '__main__':
 | 함수 | 설명 |
 |------|------|
 | `MemoryLogHandler` | `deque(maxlen=100)` 로그 핸들러. `emit(record)` → dict 저장 |
-| `_load_vault_dir()` | `vault_config.json` → `VAULT_DIR` 결정. 개발/번들 모드 분기 |
+| `get_vault_dir()` | 활성 vault 경로 반환. vault 전환 시에도 현재 경로를 사용 |
 | `load_index()` | `_index.nct` (없으면 `_index.json` fallback) 파싱 → `{ pages, categories, pageOrder }` |
 | `save_index(data)` | `_index.nct` 원자적 저장 (`tempfile` + `shutil.move`) |
 | `load_page(page_id)` | `{uuid}/{uuid}.nct` 파싱 → `dict` |
 | `save_page_to_disk(page)` | 페이지 JSON → `.nct` 저장 |
-| `get_page_dir(page_id)` | `VAULT_DIR/{page_id}/` 경로 반환 |
+| `get_page_dir(page_id)` | 인덱스의 폴더 매핑을 반영한 페이지 폴더 경로 반환 |
 | `now_iso()` | 현재 ISO 8601 타임스탬프 |
 | `sanitize_*` | 파일명 sanitize + `^\.+$` 패턴 차단 (`..` 폴더명 방지) |
 
@@ -133,6 +135,7 @@ if __name__ == '__main__':
 
 | HTTP | 경로 | 설명 |
 |------|------|------|
+| `GET` | `/api/categories` | 전체 카테고리 목록 조회 |
 | `POST` | `/api/categories` | 카테고리 생성 (`CreateCategoryBody`) |
 | `PUT` | `/api/categories/{cat_id}` | 이름 변경 |
 | `DELETE` | `/api/categories/{cat_id}` | 삭제 (내용 있으면 400) |
@@ -152,8 +155,11 @@ if __name__ == '__main__':
 | HTTP | 경로 | 설명 |
 |------|------|------|
 | `GET` | `/api/export/json` | 전체 vault → JSON 파일 다운로드 |
-| `POST` | `/api/import/json` | JSON 백업 복구 (`ImportBody`) |
 | `GET` | `/api/export/markdown` | 전체 vault → 마크다운 ZIP 다운로드 |
+| `GET` | `/api/export/html/{page_id}` | 페이지 HTML 내보내기 |
+| `GET` | `/api/export/pdf/{page_id}` | 페이지 PDF 내보내기 |
+| `POST` | `/api/import` | JSON 백업 전체 복구 (`ImportBody`) |
+| `POST` | `/api/import/merge` | 백업 또는 vault 폴더 데이터 병합 |
 
 ---
 
@@ -177,8 +183,13 @@ if __name__ == '__main__':
 
 | HTTP | 경로 | 설명 |
 |------|------|------|
-| `GET` | `/api/system/vault-info` | `VaultInfo` (경로, 페이지 수, 크기, 카테고리 수) |
-| `POST` | `/api/system/change-vault` | vault 경로 변경 (데이터 이동 옵션) |
+| `GET` | `/api/settings/vault-info` | 현재 vault와 탐지된 vault 목록·용량 정보 |
+| `GET` | `/api/settings/vault-path` | 현재 vault 경로 조회 |
+| `POST` | `/api/settings/switch-vault` | vault 전환 후 현재 저장소 변경 |
+| `POST` | `/api/settings/vaults-root` | vault root 변경 |
+| `POST` | `/api/settings/vault-path` | 데이터 이동 옵션을 포함한 고급 경로 변경 |
+| `GET` | `/api/settings/browse-folder` | 폴더 선택 경로 조회 |
+| `POST` | `/api/settings/scan-vault` | 외부에서 추가된 페이지 폴더 스캔 |
 | `GET` | `/api/debug/logs` | 메모리 로그 100개 반환 (`LogEntry[]`) |
 
 ---
@@ -195,7 +206,6 @@ if __name__ == '__main__':
 | `POST` | `/api/templates` | 템플릿 생성 |
 | `PUT` | `/api/templates/{id}` | 템플릿 수정 |
 | `DELETE` | `/api/templates/{id}` | 템플릿 삭제 |
-| `POST` | `/api/templates/seed` | 기본 템플릿 5종 시드 (없을 때만 생성) |
 
 ---
 
@@ -220,7 +230,8 @@ if __name__ == '__main__':
 
 | HTTP | 경로 | 설명 |
 |------|------|------|
-| `POST` | `/api/ai/generate` | SSE 스트리밍 텍스트 생성. `StreamingResponse` 반환. 프론트에서 `ReadableStream`으로 수신 |
+| `POST` | `/api/ai/generate` | 단일 생성 요청 |
+| `POST` | `/api/ai/stream` | SSE 스트리밍 텍스트 생성. 프론트에서 `ReadableStream`으로 수신 |
 | `POST` | `/api/ai/test` | 연결 테스트 (`"안녕하세요"` 요청 → 성공/실패) |
 
 ---
@@ -232,7 +243,7 @@ if __name__ == '__main__':
 ### 파일 저장 위치
 
 ```
-VAULT_DIR/{page_id}/history/2026-03-17T11-17-22.nct
+{page_dir}/_history/2026-03-17T11-17-22.nct
 ```
 
 ### 엔드포인트
@@ -240,25 +251,57 @@ VAULT_DIR/{page_id}/history/2026-03-17T11-17-22.nct
 | HTTP | 경로 | 설명 |
 |------|------|------|
 | `GET` | `/api/pages/{page_id}/history` | 버전 목록 (`HistoryVersion[]`) — 최신순 |
-| `POST` | `/api/pages/{page_id}/history/{snapshot_at}/restore` | 해당 버전으로 복원 |
+| `GET` | `/api/pages/{page_id}/history/{filename}` | 특정 버전 전체 데이터 (미리보기) |
+| `POST` | `/api/pages/{page_id}/history/restore/{filename}` | 해당 버전으로 복원 |
 
 ### 내부 함수
 
 | 함수 | 설명 |
 |------|------|
-| `save_snapshot(page_id, page_data)` | 3분 경과 여부 확인 → 스냅샷 저장. 50개 초과 시 오래된 것 삭제 |
+| `save_snapshot(page_data, page_dir)` | 3분 경과 여부 확인 → 스냅샷 저장. 50개 초과 시 오래된 것 삭제 |
 
 ---
 
 ## [backend/routers/trash.py](../backend/routers/trash.py)
 
-**역할:** 휴지통 API. `isTrashed` 플래그로 소프트 삭제. `trashGroupId`로 폴더째 삭제 그룹핑.
+**역할:** `_vault_trash/` 실물 폴더 기반 휴지통 API. 삭제 시 페이지/카테고리 폴더를 이동하고, 레거시 `isTrashed` 데이터는 시작 시 마이그레이션한다.
 
 ### 엔드포인트
 
 | HTTP | 경로 | 설명 |
 |------|------|------|
 | `GET` | `/api/trash` | 휴지통 항목 목록 (`TrashItem[]`) |
-| `POST` | `/api/trash/{item_id}/restore` | 항목 복원 (`TrashRestoreBody`) |
-| `DELETE` | `/api/trash/{item_id}` | 영구 삭제 (`TrashPermanentDeleteBody`) |
+| `PATCH` | `/api/trash/{item_id}/restore` | 항목 복원 |
+| `DELETE` | `/api/trash/{item_id}` | 영구 삭제 |
 | `DELETE` | `/api/trash` | 휴지통 전체 비우기 |
+
+---
+
+## [backend/routers/planner.py](../backend/routers/planner.py)
+
+**역할:** Day Planner의 루틴과 90일 초과 일정 아카이브를 활성 vault 파일에 영속화.
+
+| HTTP | 경로 | 설명 |
+|------|------|------|
+| `GET` | `/api/planner/archive` | `{ date: PlanEvent[] }` 아카이브 반환 |
+| `POST` | `/api/planner/archive` | 새 날짜 키만 추가 병합 |
+| `GET` | `/api/planner/routines` | 루틴 목록 반환 |
+| `PUT` | `/api/planner/routines` | 루틴 목록 전체 교체 저장 |
+
+---
+
+## [backend/routers/cloud_sync.py](../backend/routers/cloud_sync.py)
+
+**역할:** Google Drive·OneDrive OAuth 2.0 연결과 활성 vault ZIP 업로드/다운로드.
+
+| HTTP | 경로 | 설명 |
+|------|------|------|
+| `GET` | `/api/cloud/status` | 제공자별 연결·설정 상태 |
+| `POST` | `/api/cloud/config` | OAuth 클라이언트 설정 저장 |
+| `GET` | `/api/cloud/{provider}/auth-url` | OAuth 인증 URL 생성 |
+| `GET` | `/api/cloud/{provider}/callback` | OAuth 콜백 처리 |
+| `POST` | `/api/cloud/{provider}/upload` | 활성 vault 업로드 |
+| `POST` | `/api/cloud/{provider}/download` | vault 다운로드·복원 |
+| `DELETE` | `/api/cloud/{provider}/disconnect` | 연결 해제 |
+
+OAuth 리다이렉트 URI는 백엔드 바인딩과 같은 `http://127.0.0.1:8000/api/cloud/{provider}/callback`을 등록해야 한다.

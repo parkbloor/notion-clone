@@ -17,6 +17,7 @@ const {
   Menu,
   dialog,
   ipcMain,
+  screen,
   utilityProcess,
 } = require('electron')
 const { spawn } = require('child_process')
@@ -38,6 +39,28 @@ function loadWindowState() {
     return JSON.parse(raw)
   } catch {
     return { width: 1400, height: 900, x: undefined, y: undefined, isMaximized: false }
+  }
+}
+
+/** 현재 연결된 화면에서 보이는 위치·크기로 창 상태를 보정한다. */
+function normalizeWindowState(state) {
+  const primary = screen.getPrimaryDisplay().workArea
+  const width = Math.min(Math.max(state.width || 1400, 800), primary.width)
+  const height = Math.min(Math.max(state.height || 900, 600), primary.height)
+  const hasVisibleArea = Number.isFinite(state.x) && Number.isFinite(state.y)
+    && screen.getAllDisplays().some(({ workArea }) => (
+      state.x < workArea.x + workArea.width - 50
+      && state.x + width > workArea.x + 50
+      && state.y < workArea.y + workArea.height - 50
+      && state.y + height > workArea.y + 50
+    ))
+
+  return {
+    width,
+    height,
+    x: hasVisibleArea ? state.x : undefined,
+    y: hasVisibleArea ? state.y : undefined,
+    isMaximized: Boolean(state.isMaximized),
   }
 }
 
@@ -199,7 +222,7 @@ function createLoadingWindow() {
 function createMainWindow() {
   // 이전 창 상태 복원 (없으면 기본값 사용)
   // Python으로 치면: state = load_window_state() or defaults
-  const state = loadWindowState()
+  const state = normalizeWindowState(loadWindowState())
 
   mainWindow = new BrowserWindow({
     width: state.width,
@@ -310,8 +333,11 @@ function startBackend() {
   if (isDev) {
     // 개발 모드: Python uvicorn 직접 실행
     const projectRoot = path.join(__dirname, '..')
+    const pythonPath = process.platform === 'win32'
+      ? path.join(projectRoot, '.venv', 'Scripts', 'python.exe')
+      : path.join(projectRoot, '.venv', 'bin', 'python')
     backendProcess = spawn(
-      process.platform === 'win32' ? 'python' : 'python3',
+      pythonPath,
       ['-m', 'uvicorn', 'backend.main:app',
        '--port', String(BACKEND_PORT),
        '--host', '127.0.0.1'],

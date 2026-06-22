@@ -60,7 +60,14 @@ const CustomCodeBlock = CodeBlockLowlight.extend({
 export function buildEditorExtensions(headingPlaceholder: string) {
   return [
     // codeBlock: false → StarterKit 내장 코드블록 비활성화 (CustomCodeBlock이 대체)
-    StarterKit.configure({ codeBlock: false, heading: { levels: [1, 2, 3, 4, 5, 6] }, link: { openOnClick: false } }),
+    StarterKit.configure({
+      codeBlock: false,
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
+      link: { openOnClick: false },
+      // 블록 하나가 독립 Editor라서 Tiptap의 trailing paragraph가 필요 없다.
+      // 표/목록 뒤에 지워지지 않는 빈 줄이 생기는 것을 막는다.
+      trailingNode: false,
+    }),
     Placeholder.configure({
       placeholder: ({ node }) => {
         if (node.type.name === 'heading') return headingPlaceholder

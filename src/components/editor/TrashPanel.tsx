@@ -135,7 +135,8 @@ export default function TrashPanel({ onClose }: TrashPanelProps) {
   // 새 방식: 각 항목이 이미 독립 엔트리 (_vault_trash/index.json 1항목 = 1표시줄)
   // 카테고리 삭제 시 하위 항목은 childCount로 배지 표시 (별도 엔트리 없음)
   // Python으로 치면: items = trash_entries (no grouping needed)
-  const groupedItems = trashedItems.map(item => ({ representative: item, childCount: item.childCount ?? 0 }))
+  // childCount는 category 항목에만 존재 (discriminated union 타입 좁힘 필요)
+  const groupedItems = trashedItems.map(item => ({ representative: item, childCount: item.itemType === 'category' ? (item.childCount ?? 0) : 0 }))
 
   return (
     // 배경 오버레이

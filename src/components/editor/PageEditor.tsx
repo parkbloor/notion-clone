@@ -10,7 +10,7 @@ import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
 import { Undo2, Redo2, Lock, Unlock, Trash2, Copy, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
-import { api } from '@/lib/api'
+import { api, BASE_URL } from '@/lib/api'
 import { Block, Page } from '@/types/block'
 import Editor from './Editor'
 import CanvasPageEditor from './CanvasPageEditor'
@@ -21,9 +21,9 @@ import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
 import FindReplacePanel from './FindReplacePanel'
 import PropertyPanel from './PropertyPanel'
-// 버전 히스토리 슬라이드-인 패널
-// Python으로 치면: from components import VersionHistoryPanel
 import VersionHistoryPanel from './VersionHistoryPanel'
+import RightPanel from './RightPanel'
+import TweaksPanel from './TweaksPanel'
 import LockModal from './LockModal'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useFindReplaceStore } from '@/store/findReplaceStore'
@@ -304,6 +304,10 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   // Python으로 치면: self.history_panel_open = False
   const [historyPanelOpen, setHistoryPanelOpen] = useState(false)
 
+  // Tweaks 패널 열림 여부
+  // Python으로 치면: self.tweaks_open = False
+  const [tweaksOpen, setTweaksOpen] = useState(false)
+
   // ── 잠금 모달 모드 ──────────────────────────
   // 'lock' = PIN 설정, 'unlock' = PIN 입력, null = 닫힘
   // Python으로 치면: self.lock_modal_mode: Literal['lock','unlock'] | None = None
@@ -489,7 +493,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
         }
       }
       const dateParam = plannerDate ? `?date=${plannerDate}` : ''
-      const res = await fetch(`http://localhost:8000/api/export/html/${page.id}${dateParam}`)
+      const res = await fetch(`${BASE_URL}/api/export/html/${page.id}${dateParam}`)
       if (!res.ok) {
         const detail = await res.text().catch(() => '')
         throw new Error(`서버 오류 ${res.status}: ${detail}`)
@@ -517,7 +521,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
     setExportOpen(false)
     const toastId = toast.loading('PDF 생성 중...')
     try {
-      const res = await fetch(`http://localhost:8000/api/export/pdf/${page.id}`)
+      const res = await fetch(`${BASE_URL}/api/export/pdf/${page.id}`)
       if (!res.ok) {
         const detail = await res.text().catch(() => '')
         throw new Error(`서버 오류 ${res.status}: ${detail}`)
@@ -543,10 +547,13 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   function handleExportPrint() {
     setExportOpen(false)
     setTimeout(() => {
+      // 인쇄 다이얼로그 닫힘 전 페이지 이동 시 누수 방지 — 30초 후 자동 제거
       function onAfterPrint() {
-        toast.success(t.page.printSuccess, { id: 'pdf-print', duration: 2000 })
+        clearTimeout(cleanupTimer)
         window.removeEventListener('afterprint', onAfterPrint)
+        toast.success(t.page.printSuccess, { id: 'pdf-print', duration: 2000 })
       }
+      const cleanupTimer = setTimeout(() => window.removeEventListener('afterprint', onAfterPrint), 30000)
       window.addEventListener('afterprint', onAfterPrint)
       window.print()
     }, 50)
@@ -902,7 +909,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       {/* Python으로 치면: padding = 'px-16' if desktop else 'px-4' */}
       {/* max-w는 settingsStore.editorMaxWidth를 직접 구독해서 적용 (CSS 변수 의존 제거) */}
       {/* Python으로 치면: content_body.max_width = settings_store.editor_max_width */}
-      <div ref={contentAreaRef} className="content-body flex-1 min-w-0 mr-auto px-4 sm:px-8 md:px-16 pb-8" style={{ maxWidth: `${editorMaxWidth}px` }}>
+      <div ref={contentAreaRef} className="content-body prose-doc flex-1 min-w-0 mr-auto px-4 sm:px-8 md:px-16 pb-8" style={{ maxWidth: `${editorMaxWidth}px` }}>
 
         {/* ── undo/redo + 내보내기 버튼 (우측 상단) ──────
             historyVersion 구독 → 버튼 활성화 상태 자동 갱신
@@ -915,7 +922,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             type="button"
             onClick={() => undoPage(pageId)}
             disabled={historyVersion >= 0 && !canUndo(pageId)}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="icon-btn p-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title={t.page.undoTitle}
           >
             <Undo2 size={14} />
@@ -926,7 +933,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             type="button"
             onClick={() => redoPage(pageId)}
             disabled={historyVersion >= 0 && !canRedo(pageId)}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="icon-btn p-1.5 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             title={t.page.redoTitle}
           >
             <Redo2 size={14} />
@@ -1040,6 +1047,24 @@ export default function PageEditor({ pageId }: PageEditorProps) {
 
           {/* 구분선 */}
           <div className="w-px h-4 bg-gray-200 mx-1" />
+
+          {/* Tweaks 버튼 — 빠른 외관 설정 패널 토글 */}
+          {/* Python으로 치면: tweaks_btn.on_click = lambda: self.tweaks_open = not self.tweaks_open */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setTweaksOpen(v => !v)}
+              className={tweaksOpen
+                ? "flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md transition-colors"
+                : "flex items-center gap-1.5 px-2.5 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"}
+              style={tweaksOpen ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
+              title="Tweaks — 빠른 외관 설정"
+            >
+              <span>⚙</span>
+              <span>Tweaks</span>
+            </button>
+            {tweaksOpen && <TweaksPanel onClose={() => setTweaksOpen(false)} />}
+          </div>
 
           {/* 버전 기록 버튼 */}
           {/* Python으로 치면: history_btn.on_click = lambda: self.history_panel_open = True */}
@@ -1502,17 +1527,16 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           xl 이상 넓은 화면에서만 표시 (px-16 본문 영역과 겹치지 않도록)
           sticky top-20: 스크롤 시 상단에 고정
           Python으로 치면: if plugins.table_of_contents: render TocPanel(page.blocks) */}
-      {plugins.tableOfContents && (
-        // self-stretch: items-start 부모에서 TOC 래퍼가 content-body와 같은 높이로 늘어나야
-        // sticky top-20이 전체 스크롤 구간 동안 유지됨 (높이가 짧으면 즉시 컨테이너 끝에 닿아 고정 해제)
-        // Python으로 치면: toc_wrapper.height = content_body.height  # sticky가 작동하는 최소 조건
-        <div className="hidden xl:block self-stretch pt-16">
-          <TocPanel
-            blocks={page.blocks}
-            collapsedIds={collapsedSections}
-            onToggleCollapse={toggleSection}
-          />
-        </div>
+      {/* 우측 통합 패널 (TOC/백링크/버전) — 플러그인 중 하나라도 활성 시 표시 */}
+      {(plugins.tableOfContents || plugins.backlinks) && (
+        <RightPanel
+          pageId={pageId}
+          blocks={page.blocks}
+          collapsedIds={collapsedSections}
+          onToggleCollapse={toggleSection}
+          showToc={plugins.tableOfContents}
+          showBacklinks={plugins.backlinks}
+        />
       )}
 
       </div>{/* ── flex 래퍼 닫기 */}

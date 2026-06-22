@@ -117,30 +117,25 @@ export default function PomodoroWidget() {
   const total    = phase === 'work' ? WORK_SECONDS : BREAK_SECONDS
   const progress = ((total - secondsLeft) / total) * 100
 
-  // 단계별 색상
-  const color = phase === 'work' ? '#ef4444' : '#22c55e'   // red / green
-  const bg    = phase === 'work' ? 'bg-red-50'  : 'bg-green-50'
-  const text  = phase === 'work' ? 'text-red-500' : 'text-green-500'
-  const btnBg = phase === 'work' ? 'bg-red-500 hover:bg-red-600' : 'bg-green-500 hover:bg-green-600'
-
   // -----------------------------------------------
   // 최소화 상태: 작은 알약형 버튼
   // Python으로 치면: if self.minimized: render_pill_button()
   // -----------------------------------------------
   if (minimized) {
     return (
-      <div className="fixed bottom-16 right-5 z-40 print-hide">
+      <div className="fixed bottom-12 right-14 z-40 print-hide">
         <button
           type="button"
           onClick={() => setMinimized(false)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full shadow-md text-xs text-gray-700 hover:shadow-lg transition-all"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-md text-xs transition-all"
+          style={{ background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", color: "var(--color-text-muted)" }}
           title="포모도로 타이머 열기"
         >
           <span>🍅</span>
-          <span className={isRunning ? `font-mono font-bold ${text}` : 'font-mono text-gray-600'}>
+          <span className="font-mono" style={{ color: isRunning ? "var(--color-warn)" : "var(--color-text-muted)" }}>
             {fmtTime(secondsLeft)}
           </span>
-          {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />}
+          {isRunning && <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: "var(--color-warn)" }} />}
         </button>
       </div>
     )
@@ -151,19 +146,19 @@ export default function PomodoroWidget() {
   // Python으로 치면: class PomodoroUI(QWidget): def render(self): ...
   // -----------------------------------------------
   return (
-    <div className="fixed bottom-16 right-5 z-40 w-52 bg-white border border-gray-200 rounded-2xl shadow-xl p-4 select-none print-hide">
+    <div className="fixed bottom-12 right-14 z-40 w-52 rounded-xl shadow-xl p-4 select-none print-hide"
+         style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", boxShadow: "0 10px 30px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04)" }}>
 
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5">
           <span className="text-base">🍅</span>
-          <span className="text-xs font-semibold text-gray-700">Pomodoro</span>
+          <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>Pomodoro</span>
         </div>
-        {/* 최소화 버튼 */}
         <button
           type="button"
           onClick={() => setMinimized(true)}
-          className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded text-xs transition-colors"
+          className="icon-btn w-5 h-5 text-xs"
           title="최소화"
         >
           −
@@ -171,25 +166,24 @@ export default function PomodoroWidget() {
       </div>
 
       {/* 단계 탭 (집중 / 휴식) */}
-      {/* Python으로 치면: self.phase_tabs = TabBar(['집중', '휴식']) */}
-      <div className="flex gap-1 mb-3">
+      <div className="flex gap-1 mb-3" style={{ background: "var(--color-sunken)", borderRadius: 6, padding: 2 }}>
         <button
           type="button"
           onClick={() => switchPhase('work')}
-          className={phase === 'work'
-            ? "flex-1 py-1 text-xs rounded-lg font-semibold bg-red-50 text-red-600 border border-red-200"
-            : "flex-1 py-1 text-xs rounded-lg font-medium text-gray-400 hover:bg-gray-50 transition-colors"
-          }
+          className="flex-1 py-1 text-xs rounded-md font-medium transition-colors"
+          style={phase === 'work'
+            ? { background: "var(--color-surface)", color: "var(--color-warn)", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }
+            : { color: "var(--color-text-muted)" }}
         >
           집중
         </button>
         <button
           type="button"
           onClick={() => switchPhase('break')}
-          className={phase === 'break'
-            ? "flex-1 py-1 text-xs rounded-lg font-semibold bg-green-50 text-green-600 border border-green-200"
-            : "flex-1 py-1 text-xs rounded-lg font-medium text-gray-400 hover:bg-gray-50 transition-colors"
-          }
+          className="flex-1 py-1 text-xs rounded-md font-medium transition-colors"
+          style={phase === 'break'
+            ? { background: "var(--color-surface)", color: "var(--color-accent-ink)", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }
+            : { color: "var(--color-text-muted)" }}
         >
           휴식
         </button>
@@ -206,64 +200,61 @@ export default function PomodoroWidget() {
             <circle
               cx="18" cy="18" r="15.9"
               fill="none"
-              stroke="#f3f4f6"
+              stroke="var(--color-sunken)"
               strokeWidth="2.5"
             />
-            {/* 진행 원 */}
+            {/* 진행 원 — accent 계열 색상 */}
             <circle
               cx="18" cy="18" r="15.9"
               fill="none"
-              stroke={color}
+              stroke="var(--color-accent)"
               strokeWidth="2.5"
               strokeDasharray={`${progress} 100`}
               strokeLinecap="round"
               style={{ transitionProperty: 'stroke-dasharray', transitionDuration: '0.5s', transitionTimingFunction: 'ease' }}
             />
           </svg>
-          {/* 중앙 시간 텍스트 */}
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={`text-xl font-bold font-mono tabular-nums ${text}`}>
+            <span className="text-xl font-bold font-mono tabular-nums" style={{ color: "var(--color-text)" }}>
               {fmtTime(secondsLeft)}
             </span>
           </div>
         </div>
       </div>
 
-      {/* 컨트롤 버튼: 시작/일시정지 + 리셋 */}
-      {/* Python으로 치면: self.start_btn.on_click = toggle_running */}
+      {/* 컨트롤 버튼 */}
       <div className="flex items-center gap-2 mb-3">
         <button
           type="button"
           onClick={() => setIsRunning(prev => !prev)}
-          className={isRunning
-            ? "flex-1 py-2 text-xs font-semibold rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-            : `flex-1 py-2 text-xs font-semibold rounded-xl text-white transition-colors ${btnBg}`
-          }
+          className="flex-1 py-2 text-xs font-semibold rounded-lg transition-colors"
+          style={isRunning
+            ? { background: "var(--color-sunken)", color: "var(--color-text-muted)" }
+            : { background: "var(--color-accent)", color: "#fff" }}
         >
           {isRunning ? '⏸ 일시정지' : '▶ 시작'}
         </button>
         <button
           type="button"
           onClick={handleReset}
-          className="px-3 py-2 text-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors leading-none"
+          className="icon-btn px-3 py-2 h-auto text-lg leading-none rounded-lg"
           title="초기화"
         >
           ↺
         </button>
       </div>
 
-      {/* 완료된 포모도로 수 (🍅 이모지로 표시) */}
-      {/* Python으로 치면: print('🍅' * completed_count) */}
+      {/* 완료된 포모도로 수 */}
       <div className="flex items-center justify-center flex-wrap gap-0.5 min-h-5">
         {completedCount === 0 ? (
-          <span className="text-xs text-gray-300">완료된 포모도로 없음</span>
+          <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>완료된 포모도로 없음</span>
         ) : (
           <>
             {Array.from({ length: Math.min(completedCount, 8) }).map((_, i) => (
               <span key={i} className="text-sm leading-none">🍅</span>
             ))}
             {completedCount > 8 && (
-              <span className="text-xs text-gray-400 ml-0.5">+{completedCount - 8}</span>
+              <span className="text-xs ml-0.5" style={{ color: "var(--color-text-subtle)" }}>+{completedCount - 8}</span>
             )}
           </>
         )}

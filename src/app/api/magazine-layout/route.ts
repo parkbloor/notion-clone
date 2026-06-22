@@ -11,8 +11,8 @@ import OpenAI from 'openai'
 
 // 클라이언트는 첫 호출 시 초기화 (환경변수 없으면 해당 provider 호출 시 에러)
 // Python으로 치면: _claude = None; _openai = None
-let _claude: Anthropic | null = null
-let _openai: OpenAI | null = null
+const _claude: Anthropic | null = null
+const _openai: OpenAI | null = null
 
 // 요청마다 키가 달라질 수 있으므로 키를 인자로 받아 클라이언트 생성
 // Python으로 치면: def get_claude_client(key): return anthropic.Anthropic(api_key=key)

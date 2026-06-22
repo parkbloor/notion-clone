@@ -1,6 +1,6 @@
 # Notion Clone — 개발 청사진 (Blueprint)
 
-> **작성일:** 2026-02-21 | **최종 수정:** 2026-03-26 (WeeklyPlannerBlock, RoutineMatrixBlock, MonthlyCalendarBlock 추가; PeriodicNotesPanel 연도/월 네비게이션; 날씨 위치 settingsStore 통합)
+> **작성일:** 2026-02-21 | **최종 수정:** 2026-06-22 (문서 정렬, warm-moss UI 마감, Day Planner 저장·드래그 안정화)
 > **목적:** 이 문서는 개발을 이어받는 AI(또는 개발자)가 맥락 없이도 즉시 작업을 이어갈 수 있도록 프로젝트의 모든 것을 기록합니다.
 
 ---
@@ -11,7 +11,7 @@
 - 인터넷 없이 완전 오프라인 동작
 - 파일은 `vault/` 폴더에 JSON으로 저장 (사람이 읽을 수 있는 형식)
 - 백엔드: FastAPI (Python) — 파일 시스템 CRUD
-- 프론트엔드: Next.js 14 + Tiptap v3 에디터
+- 프론트엔드: Next.js 16 + React 19 + Tiptap v3 에디터
 - 실행 명령: `npm run dev` (Next.js 3000 + FastAPI 8000 동시 실행)
 
 ---
@@ -228,6 +228,21 @@ content.json = {
 }
 ```
 
+### 4-3-1. 멀티 볼트 구조
+- 앱은 단일 `vault/` 고정 경로가 아니라 `vault_config.json`의 `vaults_root` 하위 폴더들을 독립 볼트로 취급한다.
+- `vault_config.json` 핵심 필드:
+  ```json
+  {
+    "vaults_root": "E:\\MyNotes",
+    "current_vault": "기본",
+    "recent_vaults": ["기본", "업무"]
+  }
+  ```
+- `backend/core.py`의 `get_vault_dir()` / `set_vault_dir()`가 현재 활성 볼트 경로의 단일 진실 공급원이다.
+- 설정 > 저장 위치(`StorageTab.tsx`)를 열면 `/api/settings/vault-info`가 `vaults_root` 하위 폴더를 스캔해 볼트 목록을 반환한다.
+- 볼트 전환은 `/api/settings/switch-vault`로 처리한다. 백엔드는 `vaults_root/current_vault`로 활성 경로를 바꾸고, 프론트는 `pageStore.resetStore()` 후 페이지/카테고리를 다시 로드한다.
+- `_index.nct`가 없는 새 볼트 폴더는 첫 진입 시 빈 인덱스를 만들거나 폴더 스캔으로 자동 초기화한다.
+
 ### 4-4. 설정 시스템
 - `settingsStore.ts`: Zustand + persist → `localStorage['notion-clone-settings']`에 자동 저장
 - 테마: `applyTheme(theme)` → `<html>` 요소에 `.dark` 클래스 토글
@@ -282,6 +297,14 @@ content.json = {
 - [x] 페이지 드래그앤드롭 정렬
 - [x] **휴지통** — 물리 파일 이동 방식(`_vault_trash/` 폴더), 이름 충돌 시 `_N` 접미사, 원래 위치 복원, 개별/전체 영구삭제, 레거시 소프트삭제 자동 마이그레이션
 - [x] **페이지 버전 히스토리** — 3분 간격 스냅샷, 최대 50개 보관, 미리보기·복원
+
+#### 휴지통 저장 방식
+- 삭제된 페이지/카테고리는 `isTrashed` 플래그로 숨기지 않고 현재 볼트의 `_vault_trash/` 폴더로 실제 이동한다.
+- `_vault_trash/index.json`이 휴지통 메타데이터(원본 폴더명, 실제 보관 폴더명, 원래 카테고리/부모, 삭제 시각)를 관리한다.
+- 활성 `_index.nct`에는 삭제되지 않은 항목만 남긴다. 볼트 자동 스캔은 `_vault_trash/`를 건너뛰어 삭제 항목이 되살아나지 않게 한다.
+- 삭제/복원 시 같은 이름의 폴더가 있으면 `resolve_trash_name()` 규칙으로 `_1`, `_2` 접미사를 붙인다.
+- 원래 카테고리나 부모 폴더가 사라진 상태에서 복원하면 볼트 루트로 복원한다.
+- 서버 시작 시 `backend/main.py`가 레거시 `isTrashed=True` 항목을 `_vault_trash/`로 자동 마이그레이션한다.
 
 ### ✅ 카테고리 (폴더) 시스템
 - [x] 카테고리 생성/삭제/이름 변경

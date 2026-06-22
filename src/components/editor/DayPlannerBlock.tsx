@@ -15,6 +15,20 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Block, PlanEvent, SubTask, Routine } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
+import { plannerApi } from '@/lib/api'
+import PlannerTimeline, {
+  END_HOUR,
+  EVENT_COLORS,
+  START_HOUR,
+  eventPx,
+  getColor,
+  isScheduledEvent,
+  isUnscheduledEvent,
+  minToTime,
+  timeToMin,
+  yToTime,
+} from '@/components/editor/planner/PlannerTimeline'
+import { usePlannerEventDrag } from '@/components/editor/planner/usePlannerEventDrag'
 import { Plus, Trash2, ChevronLeft, ChevronRight, Check, X, Bot, Timer, TimerOff, Eye, EyeOff, Archive, Pencil, Zap, Download, Upload } from 'lucide-react'
 import AIChatPanel, { ChatMsg } from '@/components/ai/AIChatPanel'
 import { useLocale } from '@/locales'
@@ -23,33 +37,6 @@ import { useLocale } from '@/locales'
 // GlobalAIChatButton의 'ai-apply-schedule' 이벤트를 처리할 블록 결정
 // Python으로 치면: _active_planner_id: str | None = None
 let _activePlannerBlockId: string | null = null
-
-// ── 이벤트 컬러 팔레트 ────────────────────────
-// Python으로 치면: COLORS = ['blue', 'green', 'orange', 'purple', 'red', 'gray']
-const EVENT_COLORS = [
-  // 기본 계열
-  { id: 'blue',     bg: 'bg-blue-400',     text: 'text-white', dot: 'bg-blue-400'     },
-  { id: 'sky',      bg: 'bg-sky-400',      text: 'text-white', dot: 'bg-sky-400'      },
-  { id: 'cyan',     bg: 'bg-cyan-400',     text: 'text-white', dot: 'bg-cyan-400'     },
-  { id: 'teal',     bg: 'bg-teal-400',     text: 'text-white', dot: 'bg-teal-400'     },
-  { id: 'green',    bg: 'bg-emerald-400',  text: 'text-white', dot: 'bg-emerald-400'  },
-  { id: 'lime',     bg: 'bg-lime-400',     text: 'text-gray-800', dot: 'bg-lime-400'  },
-  // 따뜻한 계열
-  { id: 'yellow',   bg: 'bg-yellow-400',   text: 'text-gray-800', dot: 'bg-yellow-400'},
-  { id: 'amber',    bg: 'bg-amber-400',    text: 'text-white', dot: 'bg-amber-400'    },
-  { id: 'orange',   bg: 'bg-orange-400',   text: 'text-white', dot: 'bg-orange-400'   },
-  { id: 'red',      bg: 'bg-rose-400',     text: 'text-white', dot: 'bg-rose-400'     },
-  { id: 'pink',     bg: 'bg-pink-400',     text: 'text-white', dot: 'bg-pink-400'     },
-  // 보라/중성 계열
-  { id: 'fuchsia',  bg: 'bg-fuchsia-400',  text: 'text-white', dot: 'bg-fuchsia-400'  },
-  { id: 'purple',   bg: 'bg-violet-400',   text: 'text-white', dot: 'bg-violet-400'   },
-  { id: 'indigo',   bg: 'bg-indigo-400',   text: 'text-white', dot: 'bg-indigo-400'   },
-  { id: 'slate',    bg: 'bg-slate-400',    text: 'text-white', dot: 'bg-slate-400'    },
-  { id: 'gray',     bg: 'bg-gray-400',     text: 'text-white', dot: 'bg-gray-400'     },
-]
-function getColor(id: string) {
-  return EVENT_COLORS.find(c => c.id === id) ?? EVENT_COLORS[0]
-}
 
 // ── AI 시스템 프롬프트 ────────────────────────
 // export: GlobalAIChatButton의 일정 모드에서 동일 프롬프트 재사용
@@ -85,9 +72,6 @@ blue, sky, cyan, teal, green, lime, yellow, amber, orange, red, pink, fuchsia, p
 - 휴식, 식사, 운동 등 루틴 일정도 제안할 수 있습니다`
 
 // ── 타임라인 설정 ─────────────────────────────
-// Python으로 치면: START_HOUR = 0; END_HOUR = 24; ZOOM_STEPS = [32, 48, 64, 96]
-const START_HOUR = 0    // 표시 시작 시각
-const END_HOUR   = 24   // 표시 종료 시각
 // HOUR_PX 제거 → settingsStore.plannerZoom 으로 동적 결정 (컴포넌트 내부에서 사용)
 const ZOOM_STEPS = [32, 48, 64, 96] as const  // 줌 단계 (px/hour)
 
@@ -127,75 +111,6 @@ function todayStr(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
-
-// ── 'HH:MM' → 분(minutes) 변환 ───────────────
-function timeToMin(t: string): number {
-  const [h, m] = t.split(':').map(Number)
-  return isNaN(h) ? -1 : h * 60 + m
-}
-
-// ── 분 → 'HH:MM' 변환 ────────────────────────
-function minToTime(min: number): string {
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
-}
-
-// ── 이벤트 top/height (px) 계산 ──────────────
-// hourPx: 1시간당 픽셀 높이 (settingsStore.plannerZoom 전달)
-// Python으로 치면: def event_px(event, hour_px): top = (start_min - start_hour*60) * (hour_px/60)
-function eventPx(event: PlanEvent, hourPx: number): { top: number; height: number } | null {
-  const startMin = timeToMin(event.start)
-  const endMin   = timeToMin(event.end)
-  if (startMin < 0 || endMin <= startMin) return null
-  const baseMin  = START_HOUR * 60
-  const pxPerMin = hourPx / 60
-  return {
-    top:    Math.max(0, (startMin - baseMin) * pxPerMin),
-    height: Math.max(24, (endMin - startMin) * pxPerMin),
-  }
-}
-
-// ── 겹치는 이벤트 레이아웃 계산 ──────────────
-interface LayoutEvent { event: PlanEvent; top: number; height: number; col: number; totalCols: number }
-function layoutEvents(events: PlanEvent[], hourPx: number): LayoutEvent[] {
-  const items = events
-    .map(ev => { const px = eventPx(ev, hourPx); return px ? { event: ev, ...px } : null })
-    .filter((x): x is NonNullable<typeof x> => x !== null)
-    .sort((a, b) => a.top - b.top)
-
-  const columns: { event: PlanEvent; top: number; height: number; end: number }[][] = []
-  for (const item of items) {
-    let placed = false
-    for (const col of columns) {
-      if (col[col.length - 1].end <= item.top) {
-        col.push({ ...item, end: item.top + item.height })
-        placed = true
-        break
-      }
-    }
-    if (!placed) columns.push([{ ...item, end: item.top + item.height }])
-  }
-
-  const result: LayoutEvent[] = []
-  columns.forEach((col, colIdx) => {
-    for (const item of col) {
-      const overlapping = columns.filter(c =>
-        c.some(b => b.top < item.top + item.height && b.end > item.top)
-      ).length
-      result.push({ event: item.event, top: item.top, height: item.height, col: colIdx, totalCols: overlapping })
-    }
-  })
-  return result
-}
-
-// ── 클릭 Y좌표 → 시간 변환 ────────────────────
-// Python으로 치면: def y_to_time(y, hour_px): return min_to_time(start_hour*60 + y/(hour_px/60))
-function yToTime(y: number, hourPx: number): string {
-  const min = START_HOUR * 60 + Math.round(y / (hourPx / 60) / 15) * 15
-  return minToTime(Math.max(START_HOUR * 60, Math.min(END_HOUR * 60, min)))
-}
-
 
 // =============================================
 // TimeInput — 24시간제 시:분 분리 입력 컴포넌트
@@ -405,9 +320,8 @@ function PlannerArchiveModal({ onClose }: ArchiveModalProps) {
   // 마운트 시 아카이브 fetch
   useEffect(() => {
     setLoading(true)
-    fetch('/api/planner/archive')
-      .then(r => r.json())
-      .then((d: Record<string, PlanEvent[]>) => { setArchive(d); setLoading(false) })
+    plannerApi.getArchive()
+      .then((d) => { setArchive(d); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
 
@@ -517,57 +431,16 @@ function PlannerArchiveModal({ onClose }: ArchiveModalProps) {
               {/* 타임라인 (읽기 전용 — 클릭 이벤트 없음) */}
               <div className="flex flex-1 overflow-hidden">
                 <div className="overflow-y-auto flex-1" style={{ maxHeight: 'calc(80vh - 100px)' }}>
-                  <div className="flex">
-                    {/* 시간 레이블 */}
-                    <div className="w-10 shrink-0 relative" style={{ height: 24 * HOUR_PX_ARCHIVE }}>
-                      {Array.from({ length: 25 }, (_, i) => (
-                        <div key={i}
-                          className="absolute text-[9px] text-gray-300 text-right pr-1 leading-none"
-                          style={{ top: i === 0 ? 2 : i * HOUR_PX_ARCHIVE - 5, right: 0, width: '100%' }}>
-                          {String(i).padStart(2,'0')}:00
-                        </div>
-                      ))}
-                    </div>
-                    {/* 타임라인 그리드 */}
-                    <div className="flex-1 relative border-l border-gray-200"
-                      style={{ height: 24 * HOUR_PX_ARCHIVE }}>
-                      {Array.from({ length: 24 }, (_, i) => (
-                        <div key={i} className="absolute left-0 right-0 border-t border-gray-100"
-                          style={{ top: i * HOUR_PX_ARCHIVE }} />
-                      ))}
-                      {/* 이벤트 블록 (읽기 전용) */}
-                      {layoutEvents(selectedEvents.filter(e => e.start && e.start !== '00:00'), HOUR_PX_ARCHIVE)
-                        .map((li, idx) => {
-                          const c = getColor(li.event.color)
-                          return (
-                            <div key={idx}
-                              style={{
-                                position: 'absolute',
-                                top: li.top + 1,
-                                height: li.height - 2,
-                                left: `calc(${li.col * (100/li.totalCols)}% + 2px)`,
-                                width:  `calc(${100/li.totalCols}% - 4px)`,
-                              }}
-                              className={[
-                                'rounded-lg px-2 overflow-hidden flex flex-col justify-start',
-                                c.bg, c.text,
-                                li.event.done ? 'opacity-50' : '',
-                              ].join(' ')}
-                            >
-                              <span className={[
-                                'text-[10px] font-semibold truncate leading-tight mt-0.5',
-                                li.event.done ? 'line-through opacity-70' : '',
-                              ].join(' ')}>
-                                {li.event.done ? '✓ ' : ''}{li.event.title}
-                              </span>
-                              {li.height > 28 && (
-                                <span className="text-[9px] opacity-80">{li.event.start}–{li.event.end}</span>
-                              )}
-                            </div>
-                          )
-                        })}
-                    </div>
-                  </div>
+                  <PlannerTimeline
+                    events={selectedEvents.filter(isScheduledEvent)}
+                    hourPx={HOUR_PX_ARCHIVE}
+                    editable={false}
+                    showHalfHours={false}
+                    timeLabelWidthClass="w-10"
+                    timeLabelClassName="text-[9px] text-gray-300 pr-1"
+                    eventTitleClassName="text-[10px]"
+                    eventTimeClassName="text-[9px]"
+                  />
                 </div>
 
                 {/* 이벤트 목록 (읽기 전용) */}
@@ -588,7 +461,7 @@ function PlannerArchiveModal({ onClose }: ArchiveModalProps) {
                             {ev.title}
                           </div>
                           <div className="text-[10px] text-gray-400">
-                            {ev.start && ev.start !== '00:00' ? `${ev.start}–${ev.end}` : '시간 미지정'}
+                            {isScheduledEvent(ev) ? `${ev.start}–${ev.end}` : '시간 미지정'}
                           </div>
                           {ev.elapsed !== undefined && ev.elapsed > 0 && (
                             <div className="text-[10px] text-gray-400">⏱ {ev.elapsed}분</div>
@@ -646,7 +519,7 @@ function EventDetailPanel({ ev, patchEvent, toggleDone, setSelectedEventId, t }:
 
   const c = getColor(ev.color)
   // 계획 시간 (분) — start/end 차이
-  const plannedMin = ev.start && ev.start !== '00:00'
+  const plannedMin = isScheduledEvent(ev)
     ? Math.max(0, timeToMin(ev.end) - timeToMin(ev.start))
     : null
   const actualMin = ev.elapsed ?? null
@@ -667,7 +540,7 @@ function EventDetailPanel({ ev, patchEvent, toggleDone, setSelectedEventId, t }:
           <div className={['w-2.5 h-2.5 rounded-full shrink-0', c.dot].join(' ')} />
           <span className="text-[12px] font-semibold text-gray-800 truncate flex-1">{ev.title}</span>
         </div>
-        {ev.start && ev.start !== '00:00' && (
+        {isScheduledEvent(ev) && (
           <div className="text-[10px] text-gray-400 mt-0.5 ml-4.5">{ev.start} – {ev.end}</div>
         )}
       </div>
@@ -849,6 +722,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // 플래너 타임라인 설정 — 시작 시각(시), 드래그 스냅 간격(분), 줌(px/hour)
   // Python으로 치면: self.start_hour = settings.planner_start_hour
   const plannerStartHour      = useSettingsStore(s => s.plannerStartHour)
+  const plannerEndHour        = useSettingsStore(s => s.plannerEndHour)
   const plannerSnapMin        = useSettingsStore(s => s.plannerSnapMin)
   const plannerZoom           = useSettingsStore(s => s.plannerZoom)
   const setPlannerZoom        = useSettingsStore(s => s.setPlannerZoom)
@@ -861,6 +735,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   const setPlannerAutoApply = useSettingsStore(s => s.setPlannerAutoApply)
   // HOUR_PX 동적 값 — plannerZoom 기준 (32|48|64|96)
   const HOUR_PX = plannerZoom
+  const timelineStartHour = Math.max(START_HOUR, Math.min(END_HOUR - 1, Math.floor(plannerStartHour)))
+  const timelineEndHour   = Math.max(timelineStartHour + 1, Math.min(END_HOUR, Math.floor(plannerEndHour)))
 
   // ── 현재 보고 있는 날짜 (로컬 state) ─────────
   // 일간 노트 제목에서 YYYY-MM-DD 파싱 → 없으면 오늘 날짜 fallback
@@ -889,7 +765,57 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
   // 현재 날짜의 이벤트 배열 (편의상 변수화)
   // Python으로 치면: events = data.events_by_date.get(current_date, [])
-  const events: PlanEvent[] = data.eventsByDate[currentDate] ?? []
+  const events: PlanEvent[] = useMemo(
+    () => data.eventsByDate[currentDate] ?? [],
+    [data.eventsByDate, currentDate],
+  )
+
+  // ── 최신 플래너 데이터 읽기·부분 업데이트 공통화 ──
+  // 이벤트·회고·루틴 자동 적용이 같은 block.content를 갱신하므로,
+  // 항상 스토어의 최신 JSON을 기준으로 수정한 뒤 한 번에 커밋한다.
+  // Python으로 치면: def update_planner(mutator): latest = load(); save(mutator(latest))
+  const readLatestPlannerData = useCallback((): PlannerData => {
+    try {
+      const content = usePageStore.getState().pages
+        .find(p => p.id === pageId)?.blocks
+        .find(b => b.id === block.id)?.content ?? '{}'
+      const parsed = JSON.parse(content) as Partial<PlannerData>
+      return {
+        eventsByDate: parsed.eventsByDate ?? {},
+        reviewByDate: parsed.reviewByDate ?? {},
+      }
+    } catch {
+      return { eventsByDate: {}, reviewByDate: {} }
+    }
+  }, [pageId, block.id])
+
+  // archiveOld=true이면 90일이 지난 이벤트를 아카이브로 분리한다.
+  // Python으로 치면: def commit(mutator, archive_old=False): ...
+  const commitPlannerData = useCallback((
+    mutator: (latest: PlannerData) => PlannerData,
+    archiveOld = false,
+  ): PlannerData => {
+    const next = mutator(readLatestPlannerData())
+    let eventsByDate = next.eventsByDate
+
+    if (archiveOld) {
+      const cutoff = new Date()
+      cutoff.setDate(cutoff.getDate() - HISTORY_DAYS)
+      const cutoffDate = cutoff.toISOString().slice(0, 10)
+      const toArchive: Record<string, PlanEvent[]> = {}
+      const toKeep: Record<string, PlanEvent[]> = {}
+      for (const [date, dayEvents] of Object.entries(eventsByDate)) {
+        if (date < cutoffDate) toArchive[date] = dayEvents
+        else toKeep[date] = dayEvents
+      }
+      if (Object.keys(toArchive).length > 0) plannerApi.appendArchive(toArchive).catch(() => {})
+      eventsByDate = toKeep
+    }
+
+    const committed = { eventsByDate, reviewByDate: next.reviewByDate ?? {} }
+    updateBlock(pageId, block.id, JSON.stringify(committed))
+    return committed
+  }, [readLatestPlannerData, updateBlock, pageId, block.id])
 
   // ── 콘텐츠 저장 — 90일 초과 데이터 아카이브 처리 포함 ──
   // 1) 현재 날짜 이벤트 업데이트
@@ -897,48 +823,14 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // 3) block.content는 90일 이내 데이터만 저장
   // Python으로 치면: def save_events(date, evs): archive_old(); block.content = json.dumps(recent)
   const save = useCallback((date: string, evs: PlanEvent[]) => {
-    // 스테일 클로저 방지: 스토어에서 최신 데이터를 직접 읽음
-    // saveReview 등 다른 비동기 저장과 레이스 컨디션 시 reviewByDate가 유실되는 버그 방지
-    // Python으로 치면: latest = store.get_block_content(page_id, block_id)
-    const latestData: PlannerData = (() => {
-      try {
-        return JSON.parse(
-          usePageStore.getState().pages.find(p => p.id === pageId)?.blocks.find(b => b.id === block.id)?.content || '{}'
-        )
-      } catch { return { eventsByDate: {}, reviewByDate: {} } }
-    })()
-
-    const next = { ...latestData.eventsByDate, [date]: evs }
-
-    // 90일 기준 날짜 계산
-    const cutoff = (() => {
-      const d = new Date()
-      d.setDate(d.getDate() - HISTORY_DAYS)
-      return d.toISOString().slice(0, 10)
-    })()
-
-    // 90일 초과 / 이내 분리
-    const toArchive: Record<string, PlanEvent[]> = {}
-    const toKeep:   Record<string, PlanEvent[]> = {}
-    for (const [d, dayEvs] of Object.entries(next)) {
-      if (d < cutoff) toArchive[d] = dayEvs
-      else            toKeep[d]   = dayEvs
-    }
-
-    // 아카이브 대상 있으면 백엔드에 append (fire-and-forget, 실패 무시)
-    if (Object.keys(toArchive).length > 0) {
-      fetch('/api/planner/archive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(toArchive),
-      }).catch(() => {})
-    }
-
-    updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: toKeep, reviewByDate: latestData.reviewByDate ?? {} }))
+    commitPlannerData(latest => ({
+      eventsByDate: { ...latest.eventsByDate, [date]: evs },
+      reviewByDate: latest.reviewByDate ?? {},
+    }), true)
     // 이벤트 변경은 즉시 서버에 flush — 500ms 디바운스 대기 중 HMR/탭닫기로 유실 방지
     // Python으로 치면: await save_page_now(page_id)  # fire-and-forget
     savePageNow(pageId).catch(() => {})
-  }, [updateBlock, savePageNow, pageId, block.id])
+  }, [commitPlannerData, savePageNow, pageId])
 
   // ── 이벤트 배열 시간순 정렬 헬퍼 ─────────────
   // Python으로 치면: def sort_events(evs): return sorted(evs, key=lambda e: e.start)
@@ -1009,7 +901,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
   // ── 활성 클럭 경과 시간 실시간 표시 (1초 갱신) ──
   // Python으로 치면: self._clock_timer = QTimer(interval=1000)
-  const [clockTick, setClockTick] = useState(0)
+  const [, setClockTick] = useState(0)
   useEffect(() => {
     if (activeClocks.length === 0) return
     const timer = setInterval(() => setClockTick(t => t + 1), 1000)
@@ -1030,7 +922,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     const nowMin = now.getHours() * 60 + now.getMinutes()
 
     const timers = events
-      .filter(e => !e.done && e.start && e.start !== '00:00')
+      .filter(e => !e.done && isScheduledEvent(e))
       .map(ev => {
         const startMin = timeToMin(ev.start)
         const fireMin  = startMin - plannerNotifyBefore
@@ -1080,31 +972,21 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     if (!city.trim()) return
     setWeatherLoading(true)
     try {
-      // 1단계: 도시명 → 위도/경도 (Geocoding)
-      const geoRes  = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko&format=json`
-      )
-      const geoData = await geoRes.json()
-      if (!geoData.results?.length) { setWeatherLoading(false); return }
-      const { latitude, longitude } = geoData.results[0]
+      const res = await fetch(`/api/weather/day?city=${encodeURIComponent(city)}&date=${encodeURIComponent(dateStr)}`)
+      if (!res.ok) return
 
-      // 2단계: 해당 날짜 날씨코드 + 최고기온 (forecast_days 최대 16일)
-      const wRes  = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-        `&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=16`
-      )
-      const wData = await wRes.json()
-      const idx   = (wData.daily.time as string[]).indexOf(dateStr)
-      if (idx === -1) { setWeatherLoading(false); return }
+      const data = await res.json()
+      if (!data.weather) return
 
       setWeather({
-        icon: wmoToIcon(wData.daily.weathercode[idx]),
-        temp: `${Math.round(wData.daily.temperature_2m_min[idx])}°/${Math.round(wData.daily.temperature_2m_max[idx])}°`,
+        icon: wmoToIcon(data.weather.weathercode),
+        temp: `${Math.round(data.weather.tempMin)}°/${Math.round(data.weather.tempMax)}°`,
       })
     } catch {
       // 날씨 fetch 실패 시 조용히 무시 (헤더에 표시 안 됨)
+    } finally {
+      setWeatherLoading(false)
     }
-    setWeatherLoading(false)
   }, [])
 
   // 날짜 변경 or weatherLocation 변경 시 자동 fetch
@@ -1120,8 +1002,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     function update() {
       const now = new Date()
       const nowMin = now.getHours() * 60 + now.getMinutes()
-      const baseMin = START_HOUR * 60
-      const endMin  = END_HOUR  * 60
+      const baseMin = timelineStartHour * 60
+      const endMin  = timelineEndHour  * 60
       if (nowMin >= baseMin && nowMin <= endMin) {
         setNowTop((nowMin - baseMin) * (HOUR_PX / 60))
       } else {
@@ -1131,7 +1013,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     update()
     const timer = setInterval(update, 60_000)
     return () => clearInterval(timer)
-  }, [])
+  }, [HOUR_PX, timelineStartHour, timelineEndHour])
 
   // ── 인라인 이벤트 생성 폼 상태 ───────────────
   // Python으로 치면: self.new_form = None | { start, end, screenX, screenY }
@@ -1139,20 +1021,13 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   const [newForm, setNewForm] = useState<{ start: string; end: string; screenX: number; screenY: number } | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newColor, setNewColor] = useState('blue')
-  // 새 이벤트 시간 미지정 여부 — true 시 start/end를 '00:00'으로 저장
+  // 새 이벤트 시간 미지정 여부 — true 시 scheduled=false로 저장
   // Python으로 치면: self.new_unscheduled: bool = False
   const [newUnscheduled, setNewUnscheduled] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
   // applyScheduleRef: 전역 AI 이벤트 핸들러에서 최신 applyAiSchedule 참조 (stale closure 방지)
   // Python으로 치면: self._apply_ref = WeakRef(self.apply_ai_schedule)
   const applyScheduleRef = useRef<(text: string) => string | void>(() => {})
-  // plannerSnapMin, HOUR_PX를 ref로 유지 — useEffect 내부 stale closure 방지
-  // Python으로 치면: self._snap_ref = plannerSnapMin; self._hour_px_ref = HOUR_PX
-  const snapMinRef  = useRef(plannerSnapMin)
-  const hourPxRef   = useRef(HOUR_PX)
-  snapMinRef.current  = plannerSnapMin
-  hourPxRef.current   = HOUR_PX
-
   // ── 이벤트 수정 팝업 상태 ────────────────────
   // Python으로 치면: self.editing_event: PlanEvent | None = None
   const [editingEvent, setEditingEvent] = useState<PlanEvent | null>(null)
@@ -1171,174 +1046,50 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // ── 타임라인 초기 스크롤: plannerStartHour 위치로 이동 ──
   // Python으로 치면: def on_mount(self): self.scroll_to(start_hour * HOUR_PX)
   useEffect(() => {
-    if (scrollRef.current && plannerStartHour > 0) {
-      scrollRef.current.scrollTop = plannerStartHour * HOUR_PX
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0
     }
-  // 마운트 1회만 실행 (plannerStartHour 변경 시에도 재적용)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plannerStartHour])
+  }, [timelineStartHour])
 
-  // ── 이벤트 드래그 상태 ────────────────────────
-  // ref: 렌더 없이 최신값 유지 (mousemove 핸들러 stale closure 방지)
-  // Python으로 치면: self.drag_ref = None | { event, startY, origStartMin, duration, currentTop, moved }
-  interface DragState {
-    event: PlanEvent
-    startClientY: number
-    origStartMin: number
-    duration: number       // 분 단위
-    currentTop: number     // 현재 프리뷰 top (px)
-    moved: boolean         // 4px 이상 이동 시 true
-  }
-  const dragRef = useRef<DragState | null>(null)
-  const justDraggedRef = useRef(false)  // 드래그 직후 click 이벤트 무시용
-  const [draggingId,    setDraggingId]    = useState<string | null>(null)  // 원본 ghost 표시용
-  const [dragPreviewTop, setDragPreviewTop] = useState<number | null>(null) // 프리뷰 위치
+  // ── 우측 패널 모드: list | detail ───────────
+  // selectedEventId: null 이면 list 모드, id 있으면 detail 모드
+  // Python으로 치면: self.selected_event_id: str | None = None
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
-  // ── 이벤트 리사이즈 상태 ──────────────────────
-  // 하단 핸들 드래그로 종료 시간 조정
-  // Python으로 치면: self.resize_ref = None | { event, startY, origEndMin, startMin, currentHeight }
-  interface ResizeState {
-    event: PlanEvent
-    startClientY: number
-    origEndMin: number
-    startMin: number        // 고정 시작 분
-    currentHeight: number   // 현재 프리뷰 높이 (px)
-  }
-  const resizeRef = useRef<ResizeState | null>(null)
-  const [resizingId,          setResizingId]          = useState<string | null>(null)
-  const [resizePreviewHeight, setResizePreviewHeight] = useState<number | null>(null)
-
-  // ── 이벤트 블록 mousedown → 드래그 시작 ──────
-  // Python으로 치면: def on_event_mousedown(e, ev): drag_ref = { ... }
-  function startDrag(e: React.MouseEvent, ev: PlanEvent) {
-    e.stopPropagation()
-    e.preventDefault()
-    const px = eventPx(ev, HOUR_PX)
-    if (!px) return
-    dragRef.current = {
-      event: ev,
-      startClientY: e.clientY,
-      origStartMin: timeToMin(ev.start),
-      duration: timeToMin(ev.end) - timeToMin(ev.start),
-      currentTop: px.top,
-      moved: false,
-    }
-    setDraggingId(ev.id)
-    setDragPreviewTop(px.top)
-  }
-
-  // ── 이벤트 블록 하단 핸들 mousedown → 리사이즈 시작 ──
-  // Python으로 치면: def on_resize_handle_mousedown(e, ev): resize_ref = { ... }
-  function startResize(e: React.MouseEvent, ev: PlanEvent) {
-    e.stopPropagation()
-    e.preventDefault()
-    const px = eventPx(ev, HOUR_PX)
-    if (!px) return
-    resizeRef.current = {
-      event: ev,
-      startClientY: e.clientY,
-      origEndMin: timeToMin(ev.end),
-      startMin: timeToMin(ev.start),
-      currentHeight: px.height,
-    }
-    setResizingId(ev.id)
-    setResizePreviewHeight(px.height)
-  }
-
-  // ── window mousemove/mouseup 리스너 ──────────
-  // 드래그 이동 + 리사이즈 둘 다 처리
-  // Python으로 치면: QApplication.instance().installEventFilter(self)
-  useEffect(() => {
-    function onMouseMove(e: MouseEvent) {
-      // 드래그 이동 처리
-      const dr = dragRef.current
-      if (dr) {
-        const deltaY = e.clientY - dr.startClientY
-        if (Math.abs(deltaY) > 4) dr.moved = true
-        if (dr.moved) {
-          // plannerSnapMin + hourPx ref 기준 스냅 계산 (stale closure 방지)
-          const snap      = snapMinRef.current
-          const pxPerMin  = hourPxRef.current / 60
-          const deltaMin  = Math.round(deltaY / pxPerMin / snap) * snap
-          const newStartMin = Math.max(
-            START_HOUR * 60,
-            Math.min(END_HOUR * 60 - dr.duration, dr.origStartMin + deltaMin)
-          )
-          const newTop = (newStartMin - START_HOUR * 60) * pxPerMin
-          dr.currentTop = newTop
-          setDragPreviewTop(newTop)
-        }
-      }
-      // 리사이즈 처리
-      const rr = resizeRef.current
-      if (rr) {
-        const snap     = snapMinRef.current
-        const pxPerMin = hourPxRef.current / 60
-        const deltaMin = Math.round((e.clientY - rr.startClientY) / pxPerMin / snap) * snap
-        const newEndMin = Math.max(rr.startMin + snap, Math.min(END_HOUR * 60, rr.origEndMin + deltaMin))
-        const newHeight = (newEndMin - rr.startMin) * pxPerMin
-        rr.currentHeight = newHeight
-        setResizePreviewHeight(newHeight)
-      }
-    }
-
-    function onMouseUp() {
-      // 드래그 완료 처리
-      const dr = dragRef.current
-      if (dr) {
-        dragRef.current = null
-        setDraggingId(null)
-        setDragPreviewTop(null)
-        // 이동 여부와 관계없이 뒤따라오는 click 이벤트(타임라인 빈슬롯 폼 열기)를 차단
-        justDraggedRef.current = true
-        if (dr.moved) {
-          // 드래그 완료 → 새 시간으로 저장
-          const snap        = snapMinRef.current
-          const pxPerMin    = hourPxRef.current / 60
-          const newStartMin = Math.round(dr.currentTop / pxPerMin / snap) * snap + START_HOUR * 60
-          const clamped     = Math.max(START_HOUR * 60, Math.min(END_HOUR * 60 - dr.duration, newStartMin))
-          upsertEvent({ ...dr.event, start: minToTime(clamped), end: minToTime(clamped + dr.duration) })
-        } else {
-          // 클릭 (이동 없음) → 우측 상세 패널로 전환
-          setSelectedEventId(dr.event.id)
-        }
-      }
-      // 리사이즈 완료 처리
-      const rr = resizeRef.current
-      if (rr) {
-        resizeRef.current = null
-        setResizingId(null)
-        setResizePreviewHeight(null)
-        const snap     = snapMinRef.current
-        const pxPerMin = hourPxRef.current / 60
-        const newEndMin = Math.max(
-          rr.startMin + snap,
-          Math.min(END_HOUR * 60, Math.round(rr.currentHeight / pxPerMin / snap) * snap + rr.startMin)
-        )
-        upsertEvent({ ...rr.event, end: minToTime(newEndMin) })
-      }
-    }
-
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup',   onMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup',   onMouseUp)
-    }
-  }, [upsertEvent])   // upsertEvent만 의존 — 나머지는 ref/setState로 접근
+  // ── 이벤트 드래그·리사이즈 컨트롤러 ───────────
+  // Python으로 치면: drag_controller = PlannerEventDragController(...)
+  const {
+    draggingId,
+    dragPreviewTop,
+    resizingId,
+    resizePreviewHeight,
+    startDrag,
+    startResize,
+    consumeDraggedClick,
+  } = usePlannerEventDrag({
+    hourPx: HOUR_PX,
+    startHour: timelineStartHour,
+    endHour: timelineEndHour,
+    snapMin: plannerSnapMin,
+    onUpsertEvent: upsertEvent,
+    onSelectEvent: setSelectedEventId,
+  })
 
   // ── 빈 슬롯 클릭 → 폼 열기 ──────────────────
   // Python으로 치면: def on_slot_click(y): new_form = { start: y_to_time(y), end: y_to_time(y+60) }
   // screenX/Y 저장 → fixed 폼이 overflow-y-auto에 잘리지 않도록
   function handleTimelineClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (justDraggedRef.current) { justDraggedRef.current = false; return }
+    if (consumeDraggedClick()) return
+    // 일정 카드/리사이즈 핸들에서 버블된 click은 빈 타임라인 클릭이 아니다.
+    // Python으로 치면: if event.target.closest('button'): return
+    if ((e.target as HTMLElement).closest('button')) return
     if (newForm || editingEvent || draggingId) return
     const rect = timelineRef.current?.getBoundingClientRect()
     if (!rect) return
     const y     = e.clientY - rect.top
-    const start = yToTime(y, HOUR_PX)
+    const start = yToTime(y, HOUR_PX, timelineStartHour, timelineEndHour, plannerSnapMin)
     const startMin = timeToMin(start)
-    const end   = minToTime(Math.min(startMin + 60, END_HOUR * 60))
+    const end   = minToTime(Math.min(startMin + 60, timelineEndHour * 60))
     setNewForm({ start, end, screenX: e.clientX, screenY: e.clientY })
     setNewTitle('')
     setNewColor('blue')
@@ -1346,17 +1097,18 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   }
 
   // ── 새 이벤트 저장 ────────────────────────────
-  // newUnscheduled=true 이면 start/end를 '00:00'으로 저장 (미예약 섹션으로 이동)
-  // Python으로 치면: def save_new(): start = '00:00' if unscheduled else form.start
+  // newUnscheduled=true 이면 scheduled=false로 저장 (자정 일정과 충돌 방지)
+  // Python으로 치면: def save_new(): scheduled = not unscheduled
   function handleSaveNew() {
     if (!newForm || !newTitle.trim()) { setNewForm(null); return }
     upsertEvent({
       id:    crypto.randomUUID(),
       title: newTitle.trim(),
-      start: newUnscheduled ? '00:00' : newForm.start,
-      end:   newUnscheduled ? '00:00' : newForm.end,
+      start: newUnscheduled ? '' : newForm.start,
+      end:   newUnscheduled ? '' : newForm.end,
       color: newColor,
       done:  false,
+      scheduled: !newUnscheduled,
     })
     setNewForm(null)
     setNewTitle('')
@@ -1393,11 +1145,6 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     const wd = ['일','월','화','수','목','금','토'][d.getDay()]
     return `${d.getMonth()+1}월 ${d.getDate()}일 (${wd})`
   }
-
-  // ── 우측 패널 모드: list | detail ───────────
-  // selectedEventId: null 이면 list 모드, id 있으면 detail 모드
-  // Python으로 치면: self.selected_event_id: str | None = None
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
 
   // ── 사이드바 너비 리사이즈 상태 ──────────────
   // sidebarWidth: 우측 패널 너비 (px), 최소 160 ~ 최대 480
@@ -1437,18 +1184,15 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   const doneCount     = events.filter(e => e.done).length
   const visibleEvents = hideDone ? events.filter(e => !e.done) : events
 
-  // visibleEvents + HOUR_PX 기준으로 레이아웃 계산 (완료 숨김 + 줌 적용)
-  // Python으로 치면: layout_items = layout_events(visible_events, hour_px)
-  const layoutItems = useMemo(() => layoutEvents(visibleEvents, HOUR_PX), [visibleEvents, HOUR_PX])
-  const totalHours  = END_HOUR - START_HOUR
-  const totalHeight = totalHours * HOUR_PX
-
   // ── 특정 날짜에 해당하는 루틴 이벤트 생성 ─────
   // Python으로 치면: def routines_for_date(ds): return [r for r in routines if matches_day(r, ds)]
-  function routineEventsForDate(ds: string): PlanEvent[] {
+  function routineEventsForDate(ds: string, sourceRoutines: Routine[] = plannerRoutines): PlanEvent[] {
     const dow = new Date(ds + 'T00:00:00').getDay() // 0=일~6=토
-    return plannerRoutines
-      .filter(r => r.days.length === 0 || r.days.includes(dow))
+    return sourceRoutines
+      .filter(r => {
+        const days = Array.isArray(r.days) ? r.days : []
+        return days.length === 0 || days.includes(dow)
+      })
       .map(r => ({
         id:    crypto.randomUUID(),
         title: r.title,
@@ -1456,18 +1200,23 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         end:   r.end,
         color: r.color,
         done:  false,
+        scheduled: true,
       }))
   }
 
   // ── 이 날에 루틴 수동 적용 ────────────────────
   // Python으로 치면: def apply_routines_today(): events += routines_for_date(current_date)
   function applyRoutinesToday() {
-    const toAdd = routineEventsForDate(currentDate)
+    const latestData = readLatestPlannerData()
+    const latestEvents = latestData.eventsByDate?.[currentDate] ?? []
+    const latestRoutines = useSettingsStore.getState().plannerRoutines
+    const toAdd = routineEventsForDate(currentDate, latestRoutines)
     if (!toAdd.length) return
     // 중복 제목+시간 건너뜀
-    const existing = new Set(events.map(e => `${e.title}|${e.start}`))
+    const existing = new Set(latestEvents.map(e => `${e.title}|${e.start}`))
     const filtered = toAdd.filter(e => !existing.has(`${e.title}|${e.start}`))
-    save(currentDate, sortEvents([...events, ...filtered]))
+    if (!filtered.length) return
+    save(currentDate, sortEvents([...latestEvents, ...filtered]))
   }
 
   // ── 날짜 변경 — autoApply 시 루틴 자동 삽입 ──
@@ -1480,26 +1229,15 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
     setCurrentDate(ds)
 
-    // 이동 날짜에 저장된 이벤트가 없고 autoApply=true 이면 루틴 자동 적용
+    // 이동 날짜에 autoApply=true 이면 누락된 루틴만 보충 적용
     const destEvents = data.eventsByDate[ds] ?? []
-    if (plannerAutoApply && destEvents.length === 0) {
+    if (plannerAutoApply) {
       const routineEvs = routineEventsForDate(ds)
-      if (routineEvs.length > 0) {
-        // 현재 data는 setCurrentDate 이전 기준이므로 직접 save 호출
-        const next = { ...data.eventsByDate, [ds]: routineEvs }
-        const cutoff = (() => {
-          const c = new Date(); c.setDate(c.getDate() - HISTORY_DAYS)
-          return c.toISOString().slice(0, 10)
-        })()
-        const toArchive: Record<string, PlanEvent[]> = {}
-        const toKeep:   Record<string, PlanEvent[]> = {}
-        for (const [k, v] of Object.entries(next)) {
-          if (k < cutoff) toArchive[k] = v; else toKeep[k] = v
-        }
-        if (Object.keys(toArchive).length > 0) {
-          fetch('/api/planner/archive', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toArchive) }).catch(() => {})
-        }
-        updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: toKeep, reviewByDate: data.reviewByDate ?? {} }))
+      const existing = new Set(destEvents.map(e => `${e.title}|${e.start}`))
+      const filtered = routineEvs.filter(e => !existing.has(`${e.title}|${e.start}`))
+      if (filtered.length > 0) {
+        // 현재 data는 setCurrentDate 이전 기준이므로 대상 날짜를 명시해 저장
+        save(ds, sortEvents([...destEvents, ...filtered]))
       }
     }
     // 날짜 이동 시 선택된 이벤트 초기화
@@ -1521,19 +1259,12 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     if (reviewTimerRef.current) clearTimeout(reviewTimerRef.current)
     reviewTimerRef.current = setTimeout(() => {
       reviewTimerRef.current = null
-      // 최신 데이터를 스토어에서 직접 읽어 stale 클로저 방지
-      // Python으로 치면: latest = store.get_block_content(page_id, block_id)
-      const latestData: PlannerData = (() => {
-        try {
-          return JSON.parse(
-            usePageStore.getState().pages.find(p => p.id === pageId)?.blocks.find(b => b.id === block.id)?.content || '{}'
-          )
-        } catch { return { eventsByDate: {}, reviewByDate: {} } }
-      })()
-      const next = { ...(latestData.reviewByDate ?? {}), [date]: text }
-      updateBlock(pageId, block.id, JSON.stringify({ eventsByDate: latestData.eventsByDate, reviewByDate: next }))
+      commitPlannerData(latest => ({
+        eventsByDate: latest.eventsByDate,
+        reviewByDate: { ...(latest.reviewByDate ?? {}), [date]: text },
+      }))
     }, 300)
-  }, [updateBlock, pageId, block.id])
+  }, [commitPlannerData])
 
   // ── 이벤트 단일 필드 업데이트 헬퍼 ──────────
   // immediate=true: 에너지 클릭 등 즉각 반응 필요한 경우 디바운스 없이 저장
@@ -1544,10 +1275,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       patchTimerRef.current = null
       // 최신 events를 스토어에서 직접 읽어 stale 클로저 방지
       // Python으로 치면: events = store.get_events(page_id, block_id, date)
-      const latestData: PlannerData = (() => {
-        try { return JSON.parse(usePageStore.getState().pages.find(p => p.id === pageId)?.blocks.find(b => b.id === block.id)?.content || '{}') }
-        catch { return { eventsByDate: {} } }
-      })()
+      const latestData = readLatestPlannerData()
       const latestEvents: PlanEvent[] = latestData.eventsByDate?.[currentDate] ?? []
       const evs = latestEvents.map(e => e.id === id ? { ...e, ...patch } : e)
       save(currentDate, evs)
@@ -1559,7 +1287,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current)
       patchTimerRef.current = setTimeout(doSave, 300)
     }
-  }, [currentDate, save, pageId, block.id])
+  }, [currentDate, readLatestPlannerData, save])
 
   // ── 루틴 모달 상태 ───────────────────────────
   // Python으로 치면: self.routine_modal_open: bool = False
@@ -1600,10 +1328,22 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         // 루틴: 기존 루틴과 병합 (id 기준, 중복 시 가져온 것 우선)
         if (Array.isArray(json.routines)) {
           const merged = [...plannerRoutines]
-          for (const r of json.routines) {
-            const idx = merged.findIndex(x => x.id === r.id)
-            if (idx >= 0) merged[idx] = r
-            else merged.push(r)
+          for (const raw of json.routines) {
+            if (!raw || typeof raw !== 'object') continue
+            const r = raw as Partial<Routine>
+            if (!r.title || !r.start || !r.end) continue
+            const color = typeof r.color === 'string' && EVENT_COLORS.some(c => c.id === r.color) ? r.color : 'blue'
+            const normalized: Routine = {
+              id:    r.id || crypto.randomUUID(),
+              title: r.title,
+              start: r.start,
+              end:   r.end,
+              color,
+              days:  Array.isArray(r.days) ? r.days.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [],
+            }
+            const idx = merged.findIndex(x => x.id === normalized.id)
+            if (idx >= 0) merged[idx] = normalized
+            else merged.push(normalized)
           }
           setPlannerRoutines(merged)
         }
@@ -1695,6 +1435,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         end:   e.end   ?? '10:00',
         color: EVENT_COLORS.some(c => c.id === e.color) ? e.color! : 'blue',
         done:  false,
+        scheduled: true,
       }))
 
       const action = parsed.action ?? 'add'
@@ -1728,7 +1469,6 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       window.removeEventListener('ai-apply-schedule', handleGlobalSchedule)
       if (_activePlannerBlockId === block.id) _activePlannerBlockId = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [block.id])
 
   // ── AI 블록 선택 인디케이터 ──────────────────
@@ -1771,6 +1511,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
           end:   e.end!,
           color: EVENT_COLORS.some(c => c.id === e.color) ? e.color! : 'blue',
           done:  false,
+          scheduled: true,
         }))
       setPendingEvents(previews)
     } catch {
@@ -1796,7 +1537,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       )}
 
       {/* ── 헤더 ─────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b hairline"
+           style={{ background: 'var(--color-sunken)' }}>
         {/* 날짜 네비게이션 */}
         {/* 기록 dot: 해당 날짜에 log/subtasks/review 있으면 주황 dot 표시 */}
         {/* Python으로 치면: def has_record(ds): return bool(events[ds].log or events[ds].subtasks or review[ds]) */}
@@ -1812,7 +1554,10 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             <>
               <div className="flex flex-col items-center">
                 <button type="button" onClick={() => changeDate(-1)}
-                  className="p-1 rounded hover:bg-gray-200 text-gray-500 transition-colors">
+                  className="w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: 'var(--color-text-muted)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-hover)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '' }}>
                   <ChevronLeft size={14} />
                 </button>
                 {hasRecord(prevDate) && <span className="w-1 h-1 rounded-full bg-orange-400 -mt-0.5" />}
@@ -1821,17 +1566,22 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
                 type="date"
                 value={currentDate}
                 onChange={e => { setCurrentDate(e.target.value); setSelectedEventId(null) }}
-                className="text-sm font-semibold text-gray-700 bg-transparent border-none outline-none cursor-pointer"
+                className="h-7 text-sm font-semibold bg-transparent border-none outline-none cursor-pointer"
+                style={{ color: 'var(--color-text)' }}
               />
-              <span className="text-xs text-gray-400">{formatDate(currentDate)}</span>
+              <span className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>{formatDate(currentDate)}</span>
               {currentDate === todayStr() && (
-                <span className="text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">오늘</span>
+                <span className="inline-flex h-6 items-center rounded-md px-2 text-[10px] font-semibold"
+                      style={{ background: 'var(--color-accent)', color: '#fff' }}>오늘</span>
               )}
               {/* 현재 날짜 기록 dot */}
               {hasRecord(currentDate) && <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />}
               <div className="flex flex-col items-center">
                 <button type="button" onClick={() => changeDate(1)}
-                  className="p-1 rounded hover:bg-gray-200 text-gray-500 transition-colors">
+                  className="w-7 h-7 inline-flex items-center justify-center rounded-md transition-colors"
+                  style={{ color: 'var(--color-text-muted)' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--color-hover)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = '' }}>
                   <ChevronRight size={14} />
                 </button>
                 {hasRecord(nextDate) && <span className="w-1 h-1 rounded-full bg-orange-400 -mt-0.5" />}
@@ -1842,11 +1592,13 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
         {/* 날씨 표시 — weatherLocation 설정 시 Open-Meteo에서 자동 fetch */}
         {weatherLoading && (
-          <span className="text-xs text-gray-300 animate-pulse">날씨 로딩...</span>
+          <span className="inline-flex h-7 items-center rounded-md px-2 text-xs animate-pulse"
+                style={{ color: 'var(--color-text-subtle)', background: 'var(--color-surface)' }}>날씨 로딩...</span>
         )}
         {!weatherLoading && weather && (
-          <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-            <span className="text-base leading-none">{weather.icon}</span>
+          <span className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs"
+                style={{ color: 'var(--color-text-muted)', background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <span className="text-sm leading-none">{weather.icon}</span>
             <span className="font-medium">{weather.temp}</span>
           </span>
         )}
@@ -1854,7 +1606,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         <div className="flex-1" />
 
         {/* 이벤트 수 / 완료 수 + 숨기기 토글 */}
-        <span className="text-xs text-gray-400">
+        <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-subtle)' }}>
           {doneCount}/{events.length} 완료
         </span>
         {/* 완료 이벤트 숨기기 토글 — hideDone=true 시 파란 배경 */}
@@ -1864,7 +1616,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             onClick={() => setHideDone(v => !v)}
             title={hideDone ? '완료 이벤트 보기' : '완료 이벤트 숨기기'}
             className={[
-              'flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all border',
+              'inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] font-medium transition-all border',
               hideDone
                 ? 'bg-blue-500 text-white border-blue-500'
                 : 'text-gray-400 border-gray-200 hover:border-blue-300 hover:text-blue-500',
@@ -1876,7 +1628,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         )}
         {/* 활성 클럭 배지 — clockIn 중인 이벤트 수 + 경과 시간 */}
         {activeClocks.length > 0 && (
-          <span className="flex items-center gap-1 text-[11px] bg-green-50 text-green-600 border border-green-200 px-2 py-0.5 rounded-full">
+          <span className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] bg-green-50 text-green-600 border border-green-200">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse shrink-0" />
             {activeClocks.length === 1
               ? elapsedStr(activeClocks[0].clockIn!)
@@ -1888,7 +1640,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         {/* 오늘로 이동 */}
         {currentDate !== todayStr() && (
           <button type="button" onClick={() => setCurrentDate(todayStr())}
-            className="text-[10px] text-blue-500 hover:text-blue-700 border border-blue-200 hover:border-blue-400 px-2 py-0.5 rounded transition-colors">
+            className="inline-flex h-7 items-center rounded-md border px-2 text-[10px] font-medium transition-colors"
+            style={{ color: 'var(--color-accent-ink)', borderColor: 'var(--color-border-strong)', background: 'var(--color-surface)' }}>
             오늘
           </button>
         )}
@@ -1899,14 +1652,15 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             type="button"
             onClick={() => Notification.requestPermission().then(p => setNotifyDenied(p === 'denied'))}
             title="알림이 차단되었습니다. 클릭하여 권한 요청"
-            className="flex items-center gap-1 text-[10px] bg-amber-50 border border-amber-300 text-amber-600 px-2 py-0.5 rounded-full hover:bg-amber-100 transition-colors"
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[10px] bg-amber-50 border border-amber-300 text-amber-600 hover:bg-amber-100 transition-colors"
           >
             🔔 알림 차단됨
           </button>
         )}
 
         {/* 타임라인 줌 조절 — ZOOM_STEPS: 32|48|64|96 px/hour */}
-        <div className="flex items-center gap-0.5 border border-gray-200 rounded-lg px-1 py-0.5">
+        <div className="flex h-7 items-center gap-0.5 rounded-md px-0.5"
+             style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
           <button
             type="button"
             onClick={() => {
@@ -1915,9 +1669,10 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             }}
             disabled={plannerZoom <= ZOOM_STEPS[0]}
             title="타임라인 축소"
-            className="text-gray-400 hover:text-gray-600 disabled:opacity-30 px-1 text-xs font-bold leading-none transition-colors"
+            className="w-6 h-6 inline-flex items-center justify-center rounded text-xs font-bold leading-none transition-colors disabled:opacity-30"
+            style={{ color: 'var(--color-text-muted)' }}
           >−</button>
-          <span className="text-[10px] text-gray-400 w-7 text-center tabular-nums">{plannerZoom}px</span>
+          <span className="w-8 text-center text-[10px] tabular-nums" style={{ color: 'var(--color-text-muted)' }}>{plannerZoom}px</span>
           <button
             type="button"
             onClick={() => {
@@ -1926,7 +1681,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             }}
             disabled={plannerZoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
             title="타임라인 확대"
-            className="text-gray-400 hover:text-gray-600 disabled:opacity-30 px-1 text-xs font-bold leading-none transition-colors"
+            className="w-6 h-6 inline-flex items-center justify-center rounded text-xs font-bold leading-none transition-colors disabled:opacity-30"
+            style={{ color: 'var(--color-text-muted)' }}
           >+</button>
         </div>
 
@@ -1935,7 +1691,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
           type="button"
           onClick={exportPlannerData}
           title="루틴·일정 전체 백업 (JSON 다운로드)"
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200"
         >
           <Download size={13} /> 백업
         </button>
@@ -1946,7 +1702,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
           onClick={() => setRoutineOpen(v => !v)}
           title="반복 루틴 관리"
           className={[
-            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+            'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all',
             routineOpen
               ? 'bg-emerald-500 text-white shadow-sm'
               : 'text-emerald-600 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200',
@@ -1961,7 +1717,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
           onClick={() => setAiOpen(v => !v)}
           title="AI 일정 도우미 (일정 추가·분석·최적화)"
           className={[
-            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+            'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-all',
             aiOpen
               ? 'bg-violet-500 text-white shadow-sm'
               : 'text-violet-600 bg-violet-50 hover:bg-violet-100 border border-violet-200',
@@ -1976,7 +1732,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
           type="button"
           onClick={() => setArchiveOpen(true)}
           title="아카이브 — 90일 이전 기록 열람 (읽기 전용)"
-          className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 border border-gray-200 transition-all"
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-xs transition-all"
+          style={{ color: 'var(--color-text-muted)', background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
         >
           <Archive size={13} />
         </button>
@@ -1988,108 +1745,32 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
         {/* ── 타임라인 영역 ─────────────────────── */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="flex">
-
-            {/* 시간 레이블 열 */}
-            <div className="w-12 shrink-0 relative" style={{ height: totalHeight }}>
-              {Array.from({ length: totalHours + 1 }, (_, i) => (
-                <div
-                  key={i}
-                  className="absolute text-[10px] text-gray-400 text-right pr-2 leading-none"
-                  style={{ top: i === 0 ? 2 : i * HOUR_PX - 6, right: 0, width: '100%' }}
-                >
-                  {String(START_HOUR + i).padStart(2,'0')}:00
-                </div>
-              ))}
-            </div>
-
-            {/* 타임라인 그리드 + 이벤트 */}
-            <div
-              ref={timelineRef}
-              onClick={handleTimelineClick}
-              className="flex-1 relative border-l border-gray-200 cursor-cell"
-              style={{ height: totalHeight }}
-            >
-              {/* 시간 그리드 선 */}
-              {Array.from({ length: totalHours }, (_, i) => (
-                <div key={i} className="absolute left-0 right-0 border-t border-gray-100"
-                  style={{ top: i * HOUR_PX }} />
-              ))}
-              {/* 30분 점선 */}
-              {Array.from({ length: totalHours }, (_, i) => (
-                <div key={`half-${i}`} className="absolute left-0 right-0 border-t border-dashed border-gray-50"
-                  style={{ top: i * HOUR_PX + HOUR_PX / 2 }} />
-              ))}
-
-              {/* 현재 시각 표시선 */}
-              {nowTop !== null && (
-                <div className="absolute left-0 right-0 z-20 pointer-events-none flex items-center"
-                  style={{ top: nowTop }}>
-                  <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 shrink-0" />
-                  <div className="flex-1 border-t-2 border-red-400" />
-                </div>
-              )}
-
-              {/* 이벤트 블록 — mousedown으로 드래그 시작, 클릭(이동 없음)은 수정 모달 */}
-              {layoutItems.map((li, idx) => {
-                const c          = getColor(li.event.color)
-                const widthPct   = 100 / li.totalCols
-                const leftPct    = li.col * widthPct
-                const isDragging = draggingId === li.event.id
-                const isResizing = resizingId === li.event.id
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onMouseDown={e => startDrag(e, li.event)}
-                    style={{
-                      position: 'absolute',
-                      top:    li.top + 1,
-                      height: li.height - 2,
-                      left:   `calc(${leftPct}% + 2px)`,
-                      width:  `calc(${widthPct}% - 4px)`,
-                      cursor: isDragging ? 'grabbing' : 'grab',
-                    }}
-                    className={[
-                      'rounded-lg text-left px-2 overflow-hidden flex flex-col justify-start z-10 shadow-sm transition-all',
-                      c.bg, c.text,
-                      (isDragging || isResizing) ? 'opacity-30' : 'hover:brightness-110',
-                      li.event.done ? 'opacity-50' : '',
-                      selectedEventId === li.event.id ? 'ring-2 ring-white ring-offset-1' : '',
-                    ].join(' ')}
-                  >
-                    <span className={[
-                      'text-[11px] font-semibold truncate leading-tight mt-0.5',
-                      li.event.done ? 'line-through opacity-70' : '',
-                    ].join(' ')}>
-                      {li.event.title}
-                    </span>
-                    {li.height > 32 && (
-                      <span className="text-[9px] opacity-80 leading-tight">
-                        {li.event.start} – {li.event.end}
-                      </span>
-                    )}
-                    {/* 리사이즈 핸들 — 하단 6px 드래그로 종료 시간 조정 */}
-                    {!li.event.done && (
-                      <div
-                        onMouseDown={e => startResize(e, li.event)}
-                        style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 6, cursor: 's-resize' }}
-                        className="rounded-b-lg bg-white/0 hover:bg-white/30 transition-colors"
-                      />
-                    )}
-                  </button>
-                )
-              })}
+          <PlannerTimeline
+            events={visibleEvents}
+            hourPx={HOUR_PX}
+            startHour={timelineStartHour}
+            endHour={timelineEndHour}
+            nowTop={nowTop}
+            timelineRef={timelineRef}
+            onTimelineClick={handleTimelineClick}
+            onEventMouseDown={startDrag}
+            onResizeMouseDown={startResize}
+            selectedEventId={selectedEventId}
+            draggingId={draggingId}
+            resizingId={resizingId}
+            editable
+          >
 
               {/* 드래그 프리뷰 — 실제 이벤트 위치에 따라 이동 */}
               {draggingId && dragPreviewTop !== null && (() => {
                 const draggedEv = events.find(e => e.id === draggingId)
                 if (!draggedEv) return null
-                const px = eventPx(draggedEv, HOUR_PX)
+                const px = eventPx(draggedEv, HOUR_PX, timelineStartHour, timelineEndHour)
                 if (!px) return null
                 const c = getColor(draggedEv.color)
-                const previewStartMin = Math.round(dragPreviewTop / (HOUR_PX / 60) / 15) * 15 + START_HOUR * 60
-                const clamped = Math.max(START_HOUR * 60, Math.min(END_HOUR * 60 - (timeToMin(draggedEv.end) - timeToMin(draggedEv.start)), previewStartMin))
+                const duration = timeToMin(draggedEv.end) - timeToMin(draggedEv.start)
+                const previewStartMin = Math.round(dragPreviewTop / (HOUR_PX / 60) / plannerSnapMin) * plannerSnapMin + timelineStartHour * 60
+                const clamped = Math.max(timelineStartHour * 60, Math.min(timelineEndHour * 60 - duration, previewStartMin))
                 return (
                   <div
                     style={{
@@ -2118,13 +1799,13 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
               {resizingId && resizePreviewHeight !== null && (() => {
                 const resizingEv = events.find(e => e.id === resizingId)
                 if (!resizingEv) return null
-                const px = eventPx(resizingEv, HOUR_PX)
+                const px = eventPx(resizingEv, HOUR_PX, timelineStartHour, timelineEndHour)
                 if (!px) return null
                 const c = getColor(resizingEv.color)
                 const pxPerMin = HOUR_PX / 60
-                const newEndMin = Math.min(END_HOUR * 60,
-                  Math.max(timeToMin(resizingEv.start) + 15,
-                    Math.round(resizePreviewHeight / pxPerMin / 15) * 15 + timeToMin(resizingEv.start)
+                const newEndMin = Math.min(timelineEndHour * 60,
+                  Math.max(timeToMin(resizingEv.start) + plannerSnapMin,
+                    Math.round(resizePreviewHeight / pxPerMin / plannerSnapMin) * plannerSnapMin + timeToMin(resizingEv.start)
                   )
                 )
                 return (
@@ -2151,7 +1832,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
               {/* AI 제안 ghost 미리보기 — 점선 테두리로 타임라인에 표시 */}
               {pendingEvents.map((ev, idx) => {
-                const px = eventPx(ev, HOUR_PX)
+                const px = eventPx(ev, HOUR_PX, timelineStartHour, timelineEndHour)
                 if (!px) return null
                 const c = getColor(ev.color)
                 return (
@@ -2178,8 +1859,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
               })}
 
               {/* 새 이벤트 폼은 overflow 밖 fixed 위치로 렌더링 — 아래 참고 */}
-            </div>
-          </div>
+          </PlannerTimeline>
         </div>
 
         {/* ── 리사이즈 핸들 — 타임라인 / 사이드바 경계 ── */}
@@ -2208,8 +1888,9 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
                 <button type="button"
                   onClick={(e) => {
                     const h = new Date().getHours()
-                    const start = `${String(Math.max(START_HOUR, h)).padStart(2,'0')}:00`
-                    const end   = `${String(Math.min(END_HOUR, h+1)).padStart(2,'0')}:00`
+                    const startHour = Math.max(timelineStartHour, Math.min(timelineEndHour - 1, h))
+                    const start = `${String(startHour).padStart(2,'0')}:00`
+                    const end   = `${String(Math.min(timelineEndHour, startHour + 1)).padStart(2,'0')}:00`
                     setNewForm({ start, end, screenX: e.clientX, screenY: e.clientY })
                     setNewTitle('')
                     setNewColor('blue')
@@ -2225,7 +1906,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
               {events.length > 0 && (() => {
                 // 계획 시간 합산 (분), 완료된 이벤트 기준 실제 시간 합산
                 // Python으로 치면: total_planned = sum(end-start for e in scheduled_events)
-                const scheduledEvs = events.filter(e => e.start && e.start !== '00:00')
+                const scheduledEvs = events.filter(isScheduledEvent)
                 const totalPlanned = scheduledEvs.reduce((acc, e) => acc + Math.max(0, timeToMin(e.end) - timeToMin(e.start)), 0)
                 const donePlanned  = scheduledEvs.filter(e => e.done).reduce((acc, e) => acc + Math.max(0, timeToMin(e.end) - timeToMin(e.start)), 0)
                 const doneEvCount  = events.filter(e => e.done).length
@@ -2262,8 +1943,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
                   </p>
                 ) : (() => {
                   // 예약 / 미예약 분리
-                  const scheduled   = visibleEvents.filter(e => e.start && e.start !== '00:00')
-                  const unscheduled = visibleEvents.filter(e => !e.start || e.start === '00:00')
+                  const scheduled   = visibleEvents.filter(isScheduledEvent)
+                  const unscheduled = visibleEvents.filter(isUnscheduledEvent)
 
                   // 이벤트 행 렌더 — 클릭 시 detail 패널로 전환
                   // Python으로 치면: def render_event_row(ev): ...
@@ -2293,7 +1974,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
                             {hasRecord && <span className="w-1.5 h-1.5 rounded-full bg-orange-400 shrink-0" />}
                           </div>
                           <div className="text-[10px] text-gray-400">
-                            {ev.start && ev.start !== '00:00' ? `${ev.start} – ${ev.end}` : t.planner.day.unscheduled}
+                            {isScheduledEvent(ev) ? `${ev.start} – ${ev.end}` : t.planner.day.unscheduled}
                           </div>
                           {/* 활성 클럭 표시 */}
                           {ev.clockIn && !ev.clockOut && (

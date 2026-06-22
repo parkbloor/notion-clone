@@ -1,0 +1,99 @@
+# Codex context/read exclusion profile
+#
+# 목적:
+# - 코딩 중 토큰 낭비를 줄이기 위해 무거운 산출물, 의존성, 개인 데이터, 바이너리를 기본 탐색에서 제외한다.
+# - `BLUEPRINT.md`, `FILE_MAP.md`, `CODEX_HARNESS.md`, `CODEX_MEMORY.md`는 작업 맥락에 필요하므로 제외하지 않는다.
+# - 이 파일은 저장소 로컬 규칙이다. 도구가 자동 적용하지 않는 경우 `CODEX_HARNESS.md`의 rg 제외 옵션을 함께 사용한다.
+
+# 의존성
+node_modules/
+bower_components/
+
+# Next.js / 빌드 / 배포 산출물
+.next/
+out/
+dist/
+build/
+coverage/
+dist-electron/
+dist-backend/
+build-backend/
+
+# Python 가상환경 / 캐시
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 패키지 잠금 / 자동 생성 파일
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+*.tsbuildinfo
+next-env.d.ts
+*.d.ts
+
+# 환경 변수 / 보안 파일
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.pfx
+
+# 버전 관리 / 에디터 / 로컬 도구 상태
+.git/
+.claude/
+.vscode/
+.idea/
+*.suo
+*.swp
+
+# 로그 / 캐시
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.cache/
+.turbo/
+.eslintcache
+.stylelintcache
+.node_repl_history
+
+# 개인 노트 데이터
+vault/
+_vault_trash/
+
+# 정적 바이너리 / 미디어
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.ico
+*.mp4
+*.mov
+*.avi
+*.mp3
+*.wav
+*.pdf
+*.zip
+*.tar
+*.tar.gz
+*.7z
+
+# 폰트 바이너리
+*.woff
+*.woff2
+*.ttf
+*.otf
+
+# OS 파일
+.DS_Store
+Thumbs.db
+
+# Electron/PyInstaller 산출 보조 파일
+*.spec

@@ -13,6 +13,16 @@ interface QuickAddModalProps {
   onClose: () => void  // 팝업 닫기 콜백
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>'"]/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  })[char]!)
+}
+
 // Python으로 치면: def QuickAddModal(on_close): ...
 export default function QuickAddModal({ onClose }: QuickAddModalProps) {
   // 제목 입력값
@@ -74,8 +84,8 @@ export default function QuickAddModal({ onClose }: QuickAddModalProps) {
         if (currentPageId) {
           const newPage = pages.find(p => p.id === currentPageId)
           if (newPage && newPage.blocks[0]) {
-            // 텍스트를 <p> 태그로 감싸 Tiptap HTML 형식으로 저장
-            updateBlock(currentPageId, newPage.blocks[0].id, `<p>${content.trim()}</p>`)
+            // 사용자 입력을 HTML로 해석하지 않도록 이스케이프한 뒤 Tiptap HTML로 저장
+            updateBlock(currentPageId, newPage.blocks[0].id, `<p>${escapeHtml(content.trim())}</p>`)
           }
         }
       }

@@ -459,7 +459,11 @@ export default function CalendarOverlay({ onClose }: CalendarOverlayProps) {
                   return (
                     <div
                       key={idx}
-                      onClick={() => date && setViewTab('day') && setAnchor(date)}
+                      onClick={() => {
+                        if (!date) return
+                        setViewTab('day')
+                        setAnchor(date)
+                      }}
                       className={[
                         'min-h-24 rounded-xl border p-1.5 transition-colors',
                         !date ? 'bg-gray-50 border-transparent' : 'bg-white border-gray-100 hover:border-blue-200 cursor-pointer',

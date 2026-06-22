@@ -126,7 +126,7 @@
 | [src/components/editor/MindmapBlock.tsx](src/components/editor/MindmapBlock.tsx) | 방사형 SVG 마인드맵 (AI 확장 + 팬/줌) |
 | [src/components/editor/MermaidBlock.tsx](src/components/editor/MermaidBlock.tsx) | Mermaid 다이어그램 블록 |
 | [src/components/editor/ExcalidrawBlock.tsx](src/components/editor/ExcalidrawBlock.tsx) | Excalidraw 손그림 화이트보드 (next/dynamic SSR:false) |
-| [src/components/editor/CanvasBlock.tsx](src/components/editor/CanvasBlock.tsx) | 무한 캔버스 블록 (SVG 엣지, 팬/줌, 자식 블록 배치) |
+| [src/components/editor/CanvasBlock.tsx](src/components/editor/CanvasBlock.tsx) | 행/열 그리드 캔버스 블록 (열 너비 조절·블록 쌓기·readMode) |
 | [src/components/editor/CanvasPageEditor.tsx](src/components/editor/CanvasPageEditor.tsx) | 캔버스 내부 페이지 에디터 (캔버스 노드용 미니 에디터) |
 | [src/components/editor/LayoutBlock.tsx](src/components/editor/LayoutBlock.tsx) | 8종 다단 레이아웃 블록 (열/행/높이 조절) |
 | [src/components/editor/LayoutSlot.tsx](src/components/editor/LayoutSlot.tsx) | 레이아웃 블록의 개별 슬롯 컴포넌트 |

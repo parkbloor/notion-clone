@@ -21,37 +21,47 @@ type AdmonitionVariant = 'tip' | 'info' | 'warning' | 'danger'
 const VARIANTS: Record<AdmonitionVariant, {
   icon: string
   label: string
-  bg: string        // 배경색 (라이트)
-  border: string    // 왼쪽 테두리 색
-  textColor: string // 레이블 색
+  bg: string         // 배경색 (라이트)
+  darkBg: string     // 배경색 (다크)
+  border: string     // 왼쪽 테두리 색
+  textColor: string  // 레이블 색 (라이트)
+  darkText: string   // 레이블 색 (다크)
 }> = {
   tip: {
     icon: '💡',
     label: '팁',
     bg: 'bg-yellow-50',
+    darkBg: 'dark:bg-yellow-950/40',
     border: 'border-yellow-400',
     textColor: 'text-yellow-700',
+    darkText: 'dark:text-yellow-300',
   },
   info: {
     icon: 'ℹ️',
     label: '정보',
     bg: 'bg-blue-50',
+    darkBg: 'dark:bg-blue-950/40',
     border: 'border-blue-400',
     textColor: 'text-blue-700',
+    darkText: 'dark:text-blue-300',
   },
   warning: {
     icon: '⚠️',
     label: '주의',
     bg: 'bg-orange-50',
+    darkBg: 'dark:bg-orange-950/40',
     border: 'border-orange-400',
     textColor: 'text-orange-700',
+    darkText: 'dark:text-orange-300',
   },
   danger: {
     icon: '❌',
     label: '위험',
     bg: 'bg-red-50',
+    darkBg: 'dark:bg-red-950/40',
     border: 'border-red-400',
     textColor: 'text-red-700',
+    darkText: 'dark:text-red-300',
   },
 }
 
@@ -165,7 +175,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
     // 왼쪽 색상 테두리 + 배경색 박스 레이아웃
     // Python으로 치면: Box(border_left=style.border, bg=style.bg)
     // -----------------------------------------------
-    <div className={`admonition-block flex gap-3 rounded-r-lg border-l-4 px-4 py-3 my-1 ${style.bg} ${style.border}`}>
+    <div className={`admonition-block flex gap-3 rounded-r-lg border-l-4 px-4 py-3 my-1 ${style.bg} ${style.darkBg} ${style.border}`}>
 
       {/* 아이콘 버튼 — 클릭 시 종류 순환 */}
       {/* Python으로 치면: Button(icon, on_click=cycle_variant, tooltip='클릭해서 종류 변경') */}
@@ -183,7 +193,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
 
         {/* 종류 레이블 (팁 / 정보 / 주의 / 위험) */}
         {/* Python으로 치면: Label(style.label, color=style.text_color) */}
-        <div className={`text-xs font-semibold mb-1 ${style.textColor}`}>
+        <div className={`text-xs font-semibold mb-1 ${style.textColor} ${style.darkText}`}>
           {VARIANT_LABELS[variant]}
         </div>
 
@@ -191,7 +201,7 @@ export default function AdmonitionBlock({ blockId: _blockId, content, onChange }
         {/* Python으로 치면: EditorContent(editor=self.editor) */}
         <EditorContent
           editor={editor}
-          className="text-sm text-gray-800 outline-none [&_.tiptap]:outline-none [&_.tiptap_p]:my-0"
+          className="text-sm text-gray-800 dark:text-gray-200 outline-none [&_.tiptap]:outline-none [&_.tiptap_p]:my-0"
         />
       </div>
     </div>

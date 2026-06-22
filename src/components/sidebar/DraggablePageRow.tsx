@@ -43,6 +43,9 @@ export default function DraggablePageRow({
     id: page.id,
     data: { type: 'page', pageId: page.id },
   })
+  const dragActivatorProps = { ...attributes, ...listeners }
+  const pageColor = page.color ?? null
+  const pageColorBg = pageColor ? `${pageColor}1f` : undefined
 
   const [menuOpen, setMenuOpen] = useState(false)
   const handleCloseMenu = useCallback(() => setMenuOpen(false), [])
@@ -57,6 +60,7 @@ export default function DraggablePageRow({
     return (
       <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}>
         <button
+          {...dragActivatorProps}
           onClick={(e) => {
             // Ctrl+클릭 → 분할 뷰로 열기
             // Python으로 치면: if e.ctrl and on_split_page: on_split_page()
@@ -65,9 +69,20 @@ export default function DraggablePageRow({
           }}
           title={(page.title || t.common.untitled) + ' ' + t.sidebar.ctrlClickSplitView}
           className={isSelected
-            ? "w-full flex items-center justify-center py-1.5 rounded-md text-base bg-gray-200"
-            : "w-full flex items-center justify-center py-1.5 rounded-md text-base text-gray-500 hover:bg-gray-100"}
+            ? "relative w-full flex items-center justify-center py-1.5 rounded-md text-base"
+            : "relative w-full flex items-center justify-center py-1.5 rounded-md text-base"}
+          style={isSelected
+            ? { background: "var(--color-active)", color: "var(--color-text)" }
+            : { background: pageColorBg, color: "var(--color-text-muted)" }}
+          onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "var(--color-hover)" }}
+          onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = pageColorBg ?? "" }}
         >
+          {pageColor && (
+            <span
+              className="absolute left-1 top-1/2 -translate-y-1/2 w-1 h-3 rounded-full"
+              style={{ backgroundColor: pageColor }}
+            />
+          )}
           {page.icon}
         </button>
       </div>
@@ -82,13 +97,13 @@ export default function DraggablePageRow({
     <div
       ref={setNodeRef}
       style={{ paddingLeft: `${indentPx}px`, transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-      className="group relative flex items-center"
+      className={isDragging ? "group relative flex items-center cursor-grabbing" : "group relative flex items-center"}
     >
       {/* 드래그 핸들 — hover 시만 표시 */}
       <span
-        className="shrink-0 text-gray-300 cursor-grab opacity-0 group-hover:opacity-100 text-xs"
-        {...attributes}
-        {...listeners}
+        className="shrink-0 cursor-grab opacity-0 group-hover:opacity-100 text-xs"
+        style={{ color: "var(--color-text-faint)" }}
+        {...dragActivatorProps}
         title={t.sidebar.dragToFolder}
       >
         ⠿
@@ -97,6 +112,7 @@ export default function DraggablePageRow({
       {/* 페이지 선택 버튼 (Ctrl+클릭: 분할 뷰로 열기, 우클릭: 컨텍스트 메뉴) */}
       {/* Python으로 치면: if e.ctrl and on_split_page: on_split_page() else: on_select() */}
       <button
+        {...dragActivatorProps}
         onClick={(e) => {
           if (e.ctrlKey && onSplitPage) { e.preventDefault(); onSplitPage(); return }
           onSelect()
@@ -107,22 +123,37 @@ export default function DraggablePageRow({
           // Python으로 치면: x = min(e.clientX, screen_width - 176 - 8)
           e.preventDefault()
           e.stopPropagation()
-          const menuW = 176
+          const menuW = 224
+          const menuH = 360  // 색상 팔레트 포함 메뉴 예상 최대 높이
           const safeX = Math.min(e.clientX, window.innerWidth - menuW - 8)
-          const safeY = Math.min(e.clientY, window.innerHeight - 240)
+          // 아래 공간이 부족하면 위로 뒤집기 (flip)
+          const safeY = e.clientY + menuH > window.innerHeight
+            ? Math.max(0, e.clientY - menuH)
+            : e.clientY
           setMenuAnchor({ x: safeX, y: safeY })
           setMenuOpen(true)
         }}
         title={`${page.title || t.common.untitled} ${t.sidebar.ctrlClickSplitView}`}
-        className={isSelected
-          ? "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left bg-gray-200 text-gray-900"
-          : "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left text-gray-600 hover:bg-gray-100 transition-colors"}
+        className={isDragging
+          ? "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left transition-colors cursor-grabbing"
+          : "flex-1 min-w-0 flex items-center gap-1 py-1 pr-10 rounded-md text-sm text-left transition-colors cursor-grab"}
+        style={isSelected
+          ? { background: "var(--color-active)", color: "var(--color-text)", fontWeight: 600 }
+          : { background: pageColorBg, color: "var(--color-text-muted)" }}
+        onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "var(--color-hover)" }}
+        onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = pageColorBg ?? "" }}
       >
+        {pageColor && (
+          <span
+            className="w-1 h-4 rounded-full shrink-0"
+            style={{ backgroundColor: pageColor }}
+          />
+        )}
         <span className="text-sm shrink-0">{page.icon}</span>
         <span className="truncate flex-1">{page.title || t.common.untitled}</span>
         {/* 검색 중일 때: 소속 폴더 배지 */}
         {searchCategoryName && (
-          <span className="shrink-0 text-[10px] text-blue-500 bg-blue-50 px-1 py-0.5 rounded leading-tight">
+          <span className="chip shrink-0" style={{ padding: "1px 6px", fontSize: 10 }}>
             {searchCategoryName}
           </span>
         )}
@@ -142,14 +173,17 @@ export default function DraggablePageRow({
             // 버튼 우측 하단 좌표를 fixed 팝업 기준점으로 사용
             // Python으로 치면: rect = e.currentTarget.get_bounding_client_rect()
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            const menuW = 176
+            const menuW = 224
             // 메뉴를 버튼 우측 기준으로 배치하되 화면 오른쪽 끝 초과 방지
             // Python으로 치면: x = max(0, min(rect.right - menu_w, screen_w - menu_w - 8))
             const x = Math.max(0, Math.min(rect.right - menuW, window.innerWidth - menuW - 8))
             setMenuAnchor({ x, y: rect.bottom + 4 })
             setMenuOpen(v => !v)
           }}
-          className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-200 transition-all text-xs"
+          className="opacity-0 group-hover:opacity-100 flex items-center justify-center w-5 h-5 rounded transition-all text-xs"
+          style={{ color: "var(--color-text-muted)" }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "var(--color-hover)"; (e.currentTarget as HTMLElement).style.color = "var(--color-text)" }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = ""; (e.currentTarget as HTMLElement).style.color = "var(--color-text-muted)" }}
           title={t.sidebar.options}
         >
           •••

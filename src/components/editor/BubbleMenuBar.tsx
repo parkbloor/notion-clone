@@ -17,6 +17,7 @@ import { AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react'
 // 화살표 연결 대기 전역 스토어
 // Python으로 치면: from store.arrow_store import use_arrow_store
 import { useArrowStore } from '@/store/arrowStore'
+import { BASE_URL } from '@/lib/api'
 
 
 // -----------------------------------------------
@@ -124,7 +125,12 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
   // Python으로 치면: self.ai_loading = False
   const [aiLoading, setAiLoading] = useState(false)
 
-  const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
+  const { aiProvider, aiModel, aiApiKey, openaiApiKey, anthropicApiKey, ollamaUrl } = useSettingsStore()
+  const providerApiKey = aiProvider === 'openai'
+    ? openaiApiKey || aiApiKey
+    : aiProvider === 'claude'
+      ? anthropicApiKey || aiApiKey
+      : ''
 
   // -----------------------------------------------
   // 글자 크기 슬라이더 값 — openPanel이 'size'로 열릴 때 현재 fontSize로 초기화
@@ -146,6 +152,15 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
     startValue: number
     dragging: boolean
   } | null>(null)
+
+  // 드래그 중 언마운트 시 리스너 누수 방지 — Python: atexit 등록
+  const dragListenersRef = useRef<{ move: ((e: PointerEvent) => void) | null; up: (() => void) | null }>({ move: null, up: null })
+  useEffect(() => {
+    return () => {
+      if (dragListenersRef.current.move) document.removeEventListener('pointermove', dragListenersRef.current.move)
+      if (dragListenersRef.current.up) document.removeEventListener('pointerup', dragListenersRef.current.up)
+    }
+  }, [])
 
   // 버튼 클릭 시 선택이 해제되므로 미리 저장
   const savedSelection = useRef<{ from: number; to: number } | null>(null)
@@ -274,7 +289,7 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
   const runAi = useCallback(async (action: string) => {
     // Ollama는 API 키 불필요, 나머지는 필수
     // Python으로 치면: if provider != 'ollama' and not api_key: raise ValueError
-    if (aiProvider !== 'ollama' && !aiApiKey.trim()) {
+    if (aiProvider !== 'ollama' && !providerApiKey.trim()) {
       toast.error('AI API 키가 없습니다. 설정 → AI 탭에서 입력해 주세요.')
       setOpenPanel(null)
       return
@@ -312,13 +327,13 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
       const reqBody: Record<string, string> = {
         provider: aiProvider,
         model: aiModel,
-        api_key: aiApiKey,
+        api_key: providerApiKey,
         prompt: PROMPTS[action] ?? action,
         context: selectedText,
       }
       if (aiProvider === 'ollama') reqBody.base_url = ollamaUrl
 
-      const res = await fetch('http://localhost:8000/api/ai/stream', {
+      const res = await fetch(`${BASE_URL}/api/ai/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(reqBody),
@@ -408,7 +423,7 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
     } finally {
       setAiLoading(false)
     }
-  }, [editor, aiProvider, aiModel, aiApiKey, ollamaUrl, restoreSelection])
+  }, [editor, aiProvider, aiModel, providerApiKey, ollamaUrl, restoreSelection])
 
   // 읽기 모드이거나 선택 없으면 숨김
   // Python으로 치면: if read_mode or not visible: return None
@@ -524,6 +539,7 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
             const handleUp = () => {
               const wasDragging = sizeScrubRef.current?.dragging ?? false
               sizeScrubRef.current = null
+              dragListenersRef.current = { move: null, up: null }
               document.removeEventListener('pointermove', handleMove)
               document.removeEventListener('pointerup', handleUp)
 
@@ -533,6 +549,10 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
               }
             }
 
+            // 재진입 시 이전 리스너 먼저 제거 — pointerup 없이 중단된 경우 누수 방지
+            if (dragListenersRef.current.move) document.removeEventListener('pointermove', dragListenersRef.current.move)
+            if (dragListenersRef.current.up) document.removeEventListener('pointerup', dragListenersRef.current.up)
+            dragListenersRef.current = { move: handleMove, up: handleUp }
             document.addEventListener('pointermove', handleMove)
             document.addEventListener('pointerup', handleUp)
           }}

@@ -25,6 +25,38 @@ export const PRESET_VARS: Record<string, { light: Record<string, string>; dark: 
     light: { '--bg-primary':'#f0f5f0','--bg-secondary':'#e3ede3','--bg-hover':'#d4e4d4','--bg-active':'#c2d9c2','--text-primary':'#1a3a1a','--text-secondary':'#3d6b3d','--text-tertiary':'#6b8f6b','--border-color':'#c2d9c2','--border-subtle':'#d4e4d4' },
     dark:  { '--bg-primary':'#0f1f0f','--bg-secondary':'#162016','--bg-hover':'#1e2e1e','--bg-active':'#273d27','--text-primary':'#c0e8c0','--text-secondary':'#80b880','--text-tertiary':'#508850','--border-color':'#273d27','--border-subtle':'#1e2e1e' },
   },
+  // warm-moss: 새 디자인 테마 — 따뜻한 오프화이트 + 모스 그린 강조
+  // Python으로 치면: WARM_MOSS_PRESET = {'light': {...}, 'dark': {...}}
+  'warm-moss': {
+    light: {
+      '--color-bg':            '#FAF7F2',
+      '--color-surface':       '#FFFDF9',
+      '--color-sunken':        '#F3EFE7',
+      '--color-border':        'rgba(0,0,0,0.06)',
+      '--color-border-strong': 'rgba(0,0,0,0.10)',
+      '--color-text':          '#1F1B16',
+      '--color-text-muted':    '#6B6459',
+      '--color-text-subtle':   '#9C9488',
+      '--color-text-faint':    '#C8C0B2',
+      '--color-accent':        '#5B7F5A',
+      '--color-accent-soft':   '#EDF1EC',
+      '--color-accent-ink':    '#3C5A3C',
+    },
+    dark: {
+      '--color-bg':            '#17140F',
+      '--color-surface':       '#1D1A14',
+      '--color-sunken':        '#121009',
+      '--color-border':        'rgba(255,255,255,0.07)',
+      '--color-border-strong': 'rgba(255,255,255,0.12)',
+      '--color-text':          '#EEE8DD',
+      '--color-text-muted':    '#9A9182',
+      '--color-text-subtle':   '#6F6759',
+      '--color-text-faint':    '#4A4339',
+      '--color-accent':        '#8BB08A',
+      '--color-accent-soft':   'rgba(139,176,138,0.12)',
+      '--color-accent-ink':    '#B6D3B5',
+    },
+  },
 }
 
 // ── 기본 프리셋 CSS 변수 ──────────────────────────

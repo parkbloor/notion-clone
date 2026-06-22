@@ -63,10 +63,15 @@ export interface SettingsStore {
   // 테마: 라이트 / 다크 / 시스템 자동
   // Python으로 치면: self.theme = 'light'
   theme: 'light' | 'dark' | 'auto'
-  // 색상 테마 프리셋: 'default'|'notion'|'sepia'|'minimal'|'forest'
-  // html[data-theme="X"] 선택자로 CSS 변수 전환
+  // 색상 테마 프리셋: 'default'|'notion'|'sepia'|'minimal'|'forest'|'warm-moss'
   // Python으로 치면: self.theme_preset = 'default'
   themePreset: string
+  // 강조색 HEX — --color-accent CSS 변수에 직접 주입
+  // Python으로 치면: self.accent_color: str = '#5B7F5A'
+  accentColor: string
+  // 배경 톤 — 따뜻/중립/쿨
+  // Python으로 치면: self.bg_tone: str = 'warm'
+  bgTone: 'warm' | 'neutral' | 'cool'
 
   // ── 편집기 ──────────────────────────────────
   // 글꼴 패밀리: FONT_PRESETS의 id 문자열 (예: 'noto-sans', 'inter', 'mono' ...)
@@ -97,10 +102,12 @@ export interface SettingsStore {
 
   // ── Day Planner 타임라인 설정 ────────────────
   // plannerStartHour: 타임라인 시작 시각 (기본 0 → 00:00)
+  // plannerEndHour: 타임라인 종료 시각 (기본 24 → 24:00)
   // plannerSnapMin: 드래그 스냅 간격 분 (기본 15)
   // plannerZoom: 1시간당 픽셀 높이 (32|48|64|96, 기본 64)
-  // Python으로 치면: self.planner_start_hour: int = 0; self.planner_snap_min: int = 15; self.planner_zoom: int = 64
+  // Python으로 치면: self.planner_start_hour: int = 0; self.planner_end_hour: int = 24
   plannerStartHour: number
+  plannerEndHour:   number
   plannerSnapMin:   number
   plannerZoom:      number
   // weekStartDay: 주간 뷰 시작 요일 (0=일, 1=월(기본), 6=토)
@@ -115,6 +122,7 @@ export interface SettingsStore {
   // Python으로 치면: self.planner_auto_apply: bool = True
   plannerAutoApply:   boolean
   setPlannerStartHour:   (h: number) => void
+  setPlannerEndHour:     (h: number) => void
   setPlannerSnapMin:     (m: number) => void
   setPlannerZoom:        (z: number) => void
   setWeekStartDay:       (d: number) => void
@@ -191,9 +199,12 @@ export interface SettingsStore {
   // ── 액션 ────────────────────────────────────
   // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
   setTheme: (theme: 'light' | 'dark' | 'auto') => void
-  // 색상 테마 프리셋 변경 — html[data-theme] 속성 전환
-  // Python으로 치면: def set_theme_preset(self, p): self.theme_preset = p; apply_theme_preset(p)
+  // 색상 테마 프리셋 변경
   setThemePreset: (preset: string) => void
+  // 강조색 변경 — --color-accent 직접 주입
+  setAccentColor: (color: string) => void
+  // 배경 톤 변경
+  setBgTone: (tone: 'warm' | 'neutral' | 'cool') => void
   // font: FONT_PRESETS의 id 문자열
   setFontFamily: (font: string) => void
   setFontSize: (size: number) => void
@@ -246,7 +257,9 @@ export function applyThemePreset(preset: string) {
 // 다크/라이트 전환 후 현재 프리셋 변수를 재주입 (인라인 스타일은 CSS보다 우선하므로 갱신 필요)
 // Python으로 치면: def apply_theme(theme): document.body.class_list.toggle('dark', ...)
 // -----------------------------------------------
-export function applyTheme(theme: 'light' | 'dark' | 'auto') {
+// bgTone 옵션 파라미터: 전달 시 함께 갱신 (모드 전환 시 --color-surface 등 동기화)
+// Python으로 치면: def apply_theme(theme, bg_tone='warm'): ...
+export function applyTheme(theme: 'light' | 'dark' | 'auto', bgTone: 'warm' | 'neutral' | 'cool' = 'warm') {
   const html = document.documentElement
   if (theme === 'dark') {
     html.classList.add('dark')
@@ -262,6 +275,9 @@ export function applyTheme(theme: 'light' | 'dark' | 'auto') {
   // Python으로 치면: apply_theme_preset(html.dataset.get('theme', 'default'))
   const currentPreset = html.getAttribute('data-theme') ?? 'default'
   applyThemePreset(currentPreset)
+  // bgTone 변수도 재주입 — 인라인 스타일이 html.dark CSS를 덮어쓰므로 모드에 맞는 값으로 갱신
+  // Python으로 치면: apply_bg_tone(bg_tone)
+  applyBgTone(bgTone)
 }
 
 // -----------------------------------------------
@@ -286,6 +302,31 @@ export function applyEditorStyle(
   // 에디터 본문 최대 너비 — 하단 슬라이더로 실시간 조절
   // Python으로 치면: document.root.style['--editor-max-width'] = f'{editor_max_width}px'
   root.style.setProperty('--editor-max-width', `${editorMaxWidth}px`)
+}
+
+// -----------------------------------------------
+// 배경 톤 CSS 변수 주입 — light/dark 모드 구분
+// Python으로 치면: def apply_bg_tone(tone): inject_css_vars(BG_TONES[tone][mode])
+// -----------------------------------------------
+const BG_TONES: Record<string, { light: Record<string, string>; dark: Record<string, string> }> = {
+  warm:    {
+    light: { '--color-bg': '#FAF7F2', '--color-surface': '#FFFDF9', '--color-sunken': '#F3EFE7' },
+    dark:  { '--color-bg': '#17140F', '--color-surface': '#1D1A14', '--color-sunken': '#121009' },
+  },
+  neutral: {
+    light: { '--color-bg': '#F5F5F5', '--color-surface': '#FAFAFA', '--color-sunken': '#EBEBEB' },
+    dark:  { '--color-bg': '#141414', '--color-surface': '#1A1A1A', '--color-sunken': '#0F0F0F' },
+  },
+  cool:    {
+    light: { '--color-bg': '#F0F4F8', '--color-surface': '#F6F9FC', '--color-sunken': '#E4EBF2' },
+    dark:  { '--color-bg': '#0F1318', '--color-surface': '#151A20', '--color-sunken': '#0A0D12' },
+  },
+}
+export function applyBgTone(tone: 'warm' | 'neutral' | 'cool') {
+  const root = document.documentElement
+  const isDark = root.classList.contains('dark')
+  const vars = BG_TONES[tone]?.[isDark ? 'dark' : 'light'] ?? BG_TONES.warm[isDark ? 'dark' : 'light']
+  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v))
 }
 
 // -----------------------------------------------
@@ -347,8 +388,13 @@ export const useSettingsStore = create<SettingsStore>()(
       // 언어 기본값 — 한국어
       // Python으로 치면: self.locale = 'ko'
       locale: 'ko',
+      // 강조색 기본값 — warm-moss 디자인의 moss green
+      accentColor: '#5B7F5A',
+      // 배경 톤 기본값 — warm
+      bgTone: 'warm' as const,
       weatherLocation: '',
       plannerStartHour: 0,
+      plannerEndHour:   24,
       plannerSnapMin:   15,
       plannerZoom:      64,
       weekStartDay:          1,
@@ -365,8 +411,10 @@ export const useSettingsStore = create<SettingsStore>()(
       // ── 테마 변경 ────────────────────────────
       // Python으로 치면: def set_theme(self, t): self.theme = t; apply_theme(t)
       setTheme: (theme) => {
+        // bgTone도 함께 전달 — 모드 전환 시 --color-surface 등 즉시 동기화
+        const bgTone = useSettingsStore.getState().bgTone
         set((state) => { state.theme = theme })
-        applyTheme(theme)
+        applyTheme(theme, bgTone)
       },
 
       // ── 색상 테마 프리셋 변경 ────────────────
@@ -374,6 +422,23 @@ export const useSettingsStore = create<SettingsStore>()(
       setThemePreset: (preset) => {
         set((state) => { state.themePreset = preset })
         applyThemePreset(preset)
+      },
+
+      // ── 강조색 변경 ──────────────────────────
+      // Python으로 치면: def set_accent_color(self, c): self.accent_color = c; inject_css_var(c)
+      setAccentColor: (color) => {
+        set((state) => { state.accentColor = color })
+        document.documentElement.style.setProperty('--color-accent', color)
+        // accent 파생 토큰도 갱신 (ink = 20% 어둡게, soft = 15% 밝게 + 투명)
+        document.documentElement.style.setProperty('--color-accent-ink', color)
+        document.documentElement.style.setProperty('--color-accent-soft', `color-mix(in oklab, ${color} 15%, var(--color-bg))`)
+      },
+
+      // ── 배경 톤 변경 ─────────────────────────
+      // Python으로 치면: def set_bg_tone(self, t): self.bg_tone = t; inject_css_vars(t)
+      setBgTone: (tone) => {
+        set((state) => { state.bgTone = tone })
+        applyBgTone(tone)
       },
 
       // ── 편집기 글꼴 변경 ──────────────────────
@@ -468,7 +533,19 @@ export const useSettingsStore = create<SettingsStore>()(
       // ── 날씨 위치 변경 ───────────────────────
       // Python으로 치면: def set_weather_location(self, loc): self.weather_location = loc
       setWeatherLocation:    (loc) => { set((state) => { state.weatherLocation    = loc }) },
-      setPlannerStartHour:   (h)   => { set((state) => { state.plannerStartHour   = h   }) },
+      setPlannerStartHour:   (h)   => {
+        set((state) => {
+          const next = Math.max(0, Math.min(23, Math.floor(h)))
+          state.plannerStartHour = next
+          if (state.plannerEndHour <= next) state.plannerEndHour = Math.min(24, next + 1)
+        })
+      },
+      setPlannerEndHour:     (h)   => {
+        set((state) => {
+          const next = Math.max(1, Math.min(24, Math.floor(h)))
+          state.plannerEndHour = Math.max(next, state.plannerStartHour + 1)
+        })
+      },
       setPlannerSnapMin:     (m)   => { set((state) => { state.plannerSnapMin     = m   }) },
       setPlannerZoom:        (z)   => { set((state) => { state.plannerZoom        = z   }) },
       setWeekStartDay:          (d) => { set((state) => { state.weekStartDay          = d }) },
@@ -526,6 +603,21 @@ export const useSettingsStore = create<SettingsStore>()(
       // isFocusMode는 휘발성 — 앱 재시작 시 항상 false로 시작 (false로 고정 직렬화)
       // Python으로 치면: serialized['is_focus_mode'] = False  # 세션 상태는 저장하지 않음
       partialize: (state) => ({ ...state, isFocusMode: false }),
+
+      // SSR 환경에서 localStorage 접근 방지 — 클라이언트에서 명시적으로 rehydrate() 호출
+      // Python으로 치면: if not is_server: load_from_storage()
+      skipHydration: true,
+
+      // rehydrate 완료 후 DOM에 즉시 적용
+      // Python으로 치면: def on_load(state): apply_all_settings(state)
+      onRehydrateStorage: () => (state) => {
+        if (!state || typeof window === 'undefined') return
+        applyTheme(state.theme ?? 'light', state.bgTone ?? 'warm')
+        applyThemePreset(state.themePreset ?? 'default')
+        applyBgTone(state.bgTone ?? 'warm')
+        document.documentElement.style.setProperty('--color-accent', state.accentColor ?? '#5B7F5A')
+        applyEditorStyle(state.fontFamily ?? 'noto-sans', state.fontSize ?? 16, state.lineHeight ?? 1.6, state.editorMaxWidth ?? 768)
+      },
 
       // ── 스토어 버전 관리 ────────────────────────
       // 새 키 추가 시: version 증가 + migrate에 해당 버전 블록 추가

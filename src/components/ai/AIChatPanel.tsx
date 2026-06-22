@@ -11,6 +11,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useLocale } from '@/locales'
+import { BASE_URL } from '@/lib/api'
 
 // ── 채팅 메시지 타입 ────────────────────────────────
 // Python으로 치면: @dataclass class ChatMsg: role: str; content: str
@@ -65,7 +66,12 @@ export default function AIChatPanel({
   onHistoryChange,
   initialPos,
 }: AIChatPanelProps) {
-  const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
+  const { aiProvider, aiModel, aiApiKey, openaiApiKey, anthropicApiKey, ollamaUrl } = useSettingsStore()
+  const providerApiKey = aiProvider === 'openai'
+    ? openaiApiKey || aiApiKey
+    : aiProvider === 'claude'
+      ? anthropicApiKey || aiApiKey
+      : ''
 
   // ── 로케일 ────────────────────────────────────────────────
   // Python으로 치면: t = use_locale()
@@ -243,13 +249,13 @@ export default function AIChatPanel({
 
     let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
     try {
-      const res = await fetch('http://localhost:8000/api/ai/stream', {
+      const res = await fetch(`${BASE_URL}/api/ai/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider: aiProvider,
           model: aiModel,
-          api_key: aiApiKey,
+          api_key: providerApiKey,
           base_url: aiProvider === 'ollama' ? ollamaUrl : undefined,
           prompt: fullPrompt,
           context: '',
@@ -284,11 +290,15 @@ export default function AIChatPanel({
             setStreamText('')
             break
           }
+          let msg: { error?: string; text?: string }
           try {
-            const msg = JSON.parse(raw)
-            if (msg.error) throw new Error(msg.error)
-            if (msg.text) { accumulated += msg.text; setStreamText(accumulated) }
-          } catch { /* 무시 */ }
+            msg = JSON.parse(raw)
+          } catch {
+            // SSE keepalive 또는 깨진 이벤트는 건너뛴다.
+            continue
+          }
+          if (msg.error) throw new Error(msg.error)
+          if (msg.text) { accumulated += msg.text; setStreamText(accumulated) }
         }
       }
     } catch (err) {
@@ -301,7 +311,7 @@ export default function AIChatPanel({
       setIsLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history, isLoading, getContext, systemPrompt, aiProvider, aiModel, aiApiKey, ollamaUrl, updateHistory])
+  }, [history, isLoading, getContext, systemPrompt, aiProvider, aiModel, providerApiKey, ollamaUrl, updateHistory])
 
   // ── 적용 버튼 처리 ───────────────────────────────
   // Python으로 치면: def handle_apply(self, msg_index: int, text: str): ...

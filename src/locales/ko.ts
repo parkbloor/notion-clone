@@ -76,6 +76,7 @@ export const ko = {
     addSubfolder: '하위 폴더 추가',
     deleteFolder: '폴더 삭제',
     folderColor: '폴더 색상',
+    pageColor: '메모 색상',
     folderColorDefault: '기본 색상',
     renameFolderHint: '더블클릭으로 이름 변경',
     subfolderPlaceholder: '하위 폴더 이름...',
@@ -251,8 +252,9 @@ export const ko = {
       px: 'px',
       // Day Planner 설정
       dayPlannerSection: '🗓️ Day Planner 설정',
-      dayPlannerDesc: '타임라인 시작 시각과 드래그 스냅 간격을 조정합니다.',
+      dayPlannerDesc: '타임라인 표시 시간대와 드래그 스냅 간격을 조정합니다.',
       plannerStartHour: '타임라인 시작 시각',
+      plannerEndHour: '타임라인 종료 시각',
       plannerSnapMin: '드래그 스냅 간격',
       plannerZoom: '타임라인 줌',
       plannerZoomNarrow: '좁게',

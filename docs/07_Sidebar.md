@@ -20,29 +20,24 @@
 
 | prop | 타입 | 설명 |
 |------|------|------|
-| `onSelectPage` | `(pageId: string) => void` | 페이지 선택 콜백 |
-| `onCloseMobile` | `() => void` | 모바일 사이드바 닫기 콜백 |
-| `onOpenSettings` | `() => void` | 설정 모달 열기 콜백 |
-| `onOpenShortcuts` | `() => void` | 단축키 모달 열기 콜백 |
-| `onOpenPeriodicNotes` | `() => void` | 주기적 노트 패널 열기 콜백 |
-| `onToggleDbView` | `() => void` | 데이터베이스 테이블 뷰 토글 콜백 |
-| `dbViewActive` | `boolean` | DB 뷰 활성화 여부 |
+| `onOpenSettings?` | `() => void` | 설정 모달 열기 콜백 |
+| `onCloseMobile?` | `() => void` | 모바일 사이드바 닫기 콜백 |
+| `dbViewActive?` | `boolean` | DB 뷰 활성화 여부 |
+| `onToggleDbView?` | `() => void` | 데이터베이스 테이블 뷰 토글 콜백 |
+| `onSplitPage?` | `(pageId: string) => void` | Ctrl+클릭 시 스플릿 뷰로 페이지 열기 |
+| `onOpenGraphView?` | `() => void` | 그래프 뷰 오버레이 열기 |
+| `onOpenTrash?` | `() => void` | 휴지통 패널 열기 |
 
-### 모듈 레벨 상수
+### 관련 사이드바 모듈
 
-| 상수 | 설명 |
+| 파일 | 설명 |
 |------|------|
-| `DEPTH_STYLES` | depth 0~3+ 별 폴더 색상 스타일 (normal/selected/over/folder/dot) |
-| `GUIDE_COLORS` | 트리 가이드 라인 색상 배열 (gray/blue/violet/teal) |
+| `src/components/sidebar/sidebarUtils.ts` | `DEPTH_STYLES`, `GUIDE_COLORS`, `FOLDER_COLOR_GROUPS`, 검색/마크다운 변환 유틸 |
+| `src/components/sidebar/CategoryRow.tsx` | 폴더 행 UI. `SortableCategoryRow`, `DroppableCategoryRow`, `CollapsedFolderIcon` 제공 |
+| `src/components/sidebar/DraggablePageRow.tsx` | 페이지 행 UI. 페이지 정렬, 폴더 이동, Ctrl+클릭 스플릿 뷰, 페이지 색상 표시 |
+| `src/components/sidebar/PageInlineMenu.tsx` | 페이지 행 `•••`/우클릭 메뉴. 즐겨찾기, 복제, 템플릿 저장, 메모 색상, 삭제 |
 
-### 내부 컴포넌트
-
-| 이름 | 설명 |
-|------|------|
-| `PageInlineMenu` | 페이지 행 `•••` 버튼 클릭 시 미니 메뉴 (이름변경, 별표, 복제, 템플릿저장, 삭제) — `position: fixed`로 사이드바 overflow 탈출 |
-| `CollapsedFolderIcon` | 접힘 모드(w-12)일 때 폴더 아이콘만 표시하는 별도 컴포넌트 (hooks 규칙: `.map()` 안에서 `useSortable` 직접 호출 금지) |
-
-### 주요 내부 함수
+### 공용 유틸 함수
 
 | 함수 | 설명 |
 |------|------|
@@ -59,13 +54,15 @@
 | 폴더 내 페이지 추가 | 폴더 행 hover 시 📄 버튼 → 인라인 입력창 |
 | 미분류 페이지 | 트리 하단 "미분류" 섹션에 표시 |
 | 검색 | 사이드바 내 검색바 — 제목+블록 내용 클라이언트 사이드 필터링 |
-| 캘린더 위젯 | `CalendarWidget` 컴포넌트 내장 (calendar 플러그인 ON일 때 표시) |
+| 계획 탭 | `CalendarWidget` + `PeriodicNotesPanel` 표시 |
 | 최근 파일 | `recentFiles` 플러그인 ON일 때 `recentPageIds` 기반 표시 |
 | 너비 조절 | aside 오른쪽 4px 드래그 핸들 → `setSidebarWidth()` 실시간 업데이트 |
 | 접힘 모드 | `sidebarCollapsed=true` → w-12, 아이콘만 표시 |
 | DB 뷰 버튼 | 헤더의 `<Table2 />` 아이콘 클릭 → `onToggleDbView()` |
 | 폴더 색상 | 폴더 우클릭 컨텍스트 메뉴 → 색상 팔레트 → `updateCategoryColor()` |
-| 태그 브라우저 | 전체 페이지에서 태그 수집 → 클릭하면 `setTagFilter()` |
+| 메모 색상 | 페이지 메뉴 색상 팔레트 → `updatePageColor()` |
+| 태그 브라우저 | 전체 페이지에서 태그 수집 → 로컬 `selectedTags` 상태로 다중 태그 필터 |
+| 그래프/설정/휴지통 | 하단 풋터 아이콘에서 각각 `onOpenGraphView`, `onOpenSettings`, `onOpenTrash` 호출 |
 
 ---
 
@@ -100,7 +97,7 @@
 
 ## [src/components/editor/CommandPalette.tsx](../src/components/editor/CommandPalette.tsx)
 
-**역할:** `Ctrl+P`로 여는 커맨드 팔레트. 페이지 퍼지 검색 + 빠른 액션.
+**역할:** `Ctrl+P`로 여는 커맨드 팔레트. 페이지 제목 검색 + 빠른 액션.
 
 ### exports
 
@@ -129,7 +126,7 @@
 | 섹션 | 설명 |
 |------|------|
 | 최근 페이지 | `recentPageIds` 기반 최대 5개 |
-| 전체 페이지 | 검색어 기준 제목 필터링 |
+| 전체보기 | 검색어 기준 제목 필터링 |
 | 빠른 액션 | 새 페이지 만들기 / 설정 열기 / 단축키 안내 / 내용 검색 / 캘린더 열기 |
 
 ### 동작
@@ -161,6 +158,7 @@
 | 동작 | 설명 |
 |------|------|
 | 검색 | 300ms 디바운스 후 `api.searchPages(query)` 호출 (서버 전문 검색) |
+| 응답 순서 보호 | 최신 검색 요청 ID와 일치하는 응답만 결과에 반영 |
 | 결과 | `SearchResult[]` — 페이지 제목 + 매칭 블록 스니펫 표시 |
 | 이동 | 결과 클릭 → `setCurrentPage(pageId)` + 팝업 닫기 |
 | 키보드 | ↑↓ 탐색, Enter 선택, Esc 닫기 |
@@ -190,7 +188,7 @@
 | 동작 | 설명 |
 |------|------|
 | 하이라이트 | `searchHighlightKey` Transaction 메타로 모든 Editor에 검색어 전달 → `find-highlight` CSS 클래스 |
-| 이전/다음 | DOM의 `.find-highlight` 요소를 순서대로 `scrollIntoView`. 현재 위치는 `find-highlight-current` 클래스로 강조 |
+| 이전/다음 | DOM의 `.find-highlight` 요소를 순서대로 `scrollIntoView`. Enter는 다음, Shift+Enter는 이전으로 이동 |
 | 바꾸기 | 현재 페이지 블록 HTML에서 `replaceTextInHtml()` 적용 후 `updateBlock()` |
 | 모두 바꾸기 | 전체 블록에 일괄 적용 후 교체 횟수 toast 표시 |
 | 대소문자 | `[Aa]` 버튼 → `toggleCase()` → `findReplaceStore.caseSensitive` 토글 |

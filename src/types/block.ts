@@ -136,6 +136,9 @@ export interface Page {
   icon: string         // 페이지 아이콘 이모지 (예: "📝")
   cover?: string       // 커버 값 — URL / "gradient:..." / "color:..." / undefined
   coverPosition?: number // 커버 이미지 Y 위치 (0~100, 기본 50 = 가운데)
+  // 사이드바 메모 리스트 표시용 색상 (hex). 없으면 기본 스타일 사용
+  // Python으로 치면: color: str | None = None
+  color?: string | null
   // 태그 목록 (예: ["업무", "중요"]) — 선택 사항, 없으면 빈 배열로 취급
   // Python으로 치면: tags: list[str] = field(default_factory=list)
   tags?: string[]
@@ -256,9 +259,9 @@ export interface LayoutTemplate {
   nameEn: string              // 예: "Magazine Spread"
   description: string
   thumbnail?: string          // 미리보기 이미지 URL
-  // 블록 역할 → 셀 위치 매핑 규칙
+  // 블록 역할 → 셀 위치 매핑 규칙 (locked/userEdited 미지정 시 기본 false로 취급)
   // Python으로 치면: role_map: dict[BlockRole, tuple[col, row]]
-  roleMap: Partial<Record<BlockRole, { col: [number, number]; row: [number, number] }>>
+  roleMap: Partial<Record<BlockRole, { col: [number, number]; row: [number, number]; locked?: boolean; userEdited?: boolean }>>
   // 이 템플릿이 적합한 콘텐츠 조합 조건
   // Python으로 치면: conditions: list[str]
   conditions: {
@@ -321,6 +324,7 @@ export interface PlanEvent {
   end:      string    // 'HH:MM'
   color:    string    // EVENT_COLORS id
   done:     boolean
+  scheduled?: boolean // false = 시간 미지정. undefined는 구버전 데이터 호환용
   clockIn?:  string   // 실제 작업 시작 시각 'HH:MM:SS'
   clockOut?: string   // 실제 작업 종료 시각 'HH:MM:SS'
   elapsed?:  number   // 누적 실제 작업 분
@@ -347,6 +351,8 @@ export interface Routine {
 // Python으로 치면: Block.create() 클래스 메서드
 // -----------------------------------------------
 export function createBlock(type: BlockType = 'paragraph'): Block {
+  // 'ai'는 슬래시 메뉴 전용 UI 타입 — 실제 블록으로 저장 불가
+  if (type === 'ai') throw new Error("'ai' 블록은 저장할 수 없습니다. 슬래시 메뉴 전용 타입입니다.")
   const now = new Date().toISOString()  // 동일 타임스탬프 보장 (두 번 호출하면 미세 차이 발생)
   return {
     id: crypto.randomUUID(),   // 브라우저 내장 UUID 생성기
@@ -385,17 +391,31 @@ export interface Category {
 // _vault_trash/index.json 기반 (실물 파일 이동 방식)
 // Python으로 치면: @dataclass class TrashItem: ...
 // -----------------------------------------------
-export interface TrashItem {
+// 휴지통 페이지 항목 — itemType으로 좁히면 title 필수, name 접근 불가
+// Python으로 치면: @dataclass class TrashPage: ...
+interface TrashPageItem {
   id: string
-  itemType: 'page' | 'category'        // 페이지 or 폴더
-  title?: string                        // 페이지 제목
-  name?: string                         // 폴더 이름
+  itemType: 'page'
+  title: string                         // 페이지 제목 (필수)
   icon?: string                         // 페이지 아이콘
   trashedAt: string                     // 삭제 일시 (ISO)
-  originalCategoryId?: string | null    // 원래 카테고리 ID (페이지)
-  originalParentId?: string | null      // 원래 부모 폴더 ID (카테고리)
-  childCount?: number                   // 하위 항목 수 (카테고리) — 배지 표시용
+  originalCategoryId?: string | null    // 원래 카테고리 ID
 }
+
+// 휴지통 카테고리 항목 — itemType으로 좁히면 name 필수, title 접근 불가
+// Python으로 치면: @dataclass class TrashCategory: ...
+interface TrashCategoryItem {
+  id: string
+  itemType: 'category'
+  name: string                          // 폴더 이름 (필수)
+  trashedAt: string                     // 삭제 일시 (ISO)
+  originalParentId?: string | null      // 원래 부모 폴더 ID
+  childCount?: number                   // 하위 항목 수 — 배지 표시용
+}
+
+// Discriminated union — itemType으로 정확한 필드 접근 강제
+// Python으로 치면: TrashItem = Union[TrashPageItem, TrashCategoryItem]
+export type TrashItem = TrashPageItem | TrashCategoryItem
 
 
 // -----------------------------------------------
@@ -403,12 +423,14 @@ export interface TrashItem {
 // 역할: Page 객체를 기본값으로 만들어주는 공장 함수
 // -----------------------------------------------
 export function createPage(title: string = '제목 없음'): Page {
+  const now = new Date().toISOString()  // 동일 타임스탬프 보장 (두 번 호출하면 미세 차이 발생)
   return {
     id: crypto.randomUUID(),
     title,
     icon: '📝',
+    color: null,
     blocks: [createBlock('paragraph')],  // 페이지 생성 시 빈 블록 하나 자동 추가
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   }
 }

@@ -106,6 +106,39 @@ const blockTypeToLevel: Partial<Record<BlockType, 1 | 2 | 3 | 4 | 5 | 6>> = {
   heading6: 6,
 }
 
+const NON_TIPTAP_BLOCK_TYPES = new Set<BlockType>([
+  'image',
+  'video',
+  'embed',
+  'toggle',
+  'kanban',
+  'admonition',
+  'canvas',
+  'excalidraw',
+  'layout',
+  'math',
+  'mermaid',
+  'file',
+  'chart',
+  'gantt',
+  'mindmap',
+  'dayplanner',
+  'weekplanner',
+  'weeklyplanner',
+  'routinematrix',
+  'monthlycalendar',
+  'quarterlyplanner',
+  'yearlyplanner',
+])
+
+function isNonTiptapBlock(type: BlockType): boolean {
+  return NON_TIPTAP_BLOCK_TYPES.has(type)
+}
+
+function trimTrailingEmptyParagraphs(html: string): string {
+  return html.replace(/(?:<p(?:\s[^>]*)?>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)+$/gi, '')
+}
+
 export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasSectionChildren, onToggleSectionCollapse, readMode, isSelected, onSelect, isChild, toggleId, onGroupIntoToggle, children }: EditorProps) {
 
   const t = useLocale()
@@ -226,13 +259,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // 비-Tiptap 블록(이미지/비디오/캔버스/차트 등)은 Tiptap content를 빈 문자열로 초기화
     // JSON content가 Tiptap에 HTML로 파싱되는 오류 방지
     // Python으로 치면: content = '' if type in NON_TIPTAP_TYPES else block.content
-    content: (block.type === 'image' || block.type === 'video' || block.type === 'embed' ||
-      block.type === 'toggle' || block.type === 'kanban' || block.type === 'admonition' ||
-      block.type === 'canvas' || block.type === 'excalidraw' || block.type === 'layout' ||
-      block.type === 'math' || block.type === 'mermaid' || block.type === 'file' ||
-      block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap' ||
-      block.type === 'dayplanner' || block.type === 'weekplanner' || block.type === 'weeklyplanner' ||
-      block.type === 'routinematrix' || block.type === 'quarterlyplanner' || block.type === 'yearlyplanner') ? '' : (block.content || ''),
+    content: isNonTiptapBlock(block.type) ? '' : trimTrailingEmptyParagraphs(block.content || ''),
     // setTimeout 0: ReactNodeViewRenderer가 flushSync를 렌더 사이클 중에 호출하는 것을 방지
     // onCreate를 현재 렌더 패스가 끝난 다음 마이크로태스크로 지연
     // Python으로 치면: asyncio.get_event_loop().call_soon(apply_block_type)
@@ -241,19 +268,13 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       // 비-Tiptap 블록(이미지·비디오·캔버스 등)은 content를 직접 JSON으로 관리하므로
       // Tiptap onUpdate를 무시 — 마운트/언마운트 시 <p></p>로 덮어쓰기 방지
       // Python으로 치면: if type in NON_TIPTAP_TYPES: return
-      if (block.type === 'image' || block.type === 'video' || block.type === 'embed' ||
-          block.type === 'toggle' || block.type === 'kanban' || block.type === 'admonition' ||
-          block.type === 'canvas' || block.type === 'excalidraw' || block.type === 'layout' ||
-          block.type === 'math' || block.type === 'mermaid' || block.type === 'file' ||
-          block.type === 'chart' || block.type === 'gantt' || block.type === 'mindmap' ||
-          block.type === 'dayplanner' || block.type === 'weekplanner' || block.type === 'weeklyplanner' ||
-          block.type === 'routinematrix' || block.type === 'quarterlyplanner' || block.type === 'yearlyplanner') return
+      if (isNonTiptapBlock(block.type)) return
       // --- 입력으로 Tiptap이 <hr>을 삽입하면 블록 타입을 'divider'로 자동 동기화
       // Python으로 치면: if editor.doc starts with hr node: update_block_type('divider')
       if (block.type !== 'divider' && editor.state.doc.firstChild?.type.name === 'horizontalRule') {
         updateBlockType(pageId, block.id, 'divider')
       }
-      updateBlock(pageId, block.id, editor.getHTML())
+      updateBlock(pageId, block.id, trimTrailingEmptyParagraphs(editor.getHTML()))
       checkSlash(editor)
       checkMention(editor)
     },
@@ -641,10 +662,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
   // Python으로 치면: def build_sections() -> list[Section]: ...
   // -----------------------------------------------
   function buildContextSections(): ContextMenuSection[] {
-    const isTextBlock = ![
-      'image', 'toggle', 'kanban', 'admonition',
-      'canvas', 'excalidraw', 'video', 'layout', 'math', 'divider', 'mermaid', 'file',
-    ].includes(block.type)
+    const isTextBlock = block.type !== 'divider' && !isNonTiptapBlock(block.type)
 
     const sections: ContextMenuSection[] = [
       // ── 블록 추가 ───────────────────────────────
@@ -1031,7 +1049,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: if type in ('image', ..., 'math'): return
     // video, embed도 비-Tiptap 블록 — content를 JSON으로 직접 관리하므로 조기 반환
     // 빠트리면 setParagraph()가 호출돼 onUpdate → updateBlock('<p></p>') 로 content 덮어쓰기 위험
-    if (type === 'image' || type === 'video' || type === 'embed' || type === 'toggle' || type === 'kanban' || type === 'admonition' || type === 'canvas' || type === 'excalidraw' || type === 'layout' || type === 'math' || type === 'mermaid' || type === 'file' || type === 'chart' || type === 'gantt' || type === 'mindmap' || type === 'dayplanner' || type === 'weekplanner' || type === 'weeklyplanner' || type === 'routinematrix' || type === 'quarterlyplanner' || type === 'yearlyplanner') return
+    if (isNonTiptapBlock(type)) return
     // .focus() 제거 — 마운트 시 포커스가 발생하면 해당 블록으로 페이지가 스크롤됨
     // 블록 타입 설정은 포커스 없이도 동작 (Tiptap 문서 조작은 focus 불필요)
     const level = blockTypeToLevel[type]

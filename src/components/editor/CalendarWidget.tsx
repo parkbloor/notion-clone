@@ -40,17 +40,12 @@ function toDateStr(date: Date): string {
 
 // -----------------------------------------------
 // createdAt 값 → 'YYYY-MM-DD' 로컬 날짜 변환
-// Page.createdAt 타입은 Date이지만, 서버 JSON 역직렬화 시 문자열로 들어옴
-// 두 경우를 모두 처리 (Date 객체 or ISO 문자열)
-// Python으로 치면: def to_date_key(val): return str(val)[:10]
+// 서버는 UTC ISO 문자열을 반환하므로 앞 10자리를 자르면 KST 날짜가 하루 어긋날 수 있다.
+// Python으로 치면: def to_date_key(val): return to_local_date(parse_iso(val))
 // -----------------------------------------------
 function isoToLocalDateStr(val: Date | string | unknown): string {
-  // Date 객체인 경우 → toDateStr() 변환
-  if (val instanceof Date) return toDateStr(val)
-  // 문자열인 경우 → 앞 10자리 (YYYY-MM-DD) 추출
-  if (typeof val === 'string') return val.slice(0, 10)
-  // 그 외 (null, undefined 등) → 빈 문자열
-  return ''
+  const date = val instanceof Date ? val : typeof val === 'string' ? new Date(val) : null
+  return date && !Number.isNaN(date.getTime()) ? toDateStr(date) : ''
 }
 
 export default function CalendarWidget({ pages, selectedDate, onSelectDate }: CalendarWidgetProps) {

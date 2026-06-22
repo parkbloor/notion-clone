@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import katex from 'katex'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
@@ -35,12 +35,27 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
 
   // KaTeX 렌더링 결과 HTML
   // Python으로 치면: self.rendered_html = ''
-  const [renderedHtml, setRenderedHtml] = useState('')
+  const { renderedHtml, error } = useMemo(() => {
+    if (!latex.trim()) {
+      return { renderedHtml: '', error: '' }
+    }
+    try {
+      const html = katex.renderToString(latex, {
+        displayMode: true,
+        throwOnError: true,
+        strict: false,
+      })
+      return { renderedHtml: html, error: '' }
+    } catch (e) {
+      return {
+        renderedHtml: '',
+        error: e instanceof Error ? e.message.replace(/^KaTeX parse error:\s*/i, '') : t.blocks.math.parseError,
+      }
+    }
+  }, [latex, t.blocks.math.parseError])
 
   // 수식 파싱 오류 메시지
   // Python으로 치면: self.error = ''
-  const [error, setError] = useState('')
-
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // -----------------------------------------------
@@ -49,26 +64,6 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
   // throwOnError: false → 파싱 오류 시 에러 HTML 렌더링 (앱 크래시 방지)
   // Python으로 치면: def render_latex(latex): return katex.renderToString(latex, display=True)
   // -----------------------------------------------
-  useEffect(() => {
-    if (!latex.trim()) {
-      setRenderedHtml('')
-      setError('')
-      return
-    }
-    try {
-      const html = katex.renderToString(latex, {
-        displayMode: true,
-        throwOnError: true,
-        strict: false,
-      })
-      setRenderedHtml(html)
-      setError('')
-    } catch (e) {
-      setRenderedHtml('')
-      setError(e instanceof Error ? e.message.replace(/^KaTeX parse error:\s*/i, '') : t.blocks.math.parseError)
-    }
-  }, [latex])
-
   // -----------------------------------------------
   // 편집 모드 진입 시 textarea 자동 포커스 + 전체 선택
   // Python으로 치면: if self.is_editing: self.textarea.focus(); self.textarea.select_all()
@@ -158,7 +153,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
         {/* 실시간 미리보기 (오류 없을 때만) */}
         {renderedHtml && !error && (
           <div
-            className="py-1 overflow-x-auto text-center"
+            className="math-block py-1 overflow-x-auto text-center"
             dangerouslySetInnerHTML={{ __html: renderedHtml }}
           />
         )}
@@ -191,7 +186,7 @@ export default function MathBlock({ block, pageId }: MathBlockProps) {
       {renderedHtml ? (
         // KaTeX 렌더링 결과 출력
         <div
-          className="overflow-x-auto text-center"
+          className="math-block overflow-x-auto text-center"
           dangerouslySetInnerHTML={{ __html: renderedHtml }}
         />
       ) : (

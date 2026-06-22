@@ -7,8 +7,26 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSettingsStore, applyTheme, applyThemePreset } from '@/store/settingsStore'
+import { useSettingsStore, applyThemePreset } from '@/store/settingsStore'
 import { useLocale, LANGUAGE_OPTIONS } from '@/locales'
+
+// 강조색 팔레트 — 5가지 사전 정의 색상
+// Python으로 치면: ACCENT_COLORS = [('#5B7F5A', 'Moss'), ...]
+const ACCENT_COLORS = [
+  { hex: '#5B7F5A', label: 'Moss' },
+  { hex: '#4A7FA5', label: 'Ocean' },
+  { hex: '#8B5CF6', label: 'Violet' },
+  { hex: '#B8643A', label: 'Amber' },
+  { hex: '#C2525A', label: 'Rose' },
+] as const
+
+// 배경 톤 옵션
+// Python으로 치면: BG_TONE_OPTIONS = [('warm', '따뜻함', '#FAF7F2'), ...]
+const BG_TONE_OPTIONS = [
+  { value: 'warm',    label: '따뜻함', swatch: '#FAF7F2' },
+  { value: 'neutral', label: '중립',   swatch: '#F5F5F5' },
+  { value: 'cool',    label: '시원함', swatch: '#F0F4F8' },
+] as const
 
 // -----------------------------------------------
 // 밝기 모드 옵션 목록
@@ -54,15 +72,14 @@ const THEME_PRESETS = [
 ] as const
 
 export default function AppearanceTab() {
-  const { theme, setTheme, themePreset, setThemePreset, locale, setLocale } = useSettingsStore()
+  const { theme, setTheme, themePreset, setThemePreset, locale, setLocale, accentColor, setAccentColor, bgTone, setBgTone } = useSettingsStore()
   // Python으로 치면: t = locale_dict[settings.locale]
   const t = useLocale()
 
   // 밝기 모드 선택 핸들러
   // Python으로 치면: def on_select_theme(self, t): self.settings.set_theme(t); apply_theme(t)
   function handleThemeSelect(val: 'light' | 'dark' | 'auto') {
-    setTheme(val)
-    applyTheme(val)
+    setTheme(val)  // setTheme 내부에서 bgTone 포함 applyTheme 호출
   }
 
   // 색상 프리셋 선택 핸들러
@@ -109,7 +126,7 @@ export default function AppearanceTab() {
 
       {/* ── 밝기 모드 섹션 ──────────────────────── */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.appearance.themeMode}</h3>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--color-text)" }}>{t.settings.appearance.themeMode}</h3>
 
         {/* 밝기 모드 선택 카드 버튼 3개 */}
         {/* Python으로 치면: for opt in THEME_OPTIONS: render_card(opt, selected=(opt == theme)) */}
@@ -121,14 +138,15 @@ export default function AppearanceTab() {
                 key={opt.value}
                 type="button"
                 onClick={() => handleThemeSelect(opt.value)}
-                className={opt.value === theme
-                  ? "flex-1 flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700 transition-colors"
-                  : "flex-1 flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-colors"
-                }
+                className="flex-1 flex flex-col items-center gap-2 py-4 px-3 rounded-xl border-2 transition-colors"
+              style={opt.value === theme
+                ? { borderColor: "var(--color-accent)", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)" }
+                : { borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-muted)" }
+              }
               >
                 <span className="text-2xl">{opt.icon}</span>
                 <span className="text-sm font-medium">{info.label}</span>
-                <span className="text-xs text-gray-400">{info.desc}</span>
+                <span className="text-xs" style={{ color: "var(--color-text-faint)" }}>{info.desc}</span>
               </button>
             )
           })}
@@ -137,7 +155,7 @@ export default function AppearanceTab() {
 
       {/* ── 색상 테마 프리셋 섹션 ────────────────── */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">{t.settings.appearance.colorTheme}</h3>
+        <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--color-text)" }}>{t.settings.appearance.colorTheme}</h3>
 
         {/* 프리셋 카드 그리드 (5열) */}
         {/* Python으로 치면: for preset in THEME_PRESETS: render_preset_card(preset) */}
@@ -153,9 +171,10 @@ export default function AppearanceTab() {
                 key={preset.id}
                 type="button"
                 onClick={() => handlePresetSelect(preset.id)}
-                className={isSelected
-                  ? "flex flex-col items-center gap-2 p-2.5 rounded-xl border-2 border-blue-500 bg-blue-50 transition-colors"
-                  : "flex flex-col items-center gap-2 p-2.5 rounded-xl border-2 border-gray-200 bg-white hover:border-gray-300 transition-colors"
+                className="flex flex-col items-center gap-2 p-2.5 rounded-xl border-2 transition-colors"
+                style={isSelected
+                  ? { borderColor: "var(--color-accent)", background: "var(--color-accent-soft)" }
+                  : { borderColor: "var(--color-border)", background: "var(--color-surface)" }
                 }
               >
                 {/* 색상 스와치 미리보기 */}
@@ -174,7 +193,7 @@ export default function AppearanceTab() {
                 </div>
 
                 {/* 프리셋 이름 */}
-                <span className={isSelected ? "text-xs font-semibold text-blue-700" : "text-xs font-medium text-gray-600"}>
+                <span className="text-xs font-medium" style={{ color: isSelected ? "var(--color-accent-ink)" : "var(--color-text-muted)" }}>
                   {info.label}
                 </span>
               </button>
@@ -183,19 +202,78 @@ export default function AppearanceTab() {
         </div>
       </section>
 
+      {/* ── 강조색 섹션 ─────────────────────────── */}
+      {/* Python으로 치면: render_accent_color_picker(selected=accent_color) */}
+      <section>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--color-text)" }}>강조색</h3>
+        <div className="flex gap-2 items-center">
+          {ACCENT_COLORS.map((c) => (
+            <button
+              key={c.hex}
+              type="button"
+              title={c.label}
+              onClick={() => setAccentColor(c.hex)}
+              className="w-8 h-8 rounded-full transition-all"
+              style={{
+                backgroundColor: c.hex,
+                outline: accentColor === c.hex ? `3px solid ${c.hex}` : '3px solid transparent',
+                outlineOffset: 2,
+              }}
+            />
+          ))}
+          {/* 커스텀 색상 입력 */}
+          <label className="flex items-center gap-1.5 cursor-pointer ml-2">
+            <input
+              type="color"
+              value={accentColor}
+              onChange={e => setAccentColor(e.target.value)}
+              className="w-8 h-8 rounded cursor-pointer border-0"
+              style={{ padding: 0 }}
+              title="커스텀 색상"
+            />
+            <span className="text-xs font-mono" style={{ color: "var(--color-text-muted)" }}>{accentColor}</span>
+          </label>
+        </div>
+      </section>
+
+      {/* ── 배경 톤 섹션 ─────────────────────────── */}
+      {/* Python으로 치면: render_bg_tone_selector(selected=bg_tone) */}
+      <section>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--color-text)" }}>배경 톤</h3>
+        <div className="flex gap-2" style={{ background: "var(--color-sunken)", borderRadius: 8, padding: 3 }}>
+          {BG_TONE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setBgTone(opt.value)}
+              className="flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-colors"
+              style={bgTone === opt.value
+                ? { background: "var(--color-surface)", color: "var(--color-text)", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" }
+                : { color: "var(--color-text-muted)" }
+              }
+            >
+              <span className="w-3 h-3 rounded-full border shrink-0"
+                style={{ backgroundColor: opt.swatch, borderColor: "var(--color-border-strong)" }} />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* ── 언어 선택 섹션 ───────────────────────── */}
       {/* Python으로 치면: render_language_selector(selected=locale) */}
       <section>
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">{t.settings.appearance.language}</h3>
+        <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--color-text)" }}>{t.settings.appearance.language}</h3>
         <div className="flex gap-2">
           {LANGUAGE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => setLocale(opt.value)}
-              className={locale === opt.value
-                ? "px-4 py-2 rounded-lg border-2 border-blue-500 bg-blue-50 text-blue-700 text-sm font-medium transition-colors"
-                : "px-4 py-2 rounded-lg border-2 border-gray-200 bg-white text-gray-600 text-sm font-medium hover:border-gray-300 hover:bg-gray-50 transition-colors"
+              className="px-4 py-2 rounded-lg border-2 text-sm font-medium transition-colors"
+              style={locale === opt.value
+                ? { borderColor: "var(--color-accent)", background: "var(--color-accent-soft)", color: "var(--color-accent-ink)" }
+                : { borderColor: "var(--color-border)", background: "var(--color-surface)", color: "var(--color-text-muted)" }
               }
             >
               {opt.nativeLabel}
@@ -205,17 +283,21 @@ export default function AppearanceTab() {
       </section>
 
       {/* ── 현재 적용 중 안내 ───────────────────── */}
-      <section className="rounded-lg bg-gray-50 px-4 py-3">
-        <p className="text-xs text-gray-500">
-          {t.settings.appearance.themeMode}: <span className="font-medium text-gray-700">
+      <section className="rounded-lg px-4 py-3" style={{ background: "var(--color-sunken)" }}>
+        <p className="text-xs" style={{ color: "var(--color-text-subtle)" }}>
+          {t.settings.appearance.themeMode}: <span className="font-medium" style={{ color: "var(--color-text)" }}>
             {themeLabels[theme]?.label}
           </span>
           {' · '}
-          {t.settings.appearance.colorTheme}: <span className="font-medium text-gray-700">
+          {t.settings.appearance.colorTheme}: <span className="font-medium" style={{ color: "var(--color-text)" }}>
             {presetLabels[themePreset]?.label ?? themePreset}
           </span>
           {' · '}
-          {t.settings.appearance.language}: <span className="font-medium text-gray-700">
+          강조색: <span className="font-mono font-medium" style={{ color: "var(--color-accent)" }}>
+            {accentColor}
+          </span>
+          {' · '}
+          {t.settings.appearance.language}: <span className="font-medium" style={{ color: "var(--color-text)" }}>
             {LANGUAGE_OPTIONS.find(o => o.value === locale)?.nativeLabel}
           </span>
         </p>

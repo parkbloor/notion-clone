@@ -38,6 +38,8 @@ export default function GlobalSearch({ onClose }: GlobalSearchProps) {
 
   // 검색 입력창 ref (자동 포커스용)
   const inputRef = useRef<HTMLInputElement>(null)
+  // 최신 검색 요청만 결과를 반영하기 위한 시퀀스 번호
+  const searchRequestRef = useRef(0)
 
   // 결과 항목 ref 배열 (키보드 스크롤용)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -61,27 +63,38 @@ export default function GlobalSearch({ onClose }: GlobalSearchProps) {
   useEffect(() => {
     const trimmed = query.trim()
     if (!trimmed) {
+      searchRequestRef.current += 1
       setResults([])
       setSelectedIndex(-1)
+      setLoading(false)
       return
     }
 
+    const requestId = ++searchRequestRef.current
+    let cancelled = false
     setLoading(true)
     const timer = setTimeout(async () => {
       try {
         const res = await api.searchPages(trimmed)
+        if (cancelled || requestId !== searchRequestRef.current) return
         setResults(res)
         setSelectedIndex(-1)
         // ref 배열 크기 맞추기
         itemRefs.current = itemRefs.current.slice(0, res.length)
       } catch {
+        if (cancelled || requestId !== searchRequestRef.current) return
         setResults([])
       } finally {
-        setLoading(false)
+        if (!cancelled && requestId === searchRequestRef.current) {
+          setLoading(false)
+        }
       }
     }, 300)
 
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
   }, [query])
 
   // -----------------------------------------------
@@ -138,8 +151,10 @@ export default function GlobalSearch({ onClose }: GlobalSearchProps) {
     const parts = text.split(regex)
     return (
       <span>
+        {/* split(regex) 결과: [비매치, 매치, 비매치, 매치, ...] → 홀수 인덱스가 매치된 부분 */}
+        {/* regex.test()는 gi 플래그로 lastIndex를 변경하므로 사용 금지 */}
         {parts.map((part, i) =>
-          regex.test(part)
+          i % 2 === 1
             ? <mark key={i} className="bg-yellow-200 text-yellow-900 rounded-sm px-0.5">{part}</mark>
             : <span key={i}>{part}</span>
         )}

@@ -11,7 +11,7 @@ import { NodeViewWrapper } from '@tiptap/react'
 import type { NodeViewProps } from '@tiptap/react'
 import { useState } from 'react'
 
-export default function FootnoteView({ node, editor }: NodeViewProps) {
+export default function FootnoteView({ node, editor, getPos }: NodeViewProps) {
   const [showTooltip, setShowTooltip] = useState(false)
 
   // -----------------------------------------------
@@ -23,14 +23,14 @@ export default function FootnoteView({ node, editor }: NodeViewProps) {
   try {
     let count = 0
     let found = false
+    const currentPos = typeof getPos === 'function' ? getPos() : undefined
     editor.state.doc.descendants((n, pos) => {
       if (found) return false
       if (n.type.name === 'footnoteInline') {
         count += 1
-        // 현재 노드와 동일한 위치인지 확인 (attrs.text 비교로 근사치)
-        // node.attrs.id가 있으면 id로, 없으면 텍스트+위치 조합으로 구분
-        if (n.attrs.text === node.attrs.text && count >= 1) {
-          // 같은 텍스트가 여러 개일 수 있으므로 첫 번째만 매칭
+        // 현재 NodeView 위치와 문서 순회 위치를 비교한다.
+        // 텍스트 값으로 찾으면 같은 내용의 각주가 모두 첫 번째 번호로 표시될 수 있다.
+        if (pos === currentPos) {
           footnoteNumber = count
           found = true
         }

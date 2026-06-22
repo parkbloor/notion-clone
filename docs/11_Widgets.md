@@ -6,7 +6,7 @@
 
 ## [src/components/editor/PomodoroWidget.tsx](../src/components/editor/PomodoroWidget.tsx)
 
-**역할:** 포모도로 타이머 플로팅 위젯. 25분 집중 → 5분 휴식 사이클. `bottom-16 right-5` 고정 위치.
+**역할:** 포모도로 타이머 플로팅 위젯. 25분 집중 → 5분 휴식 사이클. `bottom-12 right-14` 고정 위치.
 
 ### exports
 
@@ -43,7 +43,7 @@
 | 동작 | 설명 |
 |------|------|
 | tick | `setInterval` 1초마다 감소. `phaseRef` 패턴으로 stale closure 방지 |
-| 단계 전환 | 0초 도달 → 단계 전환 + `document.title` 깜빡임 알림 |
+| 단계 전환 | 0초 도달 → 단계 전환 + 4초간 `document.title` 알림 |
 | 최소화 | 시계 아이콘만 표시 모드 |
 
 ---
@@ -69,7 +69,28 @@
 | 함수 | 설명 |
 |------|------|
 | `stripHtml(html)` | HTML → 순수 텍스트 |
-| `countText(blocks)` | `{ words, chars }` 집계. 텍스트 없는 블록(image, divider, canvas 등) 제외 |
+| `countText(blocks)` | `{ words, chars }` 집계. 미디어·플래너·다이어그램 등 JSON 전용 블록 제외 |
+
+---
+
+## [src/components/editor/CalendarWidget.tsx](../src/components/editor/CalendarWidget.tsx)
+
+**역할:** 계획 탭 사이드바의 미니 월간 달력. 페이지 생성일을 로컬 날짜 기준으로 표시하고, 날짜 클릭으로 페이지 목록을 필터링한다.
+
+### Props
+
+| prop | 타입 | 설명 |
+|------|------|------|
+| `pages` | `Page[]` | 생성일 표시 대상 페이지 목록 |
+| `selectedDate` | `string \| null` | 선택된 `YYYY-MM-DD` 날짜 |
+| `onSelectDate` | `(date: string \| null) => void` | 날짜 필터 변경 콜백 |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 날짜 표시 | 서버 UTC `createdAt`을 브라우저 로컬 날짜로 변환해 점·월별 개수를 표시 |
+| 날짜 필터 | 같은 날짜 재클릭 시 필터 해제, 다른 날짜 클릭 시 페이지 목록 필터 변경 |
 
 ---
 
@@ -93,6 +114,7 @@
 | `emptyHint` | `string` | 빈 상태 안내 문구 |
 | `systemPrompt` | `string` | AI 역할 지시문 |
 | `context?` | `string \| (() => string)` | 블록 내용 컨텍스트 (함수면 매 요청 시 최신값 호출) |
+| `placeholder?` | `string` | 입력창 placeholder (기본은 로케일 문자열) |
 | `quickCommands?` | `string[]` | 빠른 명령어 칩 버튼 목록 |
 | `mode` | `'sidebar' \| 'floating'` | 표시 모드 |
 | `applyLabel?` | `string` | 적용 버튼 텍스트 (기본: `'✓ 적용'`) |
@@ -107,7 +129,7 @@
 | 동작 | 설명 |
 |------|------|
 | 스트리밍 | FastAPI SSE 엔드포인트 → `ReadableStream` → `streamText` 상태 실시간 업데이트 |
-| 제공자 | `settingsStore`의 `aiProvider` (`openai` / `claude` / `ollama`) + `aiApiKey` + `ollamaUrl` |
+| 제공자 | `settingsStore`의 `aiProvider` (`openai` / `claude` / `ollama`) + `aiModel` + `aiApiKey` + `ollamaUrl` |
 | 메시지 전송 | Enter 또는 전송 버튼. 전송 중 중복 방지 |
 | 적용 버튼 | 어시스턴트 메시지별 `✓ 적용` 버튼. 한 번 적용 후 비활성화 (`appliedIndices`) |
 | 드래그 (floating) | 패널 헤더 드래그로 위치 이동 |
@@ -139,7 +161,7 @@
 
 | 동작 | 설명 |
 |------|------|
-| 블록 감지 | `'ai-block-selected'` 커스텀 이벤트 수신 → `AiTarget` 업데이트 |
+| 블록 감지 | `'ai-block-select'` 커스텀 이벤트 수신 → `AiTarget` 업데이트 |
 | 모드 전환 | 블록 타입별 자동 설정: `dayplanner` → 일정 AI, `mindmap` → 마인드맵 AI, `chart` → 차트 AI, 텍스트 블록 → 글쓰기 AI |
 | 응답 적용 | 블록 타입에 따라 다름: `dayplanner` → `ai-apply-schedule` 이벤트 발행, 마인드맵 → `ai-apply-mindmap` 이벤트, 차트 → `ai-apply-chart` 이벤트, 텍스트 → Tiptap `insertContent()` |
 | 히스토리 | 블록 ID별로 `chatHistoryMap` 독립 유지 → `initialHistory` + `onHistoryChange`로 `AIChatPanel`에 연동 |

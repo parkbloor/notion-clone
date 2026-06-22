@@ -14,6 +14,13 @@ interface WordCountBarProps {
   blocks: Block[]
 }
 
+// JSON/미디어 전용 블록은 저장용 데이터가 글자 수에 포함되면 안 된다.
+const NON_TEXT_BLOCK_TYPES = new Set<Block['type']>([
+  'image', 'divider', 'canvas', 'excalidraw', 'video', 'layout', 'math', 'embed',
+  'mermaid', 'chart', 'gantt', 'mindmap', 'file', 'dayplanner', 'weekplanner',
+  'weeklyplanner', 'routinematrix', 'monthlycalendar', 'quarterlyplanner', 'yearlyplanner',
+])
+
 // -----------------------------------------------
 // HTML 태그 제거 → 순수 텍스트 추출
 // Python으로 치면: re.sub(r'<[^>]+>', '', html)
@@ -35,10 +42,8 @@ function countText(blocks: Block[]): { words: number; chars: number } {
   let chars = 0
 
   for (const block of blocks) {
-    // 텍스트 내용이 없는 블록 유형 건너뜀
-    // canvas는 노드 텍스트가 있지만 다이어그램용이므로 제외
-    // Python으로 치면: if block.type in ('image', 'divider', 'canvas'): continue
-    if (block.type === 'image' || block.type === 'divider' || block.type === 'canvas') continue
+    // 텍스트가 아닌 JSON/미디어 블록은 저장용 데이터를 세지 않는다.
+    if (NON_TEXT_BLOCK_TYPES.has(block.type)) continue
 
     // kanban / toggle / admonition은 JSON 구조 → 파싱 후 텍스트 추출
     let raw = ''

@@ -87,7 +87,8 @@ export const FootnoteInline = Node.create({
           // Python으로 치면: tr.replace(range.from, range.to, FootnoteNode(text=text))
           try {
             state.tr.replaceWith(range.from, range.to, this.type.create({ text }))
-          } catch {
+          } catch (e) {
+            console.error('[FootnoteInline] replaceWith 실패:', e)
             return null
           }
         },

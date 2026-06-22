@@ -1,7 +1,7 @@
 # Notion Clone
 
 Notion에서 영감을 받은 **블록 기반 노트 앱**입니다.
-Next.js 14 App Router + Tiptap v3 + FastAPI(Python) 백엔드로 구성되며,
+Next.js 16 App Router + Tiptap v3 + FastAPI(Python) 백엔드로 구성되며,
 Electron으로 패키징하여 Windows 데스크톱 앱으로 배포할 수 있습니다.
 
 ---
@@ -41,7 +41,7 @@ Electron으로 패키징하여 Windows 데스크톱 앱으로 배포할 수 있�
 
 ## 기술 스택
 
-- **Frontend**: Next.js 14 (App Router), Tiptap v3, Tailwind CSS v4, Zustand
+- **Frontend**: Next.js 16 (App Router), React 19, Tiptap v3, Tailwind CSS v4, Zustand
 - **Backend**: FastAPI (Python), 로컬 JSON 파일 기반 저장
 - **Packaging**: Electron + electron-builder (NSIS 인스톨러)
 
@@ -55,12 +55,7 @@ Electron으로 패키징하여 Windows 데스크톱 앱으로 배포할 수 있�
 # 의존성 설치
 npm install
 
-# 백엔드 실행 (새 터미널)
-cd backend
-pip install fastapi uvicorn python-multipart
-python main.py
-
-# 프론트엔드 개발 서버
+# Next.js(3000) + FastAPI(8000) 동시 실행
 npm run dev
 ```
 

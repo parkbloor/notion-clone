@@ -1,7 +1,7 @@
 # ==============================================
 # backend/routers/history.py
 # 역할: 페이지 버전 히스토리 API
-#   - 자동 스냅샷: PUT /api/pages/{id} 저장 시 5분 간격으로 생성
+#   - 자동 스냅샷: PUT /api/pages/{id} 저장 시 3분 간격으로 생성
 #   - GET  /api/pages/{id}/history           — 버전 목록 (최신순)
 #   - GET  /api/pages/{id}/history/{file}    — 특정 버전 전체 데이터
 #   - POST /api/pages/{id}/history/restore/{file} — 해당 버전으로 복원
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/api", tags=["history"])
 TS_FORMAT = "%Y-%m-%dT%H-%M-%S"
 
 # 스냅샷 최소 간격 (초) — 이 시간 이내 저장은 새 스냅샷 생성 안 함
-# Python으로 치면: MIN_INTERVAL = 300  # 5분
+# Python으로 치면: MIN_INTERVAL = 180  # 3분
 MIN_SNAPSHOT_INTERVAL_SEC = 180
 
 # 최대 보관 스냅샷 수 — 초과 시 오래된 것 자동 삭제
@@ -57,7 +57,7 @@ def get_history_dir(page_dir: Path) -> Path:
 
 def save_snapshot(page_data: dict, page_dir: Path) -> bool:
     """
-    조건 충족 시 스냅샷 저장 (5분 간격 체크 + 최대 50개 보관)
+    조건 충족 시 스냅샷 저장 (3분 간격 체크 + 최대 50개 보관)
     pages.py의 PUT 핸들러에서 저장 직후 호출됨
     반환값: 스냅샷을 실제로 저장했으면 True, 간격 미달로 스킵하면 False
     Python으로 치면: def save_snapshot(page, page_dir) -> bool: ...
@@ -72,7 +72,7 @@ def save_snapshot(page_data: dict, page_dir: Path) -> bool:
     # Python으로 치면: existing = sorted(history_dir.glob('*.nct'), reverse=True)
     existing = sorted(history_dir.glob(f"*{CONTENT_EXT}"), reverse=True)
 
-    # 5분 간격 체크 — 마지막 스냅샷이 5분 미만이면 스킵
+    # 3분 간격 체크 — 마지막 스냅샷이 3분 미만이면 스킵
     if existing:
         try:
             last_ts_str = existing[0].stem  # 예: "2026-03-17T11-17-22"

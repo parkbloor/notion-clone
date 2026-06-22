@@ -95,6 +95,12 @@
   word-break: break-word;
 }
 
+/* 일반 텍스트 블록의 <p> 기본 margin 제거
+   브라우저 기본 문단 margin이 블록 끝의 지워지지 않는 빈 줄처럼 보이는 것을 방지 */
+.tiptap p {
+  margin: 0;
+}
+
 /* -----------------------------------------------
    Heading 스타일
    레벨별 시인성: 좌측 컬러 바 + 크기 + 스타일로 구분
@@ -473,8 +479,12 @@ html.dark .tiptap mark {
 .tiptap table {
   border-collapse: collapse;
   width: 100%;
-  margin: 0.5rem 0;
+  margin: 0;
   table-layout: fixed;
+}
+
+.math-block .katex-display {
+  margin: 0;
 }
 
 .tiptap table td,

@@ -2,7 +2,7 @@
 
 > Next.js standalone + FastAPI 백엔드를 하나의 Electron 앱으로 묶어 Windows NSIS 인스톨러 생성.
 > 출력: `dist-electron/Notion Clone Setup 0.1.0.exe` (약 200MB)
-> 앱 데이터: `%APPDATA%\NotionClone\vault\`
+> 앱 데이터: `%APPDATA%\NotionClone\vault\기본\` (기본 활성 vault)
 
 ---
 
@@ -37,12 +37,13 @@
 | `killAllProcesses()` | 모든 자식 프로세스 종료. Windows는 `taskkill /f /t`로 강제 종료 |
 | `createLoadingWindow()` | 로딩 스플래시 창 (380×260, frameless, alwaysOnTop) |
 | `createMainWindow()` | 메인 앱 창 (1400×900, min 800×600, menubar 제거) |
+| `normalizeWindowState(state)` | 분리된 모니터의 화면 밖 좌표를 기본 위치로 보정 |
 
 ### 앱 시작 순서
 
 1. `createLoadingWindow()` — 스플래시 표시
-2. `backendProcess` — `backend.exe` (프로덕션) 또는 `uvicorn` (개발) `spawn()`
-3. `nextProcess` — `server.js` `utilityProcess.fork()`
+2. `backendProcess` — `backend.exe` (프로덕션) 또는 프로젝트 `.venv`의 `uvicorn` (개발) `spawn()`
+3. `nextProcess` — 프로덕션에서만 `server.js`를 `utilityProcess.fork()`; 개발 Next 서버는 npm 스크립트가 시작
 4. `waitForServer(:8000)` + `waitForServer(:3000)` 병렬 대기
 5. `createMainWindow()` → `loadURL('http://localhost:3000')`
 6. `loadingWindow.close()`
@@ -61,6 +62,7 @@
 | 채널 | 설명 |
 |------|------|
 | `get-version` | `app.getVersion()` 반환 |
+| `select-folder` | 네이티브 폴더 선택 다이얼로그 → 선택 경로 또는 `null` 반환 |
 
 ---
 
@@ -72,11 +74,16 @@
 
 ```javascript
 window.electronAPI = {
-  getVersion: () => ipcRenderer.invoke('get-version')
+  getVersion: () => ipcRenderer.invoke('get-version'),
+  selectFolder: () => ipcRenderer.invoke('select-folder')
 }
 ```
 
 현재는 앱이 HTTP localhost 통신만 사용하므로 최소 노출. 추가 기능 필요 시 이 파일에서 확장.
+
+### 개발 실행
+
+`npm run electron:dev`는 Next 개발 서버만 외부에서 시작한다. Electron 메인 프로세스가 8000 포트가 비어 있는지 확인한 뒤 프로젝트 `.venv`로 FastAPI를 시작하므로, 별도로 `dev:api`를 함께 실행하면 안 된다.
 
 ---
 

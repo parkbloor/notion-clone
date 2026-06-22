@@ -3,6 +3,8 @@
 > 에디터 위에 레이어로 표시되거나 사이드에 슬라이드인 되는 UI 컴포넌트들.
 > 각 컴포넌트는 독립적으로 열기/닫기 가능하며 `page.tsx` 또는 `PageEditor.tsx`에서 조건부 렌더링됨.
 
+현재 전역 오버레이는 `CalendarOverlay`, `GlobalSearch`, `CommandPalette`, `DayPlannerPanel`, `QuickAddModal`, `ShortcutModal`, `TrashPanel`, `GraphView`이며, 페이지 내부에는 `FindReplacePanel`, `ContextMenu`, `RightPanel` 등이 사용된다.
+
 ---
 
 ## [src/components/editor/PropertyPanel.tsx](../src/components/editor/PropertyPanel.tsx)
@@ -131,6 +133,21 @@
 
 ---
 
+## [src/components/editor/RightPanel.tsx](../src/components/editor/RightPanel.tsx)
+
+**역할:** 데스크톱(`xl` 이상) 우측 고정 탭 패널. 활성화된 목차/백링크 플러그인과 항상 이용 가능한 버전 기록을 묶는다.
+
+### Props
+
+| prop | 타입 | 설명 |
+|------|------|------|
+| `pageId` | `string` | 대상 페이지 ID |
+| `blocks` | `Block[]` | 목차 계산용 블록 목록 |
+| `collapsedIds` / `onToggleCollapse` | `Set<string>` / 콜백 | 목차 접힘 상태 |
+| `showToc` / `showBacklinks` | `boolean` | 각 플러그인 탭 표시 여부 |
+
+---
+
 ## [src/components/editor/TocPanel.tsx](../src/components/editor/TocPanel.tsx)
 
 **역할:** 현재 페이지 목차 사이드 패널. `heading1~6` 블록 계층 목록. 접힌 헤딩과 동기화.
@@ -148,6 +165,7 @@
 | `blocks` | `Block[]` | 현재 페이지 블록 목록 |
 | `collapsedIds` | `Set<string>` | 접힌 헤딩 ID 집합 (PageEditor와 공유) |
 | `onToggleCollapse` | `(blockId: string) => void` | 헤딩 접기/펼치기 토글 콜백 |
+| `inline?` | `boolean` | `RightPanel` 탭 내부용 콘텐츠 모드 |
 
 ### 내부 상수
 
@@ -163,7 +181,7 @@
 | 헤딩 추출 | `useMemo`로 heading 블록만 필터링 |
 | H1 접힘 | 접힌 헤딩 하위 항목 모두 숨김 (레벨 기반 추론) |
 | 클릭 | `document.getElementById(blockId)?.scrollIntoView()` → 2초 후 active 초기화 |
-| 위치 | `hidden xl:block sticky top-20` — 넓은 화면에서만 표시 |
+| 위치 | 독립 표시 또는 `RightPanel`의 `inline` 탭 콘텐츠로 표시 |
 
 ---
 
@@ -182,6 +200,7 @@
 | prop | 타입 | 설명 |
 |------|------|------|
 | `pageId` | `string` | 백링크 대상 페이지 ID |
+| `inline?` | `boolean` | `RightPanel` 탭 내부용 콘텐츠 모드 |
 
 ### 내부 함수
 
@@ -217,6 +236,7 @@
 |------|------|------|
 | `pageId` | `string` | 대상 페이지 ID |
 | `onClose` | `() => void` | 패널 닫기 |
+| `inline?` | `boolean` | `RightPanel` 탭 내부용 콘텐츠 모드 |
 
 ### 내부 함수
 
@@ -296,7 +316,7 @@
 
 | 동작 | 설명 |
 |------|------|
-| 탭 | 일간 / 주간 / 월간 3탭 |
+| 탭 | 단기: 일간 / 주간 / 월간, 장기: 분기 / 연간 |
 | 날짜 포맷 | 일간: `YYYY-MM-DD`, 주간: `YYYY-WXX`, 월간: `YYYY-MM` |
 | 노트 탐색 | 제목 패턴으로 기존 페이지 검색 |
 | 노트 생성 | 없으면 `addPage()` + 템플릿 블록 적용 |
@@ -500,13 +520,22 @@
 
 ## [src/components/editor/CoverPicker.tsx](../src/components/editor/CoverPicker.tsx)
 
-**역할:** 페이지 커버 이미지/색상 선택 팝업. 그라디언트 / 단색 / URL / 업로드 4가지 방법.
+**역할:** 페이지 커버 이미지/색상 선택 팝업. 색상 탭(그라디언트·단색), URL, 업로드를 제공.
 
 ### exports
 
 | 이름 | 종류 | 설명 |
 |------|------|------|
 | `CoverPicker` | `default function` | 커버 선택 팝업 컴포넌트 |
+
+### Props
+
+| prop | 타입 | 설명 |
+|------|------|------|
+| `onSelect` | `(cover: string) => void` | 선택한 커버 값 적용 |
+| `onUpload` | `() => void` | 파일 업로드 input 열기 |
+| `onClose` | `() => void` | 팝업 닫기 |
+| `fixedStyle?` | `React.CSSProperties` | 부모 overflow를 벗어나야 할 때 사용할 fixed 위치 |
 
 ### 내부 상수
 

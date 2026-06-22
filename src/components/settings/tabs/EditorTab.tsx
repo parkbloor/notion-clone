@@ -27,8 +27,8 @@ export default function EditorTab() {
   const t = useLocale()
   const { fontFamily, fontSize, lineHeight, editorMaxWidth, setFontFamily, setFontSize, setLineHeight,
           weatherLocation, setWeatherLocation,
-          plannerStartHour, plannerSnapMin, plannerZoom, weekStartDay, plannerNotifyBefore,
-          setPlannerStartHour, setPlannerSnapMin, setPlannerZoom, setWeekStartDay, setPlannerNotifyBefore } = useSettingsStore()
+          plannerStartHour, plannerEndHour, plannerSnapMin, plannerZoom, weekStartDay, plannerNotifyBefore,
+          setPlannerStartHour, setPlannerEndHour, setPlannerSnapMin, setPlannerZoom, setWeekStartDay, setPlannerNotifyBefore } = useSettingsStore()
 
   // 날씨 위치 입력 로컬 상태 (저장 버튼 누를 때까지 임시 보관)
   // Python으로 치면: self._loc_input: str = weather_location
@@ -229,6 +229,19 @@ export default function EditorTab() {
             >
               {Array.from({ length: 24 }, (_, i) => (
                 <option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>
+              ))}
+            </select>
+          </div>
+          {/* 종료 시각 */}
+          <div className="flex items-center gap-3">
+            <label className="text-xs text-gray-600 w-28 shrink-0">{t.settings.editor.plannerEndHour}</label>
+            <select
+              value={plannerEndHour}
+              onChange={e => setPlannerEndHour(Number(e.target.value))}
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400"
+            >
+              {Array.from({ length: 24 }, (_, i) => i + 1).map(h => (
+                <option key={h} value={h} disabled={h <= plannerStartHour}>{String(h).padStart(2,'0')}:00</option>
               ))}
             </select>
           </div>

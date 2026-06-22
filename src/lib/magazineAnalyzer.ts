@@ -315,8 +315,8 @@ function estimateRowSpan(type: Block['type'], content: string): number {
   }
   if (type === 'chart' || type === 'gantt' || type === 'mermaid' ||
       type === 'mindmap' || type === 'excalidraw' || type === 'canvas' ||
-      type === 'kanban' || type === 'dayplanner' || type === 'weeklyplanner' ||
-      type === 'routinematrix' || type === 'monthlycalendar' ||
+      type === 'kanban' || type === 'dayplanner' || type === 'weekplanner' ||
+      type === 'weeklyplanner' || type === 'routinematrix' || type === 'monthlycalendar' ||
       type === 'quarterlyplanner' || type === 'yearlyplanner') {
     return 10  // 복잡한 비주얼 블록 — 충분한 높이
   }

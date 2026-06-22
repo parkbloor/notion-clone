@@ -13,7 +13,14 @@
 
 | 이름 | 종류 | 설명 |
 |------|------|------|
+| `BASE_URL` | `const string` | FastAPI 서버 주소 `http://127.0.0.1:8000` |
 | `api` | `const object` | API 함수 네임스페이스 객체 |
+| `templateApi` | `const object` | 템플릿 CRUD API 네임스페이스 |
+| `Template` | `interface` | 템플릿 `{ id, name, icon, description, content }` |
+| `SearchResult` | `interface` | 전체 검색 결과 한 건 |
+| `HistoryVersion` | `interface` | 페이지 버전 히스토리 메타데이터 |
+| `historyApi` | `const object` | 페이지 버전 히스토리 API 네임스페이스 |
+| `plannerApi` | `const object` | 플래너 루틴/아카이브 API 네임스페이스 |
 
 ### api 함수 목록
 
@@ -34,6 +41,39 @@
 | `reorderCategories(order)` | `PATCH /api/categories/reorder` | 최상위 카테고리 순서 변경 |
 | `reorderChildCategories(parentId, order)` | `PATCH /api/categories/:id/reorder-children` | 하위 폴더 순서 변경 |
 | `moveCategoryToParent(categoryId, parentId)` | `PATCH /api/categories/:id/move` | 폴더를 다른 부모로 이동 |
+| `updateCategoryColor(categoryId, color)` | `PATCH /api/categories/:id/color` | 폴더 색상 변경. `null`이면 기본값 |
+| `reorderPages(order)` | `PATCH /api/pages/reorder` | 페이지 순서 변경 |
+| `searchPages(q)` | `GET /api/search?q=...` | 제목/블록 내용 전체 검색 |
+| `getTrash()` | `GET /api/trash` | 휴지통 항목 목록 |
+| `restoreTrashItem(itemId)` | `PATCH /api/trash/:id/restore` | 휴지통 항목 복원 |
+| `permanentDeleteTrashItem(itemId)` | `DELETE /api/trash/:id` | 휴지통 항목 영구 삭제 |
+| `emptyTrash()` | `DELETE /api/trash` | 휴지통 전체 비우기 |
+
+### templateApi 함수 목록
+
+| 함수 | HTTP | 설명 |
+|------|------|------|
+| `getAll()` | `GET /api/templates` | 모든 템플릿 목록 |
+| `create(body)` | `POST /api/templates` | 새 템플릿 생성 |
+| `update(id, body)` | `PUT /api/templates/:id` | 템플릿 수정 |
+| `delete(id)` | `DELETE /api/templates/:id` | 템플릿 삭제 |
+
+### historyApi 함수 목록
+
+| 함수 | HTTP | 설명 |
+|------|------|------|
+| `list(pageId)` | `GET /api/pages/:id/history` | 페이지 버전 목록 조회 |
+| `get(pageId, filename)` | `GET /api/pages/:id/history/:filename` | 특정 버전 데이터 조회 |
+| `restore(pageId, filename)` | `POST /api/pages/:id/history/restore/:filename` | 특정 버전으로 복원 |
+
+### plannerApi 함수 목록
+
+| 함수 | HTTP | 설명 |
+|------|------|------|
+| `getRoutines()` | `GET /api/planner/routines` | 루틴 목록 로드 |
+| `saveRoutines(routines)` | `PUT /api/planner/routines` | 루틴 목록 전체 저장 |
+| `getArchive()` | `GET /api/planner/archive` | 90일 초과 플래너 기록 로드 |
+| `appendArchive(archive)` | `POST /api/planner/archive` | 90일 초과 플래너 기록 병합 저장 |
 
 ### 내부 헬퍼
 
@@ -123,9 +163,11 @@
 | `GRID_ROW_H` | `const` | 1행 높이 = `44px` |
 | `TemplateCell` | `interface` | 그리드 위 블록 한 칸 `{ id, type, gridX, gridY, gridW, gridH, defaultContent }` |
 | `GridTemplateContent` | `interface` | content 필드에 저장되는 JSON 구조 `{ type: 'grid', gridCols, cells }` |
+| `PaletteBlock` | `interface` | 팔레트 블록 정의 `{ type, label, icon, defaultH, colorClass, textClass }` |
 | `isGridTemplate(content)` | `function` | content 문자열이 그리드 템플릿인지 확인 (`type: 'grid'` 여부) |
 | `gridCellsToBlocks(cells)` | `function` | `TemplateCell[]` → `Block[]` 변환 (페이지에 실제 적용할 블록 배열 생성) |
 | `PALETTE_BLOCKS` | `const` | 그리드 에디터 팔레트에 표시할 블록 타입 목록 |
+| `getPaletteBlock(type)` | `function` | 블록 타입에 맞는 팔레트 정의 조회. 없으면 fallback 반환 |
 | `hasCollision(cells, newCell, excludeId?)` | `function` | 새 셀이 기존 셀과 겹치는지 확인 |
 
 ---
@@ -139,6 +181,7 @@
 | 이름 | 종류 | 설명 |
 |------|------|------|
 | `parseTemplateContent(content)` | `function` | 마크다운 → `Block[]` 변환 |
+| `blocksToMarkdown(blocks)` | `function` | `Block[]` → 마크다운 텍스트 역변환 |
 
 ### 지원 문법
 
@@ -152,8 +195,65 @@
 | `- [ ]` / `- [x]` | `taskList` |
 | `---` | `divider` |
 | `` ``` ... ``` `` | `code` |
+| `> 인용구` | `paragraph` + `<em>` |
 | 일반 텍스트 | `paragraph` |
 | `**굵게**`, `*기울임*`, `` `코드` `` | 인라인 HTML 변환 |
+| `~~취소선~~`, `_기울임_` | 인라인 HTML 변환 |
+| `:::dayplanner` | `dayplanner` 특수 블록 |
+| `:::weeklyplanner` | `weeklyplanner` 특수 블록 |
+| `:::routinematrix` | `routinematrix` 특수 블록 |
+| `:::monthlycalendar` | `monthlycalendar` 특수 블록 |
+| `:::quarterlyplanner` | `quarterlyplanner` 특수 블록 |
+| `:::yearlyplanner` | `yearlyplanner` 특수 블록 |
+
+---
+
+## [src/lib/magazineAnalyzer.ts](../src/lib/magazineAnalyzer.ts)
+
+**역할:** 블록 배열을 분석해 Magazine Layout용 역할(`BlockRole`)과 가중치를 추론하고, 템플릿별 `LayoutDescriptor`를 생성한다. Claude API 없이 로컬 룰 기반으로 동작한다.
+
+### exports
+
+| 이름 | 종류 | 설명 |
+|------|------|------|
+| `BlockAnalysis` | `interface` | `{ blockId, type, role, weight, textLength? }` |
+| `analyzeBlocks(blocks)` | `function` | 블록별 역할/가중치 분석 |
+| `ContentProfile` | `interface` | 이미지/긴글/짧은글/표/인용/비주얼/헤드라인 포함 여부 |
+| `profileContent(analyses)` | `function` | 분석 결과 → 콘텐츠 프로파일 |
+| `PRESET_TEMPLATES` | `const` | `magazine_spread`, `newspaper`, `gallery`, `report`, `cards` 프리셋 메타 |
+| `TemplateId` | `type` | `PRESET_TEMPLATES`의 id 유니온 |
+| `pickTemplate(profile)` | `function` | 콘텐츠 프로파일에 맞는 템플릿 자동 선택 |
+| `buildLayout(pageId, blocks, analyses, templateId, existingDescriptor?)` | `function` | 분석 결과와 템플릿으로 `LayoutDescriptor` 생성 |
+| `autoLayout(pageId, blocks, templateId?, existingDescriptor?)` | `function` | 분석부터 템플릿 선택/레이아웃 생성까지 한 번에 수행 |
+
+### 주요 동작
+
+- `heading1`은 `headline`, `heading2`는 `subheadline`로 분류한다.
+- 이미지, 표, 차트, Mermaid, Gantt, Mindmap 등 비주얼 블록은 큰 공간을 받도록 가중치를 높게 둔다.
+- `dayplanner`, `weekplanner`, `weeklyplanner`, `routinematrix`, `monthlycalendar`, `quarterlyplanner`, `yearlyplanner` 같은 플래너 블록은 복잡한 비주얼 블록으로 보고 충분한 row span을 배정한다.
+- 기존 `LayoutDescriptor`가 있으면 `locked` 셀은 보존하고 나머지만 재배치한다.
+
+---
+
+## [src/lib/magazineLayout.ts](../src/lib/magazineLayout.ts)
+
+**역할:** 블록 배열을 H1/H2 기준 섹션으로 나누고, feature/body/accent 존에 배치한다. 높이를 강제하지 않고 콘텐츠가 자연스럽게 높이를 결정하는 존 기반 레이아웃이다.
+
+### exports
+
+| 이름 | 종류 | 설명 |
+|------|------|------|
+| `MagazineSection` | `interface` | `{ id, headingBlock, featureBlocks, bodyBlocks, accentBlocks, featurePosition }` |
+| `groupIntoSections(blocks)` | `function` | 블록 배열 → MagazineSection 배열 |
+| `AILayoutPlan` | `interface` | AI가 반환하는 섹션별 blockId 계획 |
+| `applyAILayout(aiPlan, allBlocks)` | `function` | AI 계획을 실제 `MagazineSection[]`으로 변환 |
+
+### 주요 동작
+
+- `heading1`, `heading2`가 새 섹션을 시작한다.
+- 이미지, 표, 차트, 영상, 임베드, Kanban, Planner 계열 블록은 `featureBlocks`로 분류한다.
+- `admonition`은 `accentBlocks`로 분류한다.
+- AI 계획에 누락된 블록은 마지막 섹션의 body에 fallback으로 추가한다.
 
 ---
 
@@ -165,7 +265,7 @@
 
 | 이름 | 종류 | 설명 |
 |------|------|------|
-| `PRESET_VARS` | `const` | 프리셋별 CSS 변수 `{ notion, sepia, minimal, forest }` 각각 `{ light, dark }` |
+| `PRESET_VARS` | `const` | 프리셋별 CSS 변수 `{ notion, sepia, minimal, forest, warm-moss }` 각각 `{ light, dark }` |
 | `DEFAULT_VARS` | `const` | 기본 프리셋 CSS 변수 `{ light, dark }` — 'default' 선택 시 복원용 |
 
 ### 정의된 CSS 변수
@@ -174,6 +274,12 @@
 `--bg-primary`, `--bg-secondary`, `--bg-hover`, `--bg-active`,
 `--text-primary`, `--text-secondary`, `--text-tertiary`,
 `--border-color`, `--border-subtle`
+
+`warm-moss`는 새 디자인 토큰 계열을 사용한다:
+`--color-bg`, `--color-surface`, `--color-sunken`,
+`--color-border`, `--color-border-strong`,
+`--color-text`, `--color-text-muted`, `--color-text-subtle`, `--color-text-faint`,
+`--color-accent`, `--color-accent-soft`, `--color-accent-ink`
 
 ---
 

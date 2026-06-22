@@ -92,7 +92,8 @@ export const InlineMath = Node.create({
           // state.tr = InputRule 공유 transaction → steps 추가 후 run()이 dispatch
           try {
             state.tr.replaceWith(range.from, range.to, this.type.create({ latex }))
-          } catch {
+          } catch (e) {
+            console.error('[InlineMath] replaceWith 실패:', e)
             return null
           }
         },

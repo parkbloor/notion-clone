@@ -514,25 +514,32 @@ export default function PeriodicNotesPanel() {
   const todayCurQ = Math.ceil(todayMonth / 3) as 1|2|3|4
 
   return (
-    <div className="border-t border-gray-100">
+    <div className="border-t hairline">
 
-      {/* ── 단기/장기 뷰 모드 토글 ──────────────── */}
-      {/* Python으로 치면: render_mode_toggle() */}
-      <div className="flex items-center px-2 pt-2 pb-1 gap-1">
-        <button
-          type="button"
-          onClick={() => setViewMode('short')}
-          className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${viewMode === 'short' ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100'}`}
-        >
-          {t.overlay.periodic.viewShort}
-        </button>
-        <button
-          type="button"
-          onClick={() => setViewMode('long')}
-          className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${viewMode === 'long' ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100'}`}
-        >
-          {t.overlay.periodic.viewLong}
-        </button>
+      {/* ── 단기/장기 뷰 모드 토글 — seg 스타일 ── */}
+      <div className="px-2 pt-2 pb-1">
+        <div className="flex rounded-md p-0.5" style={{ background: "var(--color-sunken)" }}>
+          <button
+            type="button"
+            onClick={() => setViewMode('short')}
+            className="flex-1 py-1 text-[11.5px] rounded font-medium transition-colors"
+            style={viewMode === 'short'
+              ? { background: "var(--color-surface)", color: "var(--color-text)", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }
+              : { color: "var(--color-text-muted)" }}
+          >
+            {t.overlay.periodic.viewShort}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('long')}
+            className="flex-1 py-1 text-[11.5px] rounded font-medium transition-colors"
+            style={viewMode === 'long'
+              ? { background: "var(--color-surface)", color: "var(--color-text)", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }
+              : { color: "var(--color-text-muted)" }}
+          >
+            {t.overlay.periodic.viewLong}
+          </button>
+        </div>
       </div>
 
       {/* ===================================================== */}
@@ -540,30 +547,40 @@ export default function PeriodicNotesPanel() {
       {/* ===================================================== */}
       {viewMode === 'short' && (
         <>
-          {/* ── 단기 탭 헤더 (일간/주간/월간) ─────── */}
-          {/* Python으로 치면: self.tab_header = TabHeader(['일간', '주간', '월간']) */}
-          <div className="flex items-center px-2 pb-1 gap-1">
-            <button
-              type="button"
-              onClick={() => setTab('daily')}
-              className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${tab === 'daily' ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'}`}
-            >
-              {t.overlay.periodic.tabDaily}
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('weekly')}
-              className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${tab === 'weekly' ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}
-            >
-              {t.overlay.periodic.tabWeekly}
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('monthly')}
-              className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${tab === 'monthly' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-500 hover:bg-gray-100'}`}
-            >
-              {t.overlay.periodic.tabMonthly}
-            </button>
+          {/* ── 단기 탭 헤더 (일간/주간/월간) — seg 스타일 ── */}
+          <div className="px-2 pb-1">
+            <div className="flex rounded-md p-0.5" style={{ background: "var(--color-sunken)" }}>
+              <button
+                type="button"
+                onClick={() => setTab('daily')}
+                className="flex-1 py-1 text-[11.5px] rounded font-medium transition-colors"
+                style={tab === 'daily'
+                  ? { background: "var(--color-surface)", color: "var(--color-text)", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }
+                  : { color: "var(--color-text-muted)" }}
+              >
+                {t.overlay.periodic.tabDaily}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('weekly')}
+                className="flex-1 py-1 text-[11.5px] rounded font-medium transition-colors"
+                style={tab === 'weekly'
+                  ? { background: "var(--color-surface)", color: "var(--color-text)", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }
+                  : { color: "var(--color-text-muted)" }}
+              >
+                {t.overlay.periodic.tabWeekly}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('monthly')}
+                className="flex-1 py-1 text-[11.5px] rounded font-medium transition-colors"
+                style={tab === 'monthly'
+                  ? { background: "var(--color-surface)", color: "var(--color-text)", boxShadow: "0 1px 2px rgba(0,0,0,0.06)" }
+                  : { color: "var(--color-text-muted)" }}
+              >
+                {t.overlay.periodic.tabMonthly}
+              </button>
+            </div>
           </div>
 
           {/* ── 일간 탭 ─────────────────────────────── */}

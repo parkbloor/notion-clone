@@ -180,7 +180,12 @@ let _activeMindmapBlockId: string | null = null
 export default function MindmapBlock({ block, pageId, readMode }: { block: Block; pageId: string; readMode?: boolean }) {
   const t = useLocale()
   const { updateBlock } = usePageStore()
-  const { aiProvider, aiModel, aiApiKey, ollamaUrl } = useSettingsStore()
+  const { aiProvider, aiModel, aiApiKey, openaiApiKey, anthropicApiKey, ollamaUrl } = useSettingsStore()
+  const providerApiKey = aiProvider === 'openai'
+    ? openaiApiKey || aiApiKey
+    : aiProvider === 'claude'
+      ? anthropicApiKey || aiApiKey
+      : ''
 
   // ── 초기 데이터 파싱 ─────────────────────────────
   const initData = useMemo<MindmapData>(() => {
@@ -496,7 +501,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider: aiProvider, model: aiModel, api_key: aiApiKey,
+          provider: aiProvider, model: aiModel, api_key: providerApiKey,
           base_url: aiProvider === 'ollama' ? ollamaUrl : undefined,
           prompt, context: '',
         }),
@@ -541,7 +546,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
       setIsAiLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatHistory, aiProvider, aiModel, aiApiKey, ollamaUrl, isAiLoading])
+  }, [chatHistory, aiProvider, aiModel, providerApiKey, ollamaUrl, isAiLoading])
 
   // ── AI 액션 적용 ──────────────────────────────────
   function applyAiAction(jsonText: string, history: ChatMsg[]) {

@@ -191,7 +191,7 @@ export default function VersionHistoryPanel({ pageId, onClose, inline }: Version
             <div className="px-4 py-16 text-center">
               <div className="text-3xl mb-2">📭</div>
               <p className="text-sm text-gray-400">아직 저장된 버전이 없습니다</p>
-              <p className="text-xs text-gray-300 mt-1">페이지를 편집하면 5분 간격으로<br />자동 저장됩니다</p>
+              <p className="text-xs text-gray-300 mt-1">페이지를 편집하면 3분 간격으로<br />자동 저장됩니다</p>
             </div>
           )}
 

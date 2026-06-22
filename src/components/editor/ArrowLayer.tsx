@@ -525,9 +525,12 @@ export default function ArrowLayer({ dep }: ArrowLayerProps) {
       let range: Range | null = null
       if (document.caretRangeFromPoint) {
         range = document.caretRangeFromPoint(e.clientX, e.clientY)
-      } else if ((document as any).caretPositionFromPoint) {
+      } else {
+        const doc = document as Document & {
+          caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
+        }
         // Firefox 전용 API → Range로 변환
-        const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY)
+        const pos = doc.caretPositionFromPoint?.(e.clientX, e.clientY)
         if (pos) {
           range = document.createRange()
           range.setStart(pos.offsetNode, pos.offset)

@@ -75,6 +75,7 @@ export const en: Locale = {
     addSubfolder: 'Add subfolder',
     deleteFolder: 'Delete folder',
     folderColor: 'Folder color',
+    pageColor: 'Note color',
     folderColorDefault: 'Default color',
     renameFolderHint: 'Double-click to rename',
     subfolderPlaceholder: 'Subfolder name...',
@@ -249,8 +250,9 @@ export const en: Locale = {
       px: 'px',
       // Day Planner settings
       dayPlannerSection: '🗓️ Day Planner Settings',
-      dayPlannerDesc: 'Adjust the timeline start time and drag snap interval.',
+      dayPlannerDesc: 'Adjust the visible timeline range and drag snap interval.',
       plannerStartHour: 'Timeline Start Hour',
+      plannerEndHour: 'Timeline End Hour',
       plannerSnapMin: 'Drag Snap Interval',
       plannerZoom: 'Timeline Zoom',
       plannerZoomNarrow: 'Narrow',

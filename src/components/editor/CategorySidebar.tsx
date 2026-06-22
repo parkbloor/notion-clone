@@ -20,13 +20,19 @@ import PeriodicNotesPanel from './PeriodicNotesPanel'
 import NewPageDialog from './NewPageDialog'
 import { GUIDE_COLORS, getPageSearchText } from '@/components/sidebar/sidebarUtils'
 import { SortableCategoryRow, DroppableCategoryRow, CollapsedFolderIcon } from '@/components/sidebar/CategoryRow'
+
+function toLocalDateKey(value: Date | string | undefined): string {
+  const date = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
+  if (!date || Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
 import DraggablePageRow from '@/components/sidebar/DraggablePageRow'
 
 // dnd-kit: 폴더 정렬 + 페이지→폴더 드래그 이동
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 // 테이블 뷰 아이콘
-import { Table2, ChevronsDown, ChevronsUp, GitFork, Settings, Trash2 } from 'lucide-react'
+import { Table2, ChevronsDown, ChevronsUp, GitFork, Settings, Trash2, FolderPlus } from 'lucide-react'
 
 
 // -----------------------------------------------
@@ -114,10 +120,15 @@ export default function CategorySidebar({
   // 마운트 시 localStorage에서 복원 (typeof window 체크 없이 useEffect로 안전하게)
   // Python으로 치면: def on_mount(self): self.expanded = storage.load('expanded_folders')
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('notion-clone-expanded-folders')
-      if (raw) setExpandedFolderIds(new Set(JSON.parse(raw) as string[]))
-    } catch {}
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      try {
+        const raw = localStorage.getItem('notion-clone-expanded-folders')
+        if (raw) setExpandedFolderIds(new Set(JSON.parse(raw) as string[]))
+      } catch {}
+    })
+    return () => { cancelled = true }
   }, [])
 
   // expandedFolderIds 변경 시 localStorage에 저장
@@ -165,7 +176,13 @@ export default function CategorySidebar({
   // SSR hydration 안전 마운트 플래그 (최근 파일 섹션용)
   // Python으로 치면: self.mounted = False; def on_mount(self): self.mounted = True
   const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) setMounted(true)
+    })
+    return () => { cancelled = true }
+  }, [])
 
   // ── 리사이즈 핸들 ────────────────────────────
   // 사이드바 오른쪽 가장자리를 드래그하여 너비 조절
@@ -229,8 +246,8 @@ export default function CategorySidebar({
         const q = searchQuery.toLowerCase()
         if (selectedDate) {
           // 날짜 필터와 검색 조합 지원
-          // createdAt은 ISO 문자열 — 앞 10자리가 YYYY-MM-DD
-          const dateStr = String(p.createdAt || '').slice(0, 10)
+          // 서버 UTC 시각을 현재 로컬 날짜로 변환해 달력 위젯과 같은 기준을 사용
+          const dateStr = toLocalDateKey(p.createdAt)
           if (dateStr !== selectedDate) return false
         }
         return p.title.toLowerCase().includes(q) || getPageSearchText(p).toLowerCase().includes(q)
@@ -238,8 +255,8 @@ export default function CategorySidebar({
     : selectedDate
       // 날짜만 필터링 (검색어 없을 때)
       ? pages.filter(p => {
-          // createdAt은 ISO 문자열 — 앞 10자리가 YYYY-MM-DD
-          const dateStr = String(p.createdAt || '').slice(0, 10)
+          // 서버 UTC 시각을 현재 로컬 날짜로 변환해 달력 위젯과 같은 기준을 사용
+          const dateStr = toLocalDateKey(p.createdAt)
           return dateStr === selectedDate
         })
       : null
@@ -303,6 +320,17 @@ export default function CategorySidebar({
   function handleAddTopFolder() {
     const name = newFolderName.trim()
     if (name) { addCategory(name, null); setNewFolderName(''); setIsAddingTopFolder(false) }
+  }
+
+  // ── 최상위 폴더 추가 시작 ───────────────────
+  function startAddTopFolder() {
+    if (sidebarCollapsed) toggleSidebarCollapsed()
+    setSidebarTab('notes')
+    setSearchQuery('')
+    setSelectedDate(null)
+    setSelectedTags(new Set())
+    setNewFolderName('')
+    setIsAddingTopFolder(true)
   }
 
   // ── 하위 폴더 추가 시작 ─────────────────────
@@ -573,6 +601,14 @@ export default function CategorySidebar({
           </button>
           <button
             type="button"
+            onClick={startAddTopFolder}
+            title={t.sidebar.newFolder}
+            className="icon-btn w-full py-2 h-auto"
+          >
+            <FolderPlus size={16} />
+          </button>
+          <button
+            type="button"
             onClick={onOpenSettings}
             title={t.sidebar.settings}
             className="icon-btn w-full py-2 h-auto text-base"
@@ -705,6 +741,15 @@ export default function CategorySidebar({
           >
             <span className="text-[14px] leading-none">+</span>
             <span>{t.sidebar.newNote}</span>
+          </button>
+          {/* 최상위 폴더 추가 */}
+          <button
+            type="button"
+            onClick={startAddTopFolder}
+            title={t.sidebar.newFolder}
+            className="icon-btn shrink-0"
+          >
+            <FolderPlus size={14} />
           </button>
           {/* 캘린더 탭 빠른 이동 */}
           <button

@@ -170,33 +170,25 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
     setFetchingWeather(true)
     setFetchError('')
     try {
-      // 1단계: 도시명 → 위도/경도 (Open-Meteo Geocoding)
-      const geoRes  = await fetch(
-        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko&format=json`
-      )
-      const geoData = await geoRes.json()
-      if (!geoData.results?.length) { setFetchError(t.planner.week.cityNotFound); setFetchingWeather(false); return }
-      const { latitude, longitude } = geoData.results[0]
-
-      // 2단계: 7일 예보 (weathercode + 최고기온)
-      const wRes  = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-        `&daily=weathercode,temperature_2m_max&timezone=auto&forecast_days=14`
-      )
-      const wData = await wRes.json()
-
+      // 브라우저에서 외부 날씨 API를 직접 호출하지 않고 Next API 프록시를 사용한다.
       const newDays = { ...data.days }
-      ;(wData.daily.time as string[]).forEach((dateStr, i) => {
-        if (!weekDates.includes(dateStr)) return
+      let foundAny = false
+      await Promise.all(weekDates.map(async dateStr => {
+        const res = await fetch(`/api/weather/day?city=${encodeURIComponent(city)}&date=${encodeURIComponent(dateStr)}`)
+        const json = await res.json()
+        const weather = json.weather
+        if (!weather) return
+        foundAny = true
         const day = newDays[dateStr] ?? { tasks: [] }
         newDays[dateStr] = {
           ...day,
           weather: {
-            icon: wmoToIcon(wData.daily.weathercode[i]),
-            temp: `${Math.round(wData.daily.temperature_2m_max[i])}°`,
+            icon: wmoToIcon(weather.weathercode),
+            temp: `${Math.round(weather.tempMax)}°`,
           },
         }
-      })
+      }))
+      if (!foundAny) { setFetchError(t.planner.week.cityNotFound); setFetchingWeather(false); return }
       save({ ...data, days: newDays, location: city })
       // 전역 설정에도 저장 → 다른 플래너 블록에서도 재사용
       // Python으로 치면: settings_store.weather_location = city

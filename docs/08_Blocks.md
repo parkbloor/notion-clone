@@ -7,7 +7,7 @@
 
 ## [src/components/editor/ImageBlock.tsx](../src/components/editor/ImageBlock.tsx)
 
-**역할:** 이미지 업로드 + 표시 블록. 우측 핸들 드래그로 너비 조절. 캡션 편집 지원.
+**역할:** 단일/다중 이미지 업로드 + 표시 블록. 단일 이미지는 너비 조절과 GIF 플레이어, 다중 이미지는 그리드 + 라이트박스 뷰어를 지원.
 
 ### exports
 
@@ -19,22 +19,27 @@
 
 | 타입 | 구조 | 설명 |
 |------|------|------|
-| `ImageContent` | `{ src, width?, caption? }` | content JSON 포맷 |
+| `ImageItem` | `{ src, caption? }` | 개별 이미지 항목 |
+| `ImageContent` | `{ images: ImageItem[], width? }` | 현재 content JSON 포맷. 레거시 `{ src, width?, caption? }`도 파싱 |
 
 ### 내부 함수
 
 | 함수 | 설명 |
 |------|------|
-| `parseContent(content)` | JSON `{src, width?, caption?}` 또는 레거시 plain URL 파싱 |
+| `parseMultiContent(content)` | 신 포맷 `{ images, width? }`, 구 포맷 `{ src, width?, caption? }`, plain URL 파싱 |
+| `detectGif(src)` | URL/path 기준 GIF 여부 감지 |
+| `gridColsClass(count)` | 이미지 개수에 따른 2열/3열 그리드 클래스 |
 
 ### 주요 동작
 
 | 동작 | 설명 |
 |------|------|
-| 업로드 | 드롭/클릭 → `api.uploadImage()` → content 업데이트 |
-| 너비 조절 | 우측 핸들 드래그 → `isResizing` 상태 → `updateBlock()` |
-| 캡션 | 이미지 아래 `contentEditable div` — 포커스 아웃 시 저장 |
-| readOnly | `readOnly=true` 시 업로드 UI 숨김, 캡션 편집 불가 |
+| 업로드 | 드롭/클릭/파일 입력 → `api.uploadImage()` → `images[]` content 업데이트 |
+| 너비 조절 | 단일 이미지 우측 핸들 드래그 → `isResizing` 상태 → `updateBlock()` |
+| 캡션 | 이미지별 캡션 편집 지원 |
+| GIF | `gifuct-js`로 프레임 분해 후 canvas 플레이어 표시 |
+| 라이트박스 | 다중 이미지 클릭 → portal 기반 뷰어, 좌우 이동/ESC 닫기 |
+| readMode | `readMode=true` 시 편집 UI 숨김 |
 
 ---
 
@@ -308,7 +313,7 @@
 | 이름 | 설명 |
 |------|------|
 | `ChartSeries` | `{ name: string, data: number[] }` — 데이터 시리즈 하나 |
-| `ChartData` | `{ type, title, labels: string[], series: ChartSeries[] }` — content JSON 포맷 |
+| `ChartData` | `{ chartType, title, labels: string[], series: ChartSeries[] }` — content JSON 포맷 |
 | `PALETTE` | 시리즈 색상 팔레트 배열 |
 | `makeDefaultChart()` | 기본 차트 데이터 생성 함수 |
 
@@ -371,12 +376,12 @@
 
 | 이름 | 설명 |
 |------|------|
-| `MindNode` | `{ id, text, children: MindNode[], collapsed?: boolean }` — 재귀 트리 |
-| `ChatMsg` | `{ role: 'user'\|'assistant', content: string }` — AI 채팅 메시지 |
-| `MindmapData` | `{ root: MindNode, chatHistory: ChatMsg[] }` — content JSON 포맷 |
+| `MindNode` | `{ id, text, parentId: string \| null, collapsed: boolean }` — flat node |
+| `ChatMsg` | `{ role: 'user'\|'assistant'\|'system', content: string }` — AI 채팅 메시지 |
+| `MindmapData` | `{ nodes, chatHistory, chatOpen, nodePositions? }` — content JSON 포맷 |
 | `DEPTH_COLORS` | depth별 노드 색상 배열 |
 | `SVG_W` / `SVG_H` | 캔버스 기본 크기 `1000` / `700` px |
-| `defaultData()` | 루트 + 3개 자식 노드 기본 구조 생성 |
+| `defaultData()` | 루트 노드 1개 + 빈 채팅 기록 생성 |
 
 ### 주요 동작
 
@@ -387,6 +392,157 @@
 | 노드 편집 | 더블클릭 → 인라인 input |
 | 단축키 | Tab(자식 추가), Enter(형제 추가), Del(노드 삭제) |
 | AI 확장 | 우클릭 → `AIChatPanel` → 응답으로 자식 노드 자동 추가 |
+
+---
+
+## [src/components/editor/DayPlannerBlock.tsx](../src/components/editor/DayPlannerBlock.tsx)
+
+**역할:** 일간 플래너 블록. 날짜별 이벤트, 루틴, 날씨, AI 일정 제안, 아카이브를 통합 관리.
+
+### exports
+
+| 이름 | 종류 | 설명 |
+|------|------|------|
+| `PLANNER_SYSTEM_PROMPT` | `const` | 전역 AI 일정 모드와 공유하는 시스템 프롬프트 |
+| `PlannerData` | `interface` | `{ eventsByDate, reviewByDate? }` content JSON 포맷 |
+| `DayPlannerBlock` | `default function` | 일간 타임라인 플래너 컴포넌트 |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 타임라인 | `PlannerTimeline` 공유 컴포넌트로 예약/미예약 이벤트 표시 |
+| 루틴 | `settingsStore.plannerRoutines`를 사용하고 block content와 분리 |
+| 날씨 | `/api/weather/day` Next API 프록시로 일별 날씨 조회 |
+| 아카이브 | 오래된 이벤트는 `plannerApi`/`/api/planner/archive`에 보관 |
+| AI 일정 | JSON 코드블록 응답을 파싱해 일정 add/replace 적용 |
+
+---
+
+## [src/components/editor/WeekPlannerBlock.tsx](../src/components/editor/WeekPlannerBlock.tsx)
+
+**역할:** 여러 날짜를 열로 보여주는 주간 타임라인 블록. 모든 Day Planner 블록의 이벤트를 모아 읽는다.
+
+### 내부 타입
+
+| 이름 | 설명 |
+|------|------|
+| `WeekPlannerData` | `{ weekStart, range }` — content JSON 포맷. `range`는 `'7' \| '5' \| '3'` |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 주 범위 | `settingsStore.weekStartDay` 기준 주 시작일 계산 |
+| 이벤트 집계 | 모든 페이지의 `dayplanner` 블록에서 날짜별 이벤트 수집 |
+| 표시 범위 | 7일/5일/3일 모드 |
+| 현재 시각 | 오늘 컬럼에 현재 시각선 표시 |
+
+---
+
+## [src/components/editor/WeeklyPlannerBlock.tsx](../src/components/editor/WeeklyPlannerBlock.tsx)
+
+**역할:** 7일 날짜 그리드 + 날씨 + 할 일 + 루틴 달성 매트릭스 블록.
+
+### 내부 타입
+
+| 이름 | 설명 |
+|------|------|
+| `WeeklyPlannerData` | `{ weekStart, days, location? }` — content JSON 포맷 |
+| `WeekDayData` | `{ weather?, tasks }` — 날짜별 날씨와 할 일 |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 날씨 | `/api/weather/day` 프록시를 주간 날짜별로 호출하고 `settingsStore.weatherLocation`에 위치 저장 |
+| 할 일 | 날짜별 할 일 추가/완료/삭제 |
+| 루틴 매트릭스 | Day Planner 이벤트와 `plannerRoutines`를 비교해 루틴 완료 여부 집계 |
+
+---
+
+## [src/components/editor/RoutineMatrixBlock.tsx](../src/components/editor/RoutineMatrixBlock.tsx)
+
+**역할:** 독립 루틴 달성 매트릭스 블록. 모든 Day Planner 데이터를 스캔해 이번 주 루틴 완료 여부를 표로 표시.
+
+### 내부 타입
+
+| 이름 | 설명 |
+|------|------|
+| `RoutineMatrixData` | `{ weekStart }` — content JSON 포맷 |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 주 이동 | 이전/다음/이번 주 버튼으로 `weekStart` 저장 |
+| 데이터 집계 | `settingsStore.plannerRoutines`와 Day Planner 이벤트 제목/시작시간을 매칭 |
+| 달성률 | 요일별 상태와 주간 달성률 표시 |
+
+---
+
+## [src/components/editor/MonthlyCalendarBlock.tsx](../src/components/editor/MonthlyCalendarBlock.tsx)
+
+**역할:** 월간 캘린더 블록. 날짜별 메모와 일간 노트 이동/생성을 지원한다.
+
+### 내부 타입
+
+| 이름 | 설명 |
+|------|------|
+| `MonthlyCalData` | `{ year, month, memos }` — content JSON 포맷 |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 달력 | 6주 x 7일 그리드 생성, 오늘/주말/당월 외 날짜 스타일링 |
+| 일간 노트 | 날짜 클릭 → 기존 일간 노트로 이동하거나 새로 생성 |
+| 메모 | 날짜별 짧은 메모 저장 |
+
+---
+
+## [src/components/editor/QuarterlyPlannerBlock.tsx](../src/components/editor/QuarterlyPlannerBlock.tsx)
+
+**역할:** 분기 플래너 블록. OKR, 월간 노트 링크, 13주 루틴 히트맵을 제공한다.
+
+### 내부 타입
+
+| 이름 | 설명 |
+|------|------|
+| `QuarterlyData` | `{ year, quarter, objectives }` — content JSON 포맷 |
+| `Objective` / `KeyResult` | 목표와 핵심 결과. KR은 `progress` 0~100 저장 |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| OKR | 목표/핵심 결과 추가, 삭제, 진행률 수정 |
+| 분기 이동 | 이전/다음 분기로 `year`/`quarter` 갱신 |
+| 히트맵 | Day Planner 루틴 완료율을 13주 x 7일로 집계 |
+| readMode | `readMode=true`면 편집 컨트롤 숨김 |
+
+---
+
+## [src/components/editor/YearlyPlannerBlock.tsx](../src/components/editor/YearlyPlannerBlock.tsx)
+
+**역할:** 연간 플래너 블록. 연간 목표, 12개월/4분기 노트 링크, 53주 루틴 히트맵을 제공한다.
+
+### 내부 타입
+
+| 이름 | 설명 |
+|------|------|
+| `YearlyData` | `{ year, goals }` — content JSON 포맷 |
+| `YearlyGoal` | `{ id, category, title, done }` |
+
+### 주요 동작
+
+| 동작 | 설명 |
+|------|------|
+| 목표 | 카테고리별 목표 추가/완료/수정/삭제 |
+| 연도 이동 | 이전/다음 연도로 `year` 갱신 |
+| 노트 링크 | 월간/분기 노트 존재 여부 표시 및 이동 |
+| 히트맵 | Day Planner 루틴 완료율을 53주 x 7일로 집계 |
+| readMode | `readMode=true`면 편집 컨트롤 숨김 |
 
 ---
 

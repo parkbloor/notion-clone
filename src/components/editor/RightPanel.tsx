@@ -7,7 +7,7 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Block } from '@/types/block'
 import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
@@ -24,6 +24,8 @@ interface RightPanelProps {
   blocks: Block[]
   collapsedIds: Set<string>
   onToggleCollapse: (id: string) => void
+  showToc: boolean
+  showBacklinks: boolean
 }
 
 const TAB_LABELS: Record<Tab, string> = {
@@ -36,8 +38,18 @@ const TAB_LABELS: Record<Tab, string> = {
 // RightPanel: 세 패널을 탭으로 묶은 우측 패널
 // Python으로 치면: class RightPanel(QTabWidget): ...
 // -----------------------------------------------
-export default function RightPanel({ pageId, blocks, collapsedIds, onToggleCollapse }: RightPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('toc')
+export default function RightPanel({
+  pageId, blocks, collapsedIds, onToggleCollapse, showToc, showBacklinks,
+}: RightPanelProps) {
+  const tabs = useMemo(() => ([
+    ...(showToc ? ['toc'] : []),
+    ...(showBacklinks ? ['backlinks'] : []),
+    'versions',
+  ] as Tab[]), [showToc, showBacklinks])
+  const [activeTab, setActiveTab] = useState<Tab>(tabs[0])
+  // 설정 화면에서 플러그인을 끄면 현재 탭이 사라질 수 있다.
+  // 렌더링 시 첫 번째 사용 가능한 탭으로 안전하게 대체한다.
+  const selectedTab = tabs.includes(activeTab) ? activeTab : tabs[0]
 
   return (
     <aside
@@ -47,15 +59,15 @@ export default function RightPanel({ pageId, blocks, collapsedIds, onToggleColla
     >
       {/* 탭 헤더 */}
       <div className="flex border-b hairline">
-        {(Object.keys(TAB_LABELS) as Tab[]).map(tab => (
+        {tabs.map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className="flex-1 py-2 text-[12px] transition-colors"
             style={{
-              color:       activeTab === tab ? "var(--color-text)" : "var(--color-text-subtle)",
-              fontWeight:  activeTab === tab ? 600 : 400,
-              borderBottom: activeTab === tab
+              color:       selectedTab === tab ? "var(--color-text)" : "var(--color-text-subtle)",
+              fontWeight:  selectedTab === tab ? 600 : 400,
+              borderBottom: selectedTab === tab
                 ? "2px solid var(--color-accent)"
                 : "2px solid transparent",
             }}
@@ -67,7 +79,7 @@ export default function RightPanel({ pageId, blocks, collapsedIds, onToggleColla
 
       {/* 탭 콘텐츠 */}
       <div className="flex-1 overflow-y-auto panel-scroll">
-        {activeTab === 'toc' && (
+        {selectedTab === 'toc' && (
           <TocPanel
             blocks={blocks}
             collapsedIds={collapsedIds}
@@ -75,12 +87,12 @@ export default function RightPanel({ pageId, blocks, collapsedIds, onToggleColla
             inline
           />
         )}
-        {activeTab === 'backlinks' && (
+        {selectedTab === 'backlinks' && (
           <div className="px-3 py-4">
             <BacklinkPanel pageId={pageId} inline />
           </div>
         )}
-        {activeTab === 'versions' && (
+        {selectedTab === 'versions' && (
           <VersionHistoryPanel pageId={pageId} inline />
         )}
       </div>

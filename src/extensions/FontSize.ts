@@ -66,7 +66,7 @@ export const FontSize = Extension.create({
             // element.style.fontSize 예: "18px" → "18px"
             // Python으로 치면: return element.style.get('fontSize')
             parseHTML: (element) =>
-              element.style.fontSize?.replace(/['"]/g, '') || null,
+              element.style.fontSize || null,
 
             // Tiptap 내부 상태 → HTML 렌더링
             // fontSize가 없으면 빈 객체 반환 → 속성 미출력

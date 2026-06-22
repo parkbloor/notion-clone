@@ -114,7 +114,7 @@ export default function FindReplacePanel() {
 
   // Enter 키로 다음 이동, Escape로 닫기
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') { e.preventDefault(); navigate('next') }
+    if (e.key === 'Enter') { e.preventDefault(); navigate(e.shiftKey ? 'prev' : 'next') }
     if (e.key === 'Escape') { e.preventDefault(); close() }
   }
 
@@ -131,18 +131,23 @@ export default function FindReplacePanel() {
     try { regex = new RegExp(escapeRe(query), flags) }
     catch { toast.error('잘못된 검색어입니다.'); return }
 
-    let replacedBlocks = 0
+    // 실제 치환 횟수를 직접 집계 (matchCount는 DOM 기준이라 타이밍 불일치 가능)
+    let totalReplaced = 0
     page.blocks.forEach(block => {
       if (!block.content) return
+      // 텍스트 노드 내 매치 개수 계산 (HTML 태그 제외)
+      const div = document.createElement('div')
+      div.innerHTML = block.content
+      const countRegex = new RegExp(escapeRe(query), caseSensitive ? 'g' : 'gi')
+      totalReplaced += (div.textContent || '').match(countRegex)?.length ?? 0
       const newContent = replaceTextInHtml(block.content, regex, replaceStr)
       if (newContent !== block.content) {
         updateBlock(currentPageId, block.id, newContent)
-        replacedBlocks++
       }
     })
 
-    if (replacedBlocks > 0) {
-      toast.success(`${matchCount}개 항목을 "${replaceStr}"(으)로 바꿨습니다.`)
+    if (totalReplaced > 0) {
+      toast.success(`${totalReplaced}개 항목을 "${replaceStr}"(으)로 바꿨습니다.`)
       setQuery('')  // 검색어 초기화 → 하이라이트 제거
     } else {
       toast.info('바꿀 항목이 없습니다.')

@@ -1,7 +1,39 @@
 # 04. Extensions — Tiptap 커스텀 확장
 
 > Tiptap의 기본 기능으로 지원되지 않는 편집 기능을 커스텀 확장으로 구현.
-> 모든 확장은 `Editor.tsx`에서 `extensions` 배열에 등록된다.
+> 실제 등록 배열은 `src/extensions/editorExtensions.ts`의 `buildEditorExtensions()`에서 조립되고, `Editor.tsx`가 이를 `useEditor({ extensions })`에 전달한다.
+
+---
+
+## [src/extensions/editorExtensions.ts](../src/extensions/editorExtensions.ts)
+
+**역할:** Tiptap 에디터에 등록할 확장 배열을 한 곳에서 조립하는 허브. `Editor.tsx`는 `buildEditorExtensions(t.editor.headingPlaceholder)`만 호출한다.
+
+### exports
+
+| 이름 | 종류 | 설명 |
+|------|------|------|
+| `buildEditorExtensions(headingPlaceholder)` | `function` | locale에서 받은 heading placeholder를 포함해 Tiptap 확장 배열을 반환 |
+
+### 등록되는 주요 확장
+
+| 확장 | 설명 |
+|------|------|
+| `StarterKit.configure(...)` | 기본 노드/마크. `codeBlock: false`, heading 1~6, `link.openOnClick: false`, `trailingNode: false` |
+| `Placeholder` | heading에는 locale placeholder, 일반 문단에는 slash/mention/link 안내 placeholder 표시 |
+| `Typography`, `Highlight`, `TextStyle`, `Color` | 타이포그래피, 멀티컬러 하이라이트, 인라인 스타일, 색상 |
+| `FontFamily`, `FontSize` | 글꼴/글자 크기. `TextStyle` 뒤에 등록 |
+| `InlineMath`, `FootnoteInline` | 인라인 수식/각주 원자 노드 |
+| `TaskList`, `TaskItem` | 체크리스트. `TaskItem`은 nested 지원 |
+| `Table`, `TableRow`, `TableHeader`, `TableCell` | 리사이즈 가능한 테이블 |
+| `CustomCodeBlock` | `CodeBlockLowlight` + `CodeBlockView` NodeView. 기본 언어는 `javascript` |
+| `TextAlign` | paragraph/heading 정렬 |
+| `SearchHighlight`, `ArrowMark` | 검색 하이라이트와 화살표 마크 |
+
+### 주의사항
+
+- `StarterKit.trailingNode`는 `false`다. 이 프로젝트는 블록 하나가 독립 Editor라서 Tiptap의 trailing paragraph가 필요 없고, 표/목록 뒤 빈 줄이 남는 문제를 막는다.
+- `CustomCodeBlock`이 내장 code block을 대체하므로 `StarterKit`의 `codeBlock`은 비활성화되어 있다.
 
 ---
 
@@ -77,7 +109,7 @@
 |------|------|
 | **상태 관리** | Plugin 내부 상태로 `{ term, caseSensitive }` 유지. Transaction 메타로 전달받아 갱신 |
 | **데코레이션** | `state.doc.descendants()`로 모든 텍스트 노드 순회 → 일치 위치에 `Decoration.inline(..., { class: 'find-highlight' })` 추가 |
-| **업데이트 방식** | `FindReplacePanel`에서 `editor.view.dispatch(tr.setMeta(searchHighlightKey, { term, caseSensitive }))` 호출 |
+| **업데이트 방식** | `Editor.tsx`가 `useFindReplaceStore()`를 구독하고 각 Editor 인스턴스에서 `editor.view.dispatch(tr.setMeta(searchHighlightKey, { term, caseSensitive }))` 호출 |
 | **독립성** | 각 `Editor` 인스턴스에 독립적으로 동작 (stale closure 없음) |
 
 ---
@@ -105,7 +137,7 @@
 | 단계 | 설명 |
 |------|------|
 | **InputRule** | `/\[\^([^\]\n]{1,200})\]$/` — 닫는 `]` 입력 시 `[^...]` 전체를 노드로 교체 |
-| **NodeView** | `FootnoteView.tsx` — `[n]` 파란색 superscript 표시, 호버 시 툴팁으로 각주 텍스트 표시 |
+| **NodeView** | `FootnoteView.tsx` — `getPos()` 기준으로 현재 노드의 문서 내 순번을 계산해 `[n]` 표시, 호버 시 툴팁으로 각주 텍스트 표시 |
 | **HTML 저장** | `<span data-footnote data-text="...">` |
 | **HTML 복원** | `span[data-footnote]` 태그 감지 → `data-text` 속성에서 복원 |
 

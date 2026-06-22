@@ -7,7 +7,7 @@
 
 ## [src/app/layout.tsx](../src/app/layout.tsx)
 
-**역할:** Next.js 루트 레이아웃. 모든 페이지를 감싸는 최상위 HTML 구조를 정의하고, 전역 폰트와 CSS를 로딩한다.
+**역할:** Next.js 루트 레이아웃. 모든 페이지를 감싸는 최상위 HTML 구조를 정의하고, 전역 폰트·전역 CSS·KaTeX CSS를 로딩한다.
 
 ### exports
 
@@ -24,6 +24,7 @@
 | `inter` | 에디터 영문 폰트 프리셋 1. `--font-inter` CSS 변수 |
 | `playfairDisplay` | 에디터 영문 폰트 프리셋 2. `--font-playfair` CSS 변수 |
 | `jetbrainsMono` | 에디터 코드 폰트 프리셋. `--font-jetbrains-mono` CSS 변수 |
+| `katex/dist/katex.min.css` | MathBlock / InlineMath 수식 렌더링 전역 CSS |
 
 > **한국어 폰트**(Noto Sans KR, Noto Serif KR, Gowun Dodum)는 `next/font/google`가 미지원이라 `globals.css`에서 Google Fonts CDN `@import`로 별도 로딩.
 
@@ -84,15 +85,20 @@
 | `Ctrl+Shift+R` | 읽기 모드 토글 (`toggle-read-mode` CustomEvent 발행) | 없음 |
 | `Ctrl+Z` | 블록 구조 Undo | contenteditable 외부에서만 |
 | `Ctrl+Y` / `Ctrl+Shift+Z` | 블록 구조 Redo | contenteditable 외부에서만 |
+| `Ctrl+\` | 스플릿 뷰 토글. 현재 페이지 외 마지막 탭을 오른쪽 패널에 열거나 닫음 | 없음 |
 
 ### 초기화 로직 (useEffect)
 
 | 순서 | 동작 |
 |------|------|
-| 1 | `loadFromServer()` — FastAPI에서 페이지+카테고리 목록 로딩 |
-| 2 | `applyTheme()` + `applyThemePreset()` + `applyEditorStyle()` — 저장된 외관 설정 복원 |
-| 3 | 세션 복원 — `localStorage['notion-clone-session']`에서 탭/스플릿 상태 복원 |
-| 4 | Web Notification 스케줄러 — `reminder=true`인 날짜 속성 탐색 후 알림 발송 |
+| 1 | `useSettingsStore.persist.rehydrate()` — Zustand persist 설정을 클라이언트에서 명시 복원 |
+| 2 | `loadRoutinesFromFile()` — vault의 `_planner_routines.json` 루틴 프리셋을 localStorage 값보다 우선 로드 |
+| 3 | `loadFromServer()` — FastAPI에서 페이지+카테고리 목록 로딩 |
+| 4 | `applyTheme()` + `applyThemePreset()` + `applyBgTone()` + `applyEditorStyle()` — 저장된 외관 설정 복원 |
+| 5 | 세션 저장 — 탭/현재 페이지/스플릿 상태 변경 시 `localStorage['notion-clone-session']`에 기록 |
+| 6 | 세션 복원 — 페이지 로드 후 삭제된 페이지 ID를 걸러 탭/현재 페이지/스플릿 상태 복원 |
+| 7 | 저장 flush — 탭 숨김/닫기 전 `saveTimers` 대기 중인 페이지를 즉시 저장 |
+| 8 | Web Notification 스케줄러 — `reminder=true`인 날짜 속성 탐색 후 알림 발송 |
 
 ### DnD 구조
 
@@ -109,12 +115,13 @@
 
 | 섹션 | 설명 |
 |------|------|
-| `@import` (상단) | 한국어 폰트 3종 Google CDN 로딩 (Noto Sans KR, Noto Serif KR, Gowun Dodum) |
+| `@import` (상단) | Pretendard CDN, 한국어 폰트 3종 Google CDN(Noto Sans KR, Noto Serif KR, Gowun Dodum), ProseMirror 테이블 CSS 로딩 |
 | `@import "tailwindcss"` | Tailwind v4 코어 |
+| `@import "tw-animate-css"` | shadcn/radix 계열 애니메이션 유틸 CSS |
 | `@theme inline { ... }` | Tailwind 색상/폰트/반경 토큰을 CSS 변수로 연결 |
 | `.tiptap` 스타일 블록 | Tiptap 에디터 전용 — heading(H1~H6), 목록, 체크박스, 코드블록, 링크, 형광펜, 테이블 스타일 |
 | lowlight hljs 클래스 | VS Code Dark 테마 기반 코드 구문 강조 색상 |
-| `:root { ... }` | 앱 전역 CSS 변수 — `--bg-*`, `--text-*`, `--border-*`, `--editor-font`, `--editor-size`, `--editor-lh`, `--editor-max-width` |
+| `:root { ... }` | 앱 전역 CSS 변수 — `--bg-*`, `--text-*`, `--border-*`, `--editor-*`, 새 디자인 토큰 `--color-*` |
 | `html.dark { ... }` | 다크 모드 CSS 변수 오버라이드 |
 | `html[data-theme="X"]` | 색상 테마 프리셋 4종 (notion / sepia / minimal / forest) CSS 변수 블록 |
 | `html[data-theme] .bg-white` 등 | 테마 적용 시 Tailwind 유틸리티 클래스 일괄 오버라이드 (컴포넌트 수정 없이 테마 반영) |
@@ -127,6 +134,12 @@
 | `--editor-size` | `16px` | 에디터 기본 글자 크기 |
 | `--editor-lh` | `1.6` | 에디터 줄 간격 |
 | `--editor-max-width` | `768px` | 에디터 본문 최대 너비. 하단 슬라이더로 조절 |
+| `--color-bg` | `#FAF7F2` | 새 디자인 배경 토큰. 앱 전체 바탕색 |
+| `--color-surface` | `#FFFDF9` | 패널/사이드바 표면색 |
+| `--color-sunken` | `#F3EFE7` | 입력창·세그먼트 등 들어간 표면색 |
+| `--color-accent` | `#5B7F5A` | 강조색. 버튼, 활성 상태, 포모도로 진행 등에 사용 |
+| `--color-text` | `#1F1B16` | 새 디자인 기본 텍스트 색 |
+| `--color-text-muted` | `#6B6459` | 보조 텍스트 색 |
 
 ### 링크 스타일 규칙
 

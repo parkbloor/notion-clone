@@ -8,10 +8,10 @@
 //     1. Google Cloud Console → 프로젝트 생성
 //     2. Google Drive API 활성화
 //     3. OAuth 2.0 클라이언트 ID 생성 (데스크톱 앱)
-//     4. 리다이렉트 URI 추가: http://localhost:8000/api/cloud/google/callback
+//     4. 리다이렉트 URI 추가: http://127.0.0.1:8000/api/cloud/google/callback
 //   OneDrive:
 //     1. Azure Portal → 앱 등록
-//     2. 리다이렉트 URI 추가: http://localhost:8000/api/cloud/onedrive/callback
+//     2. 리다이렉트 URI 추가: http://127.0.0.1:8000/api/cloud/onedrive/callback
 //     3. 플랫폼: 모바일 및 데스크톱 애플리케이션
 // =============================================
 
@@ -264,7 +264,7 @@ function ProviderCard({
                     <p>1. <a href="https://portal.azure.com" target="_blank" rel="noreferrer" className="text-blue-500 underline">Azure Portal</a> 접속</p>
                     <p>2. Microsoft Entra ID → 앱 등록 → 새 등록</p>
                     <p>3. 리다이렉트 URI 플랫폼: <b>모바일 및 데스크톱 애플리케이션</b></p>
-                    <p>4. 리다이렉트 URI 추가: <code className="bg-gray-200 px-1 rounded">http://localhost:8000/api/cloud/onedrive/callback</code></p>
+                    <p>4. 리다이렉트 URI 추가: <code className="bg-gray-200 px-1 rounded">http://127.0.0.1:8000/api/cloud/onedrive/callback</code></p>
                     <p>5. 애플리케이션(클라이언트) ID 복사 후 위에 입력</p>
                   </>
                 )}

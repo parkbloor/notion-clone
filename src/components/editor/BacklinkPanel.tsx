@@ -12,7 +12,9 @@ import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 
 interface BacklinkPanelProps {
-  pageId: string  // 현재 페이지 ID — 이 페이지를 참조하는 다른 페이지를 찾음
+  pageId: string
+  // RightPanel 내부 탭 모드 — 외부 래퍼(mt-10, border-t) 없이 렌더
+  inline?: boolean
 }
 
 // -----------------------------------------------
@@ -48,7 +50,7 @@ function blockLinksToPage(block: Block, pageId: string): boolean {
   )
 }
 
-export default function BacklinkPanel({ pageId }: BacklinkPanelProps) {
+export default function BacklinkPanel({ pageId, inline }: BacklinkPanelProps) {
   const { pages, setCurrentPage } = usePageStore()
 
   // -----------------------------------------------
@@ -76,15 +78,20 @@ export default function BacklinkPanel({ pageId }: BacklinkPanelProps) {
   if (backlinks.length === 0) return null
 
   return (
-    <div className="mt-10 mb-4 px-1 print-hide">
-      {/* 구분선 */}
-      <div className="border-t border-gray-200 dark:border-gray-700 mb-4" />
+    <div className={inline ? "" : "mt-10 mb-4 px-1 print-hide"}>
+      {/* inline 모드에서는 구분선 생략, 일반 모드에서는 표시 */}
+      {!inline && <div className="border-t hairline mb-4" />}
 
-      {/* 헤더 — 참조 페이지 수 표시 */}
-      {/* Python으로 치면: print(f"이 페이지를 참조하는 페이지 ({len(backlinks)})") */}
-      <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3 select-none">
-        이 페이지를 참조하는 페이지 ({backlinks.length})
-      </p>
+      {!inline && (
+        <p className="label mb-3 select-none">
+          이 페이지를 참조하는 페이지 ({backlinks.length})
+        </p>
+      )}
+      {inline && (
+        <p className="label mb-3 select-none">
+          {backlinks.length}개 페이지에서 참조 중
+        </p>
+      )}
 
       {/* 백링크 카드 목록 */}
       <div className="flex flex-col gap-1.5">
@@ -93,15 +100,16 @@ export default function BacklinkPanel({ pageId }: BacklinkPanelProps) {
             key={page.id}
             type="button"
             onClick={() => setCurrentPage(page.id)}
-            className="text-left p-3 rounded-lg border border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group"
+            className="text-left p-3 rounded-lg border hairline transition-colors group"
+            style={{ background: "var(--color-surface)" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "var(--color-hover)" }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "var(--color-surface)" }}
           >
-            {/* 페이지 아이콘 + 제목 */}
-            {/* Python으로 치면: print(f"{page.icon} {page.title}") */}
             <div className="flex items-center gap-2 mb-1">
               <span className="text-sm leading-none select-none">
                 {page.icon || '📄'}
               </span>
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+              <span className="text-sm font-medium transition-colors" style={{ color: "var(--color-text)" }}>
                 {page.title || '제목 없음'}
               </span>
             </div>
@@ -114,16 +122,16 @@ export default function BacklinkPanel({ pageId }: BacklinkPanelProps) {
               return (
                 <p
                   key={b.id}
-                  className="text-xs text-gray-400 dark:text-gray-500 truncate ml-6"
+                  className="text-xs truncate ml-6"
+                  style={{ color: "var(--color-text-subtle)" }}
                 >
                   {text.length > 80 ? `${text.slice(0, 80)}…` : text}
                 </p>
               )
             })}
 
-            {/* 블록이 2개 넘으면 "+N개 더" 표시 */}
             {blocks.length > 2 && (
-              <p className="text-xs text-gray-300 dark:text-gray-600 ml-6 mt-0.5">
+              <p className="text-xs ml-6 mt-0.5" style={{ color: "var(--color-text-faint)" }}>
                 +{blocks.length - 2}개 더
               </p>
             )}

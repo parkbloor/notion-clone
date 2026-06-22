@@ -6,7 +6,7 @@
 # OAuth 흐름:
 #   1. 프론트 → GET /api/cloud/{provider}/auth-url → URL 반환
 #   2. 프론트 → window.open(url) → 브라우저에서 인증
-#   3. 인증 완료 → localhost:8000/api/cloud/{provider}/callback 으로 리다이렉트
+#   3. 인증 완료 → 127.0.0.1:8000/api/cloud/{provider}/callback 으로 리다이렉트
 #   4. 백엔드 → 코드 교환 → 토큰 저장
 #   5. 프론트 → GET /api/cloud/status 폴링 → 연결 확인
 # ==============================================
@@ -54,7 +54,7 @@ ONEDRIVE_API_URL   = "https://graph.microsoft.com/v1.0"
 ONEDRIVE_SCOPE = "Files.ReadWrite offline_access User.Read"
 
 # ── 리다이렉트 URI (백엔드가 받음) ─────────────────
-REDIRECT_BASE = "http://localhost:8000/api/cloud"
+REDIRECT_BASE = "http://127.0.0.1:8000/api/cloud"
 
 # ── OAuth 진행 중 임시 상태 (메모리) ───────────────
 # Python으로 치면: _pending = {'google': {'state': None, 'code_verifier': None}, ...}

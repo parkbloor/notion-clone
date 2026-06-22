@@ -26,15 +26,21 @@
 | `hasSectionChildren` | `boolean?` | 접힌 하위 블록 존재 여부 (접기 아이콘 표시용) |
 | `onToggleSectionCollapse` | `function?` | 섹션 접기/펼치기 콜백 |
 | `readMode` | `boolean?` | 읽기 모드 (true이면 Tiptap 편집 불가) |
+| `isSelected` | `boolean?` | 블록 일괄 선택 여부 |
+| `onSelect` | `(e: React.MouseEvent) => void` | 블록 선택 체크박스 클릭 콜백 |
+| `isChild` | `boolean?` | 토글 자식 블록 여부. true이면 DnD 비활성 |
+| `toggleId` | `string?` | 부모 토글 블록 ID |
+| `onGroupIntoToggle` | `() => void` | 선택된 블록들을 토글로 묶는 콜백 |
+| `children` | `React.ReactNode` | 토글 자식 블록 렌더링 결과 |
 
 ### 모듈 레벨 변수
 
 | 이름 | 설명 |
 |------|------|
 | `_aiInsertTarget` | `{ editor, pos }` — 가장 최근 포커스된 에디터 + 커서 위치. `ai-insert-text` 커스텀 이벤트를 올바른 블록에 전달하기 위해 사용 |
-| `lowlight` | lowlight 인스턴스 (common 번들 ~40개 언어). 모듈 레벨에서 1회만 생성 |
-| `CustomCodeBlock` | `CodeBlockLowlight`에 `CodeBlockView` NodeView를 연결한 확장 |
 | `blockTypeToLevel` | heading1~6 → 레벨 숫자 매핑 |
+
+> `lowlight`, `CustomCodeBlock`, 확장 배열 조립은 현재 `src/extensions/editorExtensions.ts`의 `buildEditorExtensions()`로 이동했다. `Editor.tsx`는 `buildEditorExtensions(t.editor.headingPlaceholder)`를 호출한다.
 
 ### 등록된 Tiptap 확장
 
@@ -56,6 +62,8 @@
 | `SearchHighlight` | 찾기/바꾸기 하이라이트 |
 | `ArrowMark` | 화살표 마커 mark |
 | `Link` | 링크 (StarterKit 내장) |
+
+등록 위치는 `Editor.tsx` 내부 배열이 아니라 [src/extensions/editorExtensions.ts](../src/extensions/editorExtensions.ts)다. `StarterKit`은 `codeBlock: false`, `trailingNode: false`, `link.openOnClick: false`로 설정되고, `CustomCodeBlock`이 내장 코드 블록을 대체한다.
 
 ### 주요 내부 상태/로직
 
@@ -93,6 +101,7 @@
 | `file` | `FileBlock` |
 | `toggle` | `ToggleBlock` |
 | `dayplanner` | `DayPlannerBlock` |
+| `weekplanner` | `WeekPlannerBlock` |
 | `weeklyplanner` | `WeeklyPlannerBlock` |
 | `routinematrix` | `RoutineMatrixBlock` |
 | `monthlycalendar` | `MonthlyCalendarBlock` |
@@ -116,19 +125,33 @@
 | prop | 타입 | 설명 |
 |------|------|------|
 | `pageId` | `string` | 렌더링할 페이지 ID |
-| `onOpenSplit` | `(pageId: string) => void` | 스플릿 뷰로 다른 페이지 열기 콜백 |
-| `onOpenSettings` | `() => void` | 설정 모달 열기 콜백 |
-| `onOpenTrash` | `() => void` | 휴지통 패널 열기 콜백 |
-| `onOpenPeriodicNotes` | `() => void` | 주기적 노트 패널 열기 콜백 |
 
 ### 주요 내부 상태
 
 | 상태 | 설명 |
 |------|------|
 | `readMode` | 읽기 모드 여부. `toggle-read-mode` 커스텀 이벤트로 토글 |
-| `historyOpen` | 버전 히스토리 패널 열림 여부 |
-| `lockModalOpen` | 잠금 PIN 입력 모달 열림 여부 |
-| `collapsedSections` | `Set<string>` — 접힌 heading 블록 ID 집합 |
+| `historyPanelOpen` | 버전 히스토리 패널 열림 여부 |
+| `tweaksOpen` | Tweaks 패널 열림 여부 |
+| `lockModalMode` | `'lock' \| 'unlock' \| null` — 잠금 PIN 설정/해제 모달 모드 |
+| `collapsedSections` | `Set<string>` — 접힌 heading 블록 ID 집합. `localStorage`에 저장되어 `TocPanel`과 공유 |
+
+### 통합 컴포넌트
+
+| 컴포넌트 | 역할 |
+|----------|------|
+| `CanvasPageEditor` | 페이지 캔버스 모드 렌더링 |
+| `EmojiPicker`, `CoverPicker` | 페이지 아이콘/커버 편집 |
+| `TemplatePanel` | 템플릿 적용 |
+| `PropertyPanel` | 페이지 속성 편집 |
+| `RightPanel` | 오른쪽 보조 패널 |
+| `TocPanel`, `BacklinkPanel` | 목차/백링크 |
+| `FindReplacePanel` | 찾기/바꾸기 |
+| `VersionHistoryPanel` | 버전 히스토리 |
+| `TweaksPanel` | 에디터 세부 설정 |
+| `LockModal` | 페이지 잠금/해제 PIN 처리 |
+| `MagazineGrid` | Magazine Mode 레이아웃 |
+| `ArrowLayer`, `ArrowContextMenu` | 화살표 연결 오버레이/설정 메뉴 |
 
 ### 주요 내부 함수
 
@@ -144,6 +167,7 @@
 - `HEADING_LEVEL` 맵으로 각 heading의 레벨(1~6) 판단
 - heading이 접히면 다음 동일/상위 레벨 heading 전까지의 블록을 `collapsedSections` Set으로 필터링
 - `SortableContext`에서 접힌 블록은 렌더링에서 제외 (실제 삭제 아님)
+- 접힘 상태는 `notion-clone-toc-collapsed` localStorage 키에 저장되어 TOC와 동기화
 
 ### 캔버스 행 레이아웃
 
@@ -172,6 +196,7 @@
 | prop | 타입 | 설명 |
 |------|------|------|
 | `editor` | `TiptapEditor` | 연결된 Tiptap 에디터 인스턴스 |
+| `readMode` | `boolean?` | 읽기 모드. true이면 BubbleMenu를 렌더링하지 않음 |
 
 ### 모듈 레벨 상수
 
@@ -217,7 +242,7 @@
 |------|------|------|
 | `editor` | `TiptapEditor` | 연결된 에디터 |
 | `isOpen` | `boolean` | 팝업 열림 여부 |
-| `position` | `{ top, left }` | 팝업 표시 좌표 |
+| `position` | `{ top?, bottom?, left }` | 팝업 표시 좌표. 커서 위치에 따라 위/아래 방향을 바꿀 수 있음 |
 | `onSelect` | `(type: BlockType) => void` | 블록 타입 선택 콜백 |
 | `onClose` | `() => void` | Escape — 팝업만 닫기 (`/` 텍스트 유지) |
 | `onClickOutside` | `() => void` | 외부 클릭 — 팝업 닫기 + `/query` 텍스트 삭제 |
@@ -225,13 +250,16 @@
 
 ### COMMANDS 구조
 
-4개 그룹으로 구성:
+7개 그룹으로 구성:
 
 | 그룹 | 항목 수 | 주요 내용 |
 |------|---------|----------|
-| 기본 블록 | 8 | paragraph, toggle, heading1~6 |
+| 텍스트 | 8 | paragraph, toggle, heading1~6 |
 | 목록 | 3 | bulletList, orderedList, taskList |
-| 고급 | 20 | image, table, code, divider, kanban, admonition, canvas, excalidraw, video, layout, math, embed, mermaid, chart, gantt, mindmap, toc, file, dayplanner, weeklyplanner, routinematrix, monthlycalendar, quarterlyplanner, yearlyplanner |
+| 미디어 | 6 | image, video, canvas, excalidraw, embed, file |
+| 데이터 | 9 | table, kanban, code, math, mermaid, chart, gantt, mindmap, toc |
+| 고급 | 3 | admonition, divider, layout |
+| 플래너 | 7 | dayplanner, weekplanner, weeklyplanner, routinematrix, monthlycalendar, quarterlyplanner, yearlyplanner |
 | AI | 1 | AI 글쓰기 |
 
 ### 동작

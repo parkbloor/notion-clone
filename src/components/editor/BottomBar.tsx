@@ -95,11 +95,11 @@ export default function BottomBar({ pageId }: BottomBarProps) {
   const editorMaxWidth = useSettingsStore(s => s.editorMaxWidth)
   const setEditorMaxWidth = useSettingsStore(s => s.setEditorMaxWidth)
 
-  const blocks = page?.blocks ?? []
+  const blocks = page?.blocks
 
   // blocks 변경 시만 단어/글자 수 재계산 (타이핑 성능 보호)
   // Python으로 치면: @cached_property def word_count(self): return count_text(self.blocks)
-  const { words, chars } = useMemo(() => countText(blocks), [blocks])
+  const { words, chars } = useMemo(() => countText(blocks ?? []), [blocks])
 
   // -----------------------------------------------
   // 슬라이더 드래그 핸들러
@@ -119,15 +119,19 @@ export default function BottomBar({ pageId }: BottomBarProps) {
     // shrink-0: flex-col 부모에서 높이가 줄어들지 않도록
     // print-hide: PDF 내보내기 시 숨김
     // Python으로 치면: self.setVisible(True); self.setPrintHidden(True)
-    <div className="print-hide shrink-0 flex items-center justify-between px-4 py-2 border-t border-gray-100 bg-white select-none dark:bg-gray-900 dark:border-gray-800">
+    <div className="print-hide shrink-0 flex items-center justify-between px-6 py-2 border-t hairline select-none"
+         style={{
+           background: "color-mix(in oklab, var(--color-bg) 90%, transparent)",
+           backdropFilter: "blur(8px)",
+           fontSize: 11.5,
+           color: "var(--color-text-subtle)",
+           whiteSpace: "nowrap",
+         }}>
 
-      {/* ── 왼쪽: 에디터 너비 슬라이더 ─────────────────── */}
-      {/* AlignJustify 아이콘: 너비 조절을 상징 (텍스트 정렬 모양) */}
-      {/* Python으로 치면: width_label = QLabel(f"{width}px"); width_slider = QSlider(Qt.Horizontal) */}
+      {/* 왼쪽: 에디터 너비 슬라이더 */}
       <div className="flex items-center gap-2">
-        <AlignJustify size={13} className="text-gray-300 shrink-0" />
-        {/* 현재 너비 값 — w-14로 고정해 슬라이더가 흔들리지 않음 */}
-        <span className="text-xs text-gray-300 w-14 tabular-nums">
+        <AlignJustify size={13} className="shrink-0" style={{ color: "var(--color-text-faint)" }} />
+        <span className="w-14 tabular-nums" style={{ color: "var(--color-text-muted)" }}>
           {editorMaxWidth}px
         </span>
         <input
@@ -137,22 +141,18 @@ export default function BottomBar({ pageId }: BottomBarProps) {
           step={10}
           value={editorMaxWidth}
           onChange={handleWidthChange}
-          className="w-32 h-1 accent-gray-400 cursor-pointer"
+          className="w-32 h-1 cursor-pointer"
+          style={{ accentColor: "var(--color-accent)" }}
           title={`에디터 너비: ${editorMaxWidth}px (400~1400px)`}
         />
       </div>
 
-      {/* ── 오른쪽: 단어/글자 수 (wordCount 플러그인 ON 시만) ─── */}
-      {/* Python으로 치면: if plugins.word_count: render_word_count_label() */}
+      {/* 오른쪽: 단어/글자 수 */}
       {plugins.wordCount && (
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-300">
-            단어 {words.toLocaleString()}
-          </span>
-          <span className="text-gray-200">·</span>
-          <span className="text-xs text-gray-300">
-            글자 {chars.toLocaleString()}
-          </span>
+          <span>단어 <span className="tabular-nums" style={{ color: "var(--color-text-muted)" }}>{words.toLocaleString()}</span></span>
+          <span style={{ color: "var(--color-text-faint)" }}>·</span>
+          <span>글자 <span className="tabular-nums" style={{ color: "var(--color-text-muted)" }}>{chars.toLocaleString()}</span></span>
         </div>
       )}
     </div>

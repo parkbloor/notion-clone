@@ -28,7 +28,7 @@ export interface MagazineSection {
 const FEATURE_TYPES = new Set<BlockType>([
   'image', 'table', 'chart', 'gantt', 'mermaid',
   'mindmap', 'excalidraw', 'canvas', 'video', 'embed',
-  'kanban', 'dayplanner', 'weeklyplanner', 'routinematrix',
+  'kanban', 'dayplanner', 'weekplanner', 'weeklyplanner', 'routinematrix',
   'monthlycalendar', 'quarterlyplanner', 'yearlyplanner',
 ])
 
