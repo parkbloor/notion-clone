@@ -34,7 +34,7 @@
 |------|------|
 | `src/components/sidebar/sidebarUtils.ts` | `DEPTH_STYLES`, `GUIDE_COLORS`, `FOLDER_COLOR_GROUPS`, 검색/마크다운 변환 유틸 |
 | `src/components/sidebar/CategoryRow.tsx` | 폴더 행 UI. `SortableCategoryRow`, `DroppableCategoryRow`, `CollapsedFolderIcon` 제공 |
-| `src/components/sidebar/DraggablePageRow.tsx` | 페이지 행 UI. 페이지 정렬, 폴더 이동, Ctrl+클릭 스플릿 뷰, 페이지 색상 표시 |
+| `src/components/sidebar/DraggablePageRow.tsx` | 페이지 행 UI. 페이지 정렬, 폴더 이동, 다중 선택 체크박스, Ctrl+클릭 스플릿 뷰, 페이지 색상 표시 |
 | `src/components/sidebar/PageInlineMenu.tsx` | 페이지 행 `•••`/우클릭 메뉴. 즐겨찾기, 복제, 템플릿 저장, 메모 색상, 삭제 |
 
 ### 공용 유틸 함수
@@ -51,6 +51,7 @@
 |------|------|
 | 폴더 트리 | 재귀 렌더링. depth별 색상 + 트리 가이드 라인. `dnd-kit` `useSortable` + `useDroppable`로 폴더 정렬 및 페이지 드롭 |
 | 페이지 인라인 | 폴더 클릭 → 하위 페이지 인라인 표시. 페이지 행 hover 시 `•••` 버튼 |
+| 메모 일괄 이동 | 상단 `<ListChecks />` 버튼 → 체크박스로 여러 메모 선택 → 선택한 메모의 `⠿` 손잡이를 대상 폴더로 드래그. 드래그 오버레이에 묶음 개수를 표시하고 실제 파일 이동은 순차 처리 |
 | 폴더 내 페이지 추가 | 폴더 행 hover 시 📄 버튼 → 인라인 입력창 |
 | 미분류 페이지 | 트리 하단 "미분류" 섹션에 표시 |
 | 검색 | 사이드바 내 검색바 — 제목+블록 내용 클라이언트 사이드 필터링 |

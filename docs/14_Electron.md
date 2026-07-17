@@ -1,7 +1,7 @@
 # 14. Electron — 데스크톱 앱 패키징
 
 > Next.js standalone + FastAPI 백엔드를 하나의 Electron 앱으로 묶어 Windows NSIS 인스톨러 생성.
-> 출력: `dist-electron/Notion Clone Setup 0.1.0.exe` (약 200MB)
+> 출력: `dist-electron/Notion Clone Setup 0.1.0.exe` (현재 빌드 약 119MB)
 > 앱 데이터: `%APPDATA%\NotionClone\vault\기본\` (기본 활성 vault)
 
 ---
@@ -101,6 +101,15 @@ window.electronAPI = {
 | `npm run build:backend` | PyInstaller로 `backend.exe` 생성 |
 | `npm run build:electron` | `electron-builder` NSIS 인스톨러 생성 |
 | `npm run build:all` | 위 3단계 순서대로 실행 |
+
+### 빌드 검증 기록 (2026-07-17)
+
+- `npm run build:all` 전체 단계 완료
+- 설치 파일: `dist-electron/Notion Clone Setup 0.1.0.exe`
+- 파일 크기: 124,766,756 bytes (약 118.99MB)
+- SHA-256: `4334743EDB49047BCEB0C3ABDE00D61354B9DA131D1F691B6D013413A5BFBECF`
+- `win-unpacked/Notion Clone.exe` 실행 후 백엔드 `:8000`과 프론트엔드 `:3000` 응답이 모두 HTTP 200인지 확인
+- 개인용 서명되지 않은 빌드이므로 다른 PC에서는 Windows SmartScreen 경고가 표시될 수 있음
 
 ### PyInstaller 핵심 규칙
 

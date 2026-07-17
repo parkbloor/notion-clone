@@ -58,6 +58,16 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
   const [switching, setSwitching] = useState<string | null>(null)  // 전환 중인 볼트명
   const [switchMsg, setSwitchMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
 
+  // 새 볼트 생성 상태 — 생성만 하고 현재 볼트는 유지
+  const [newVaultName, setNewVaultName] = useState('')
+  const [creatingVault, setCreatingVault] = useState(false)
+  const [createVaultMsg, setCreateVaultMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
+
+  // 볼트 폴더명 변경 상태
+  const [renamingVault, setRenamingVault] = useState<string | null>(null)
+  const [renameVaultName, setRenameVaultName] = useState('')
+  const [renameVaultMsg, setRenameVaultMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
+
   // vaults_root 변경 상태
   const [rootInput, setRootInput] = useState('')
   const [rootChanging, setRootChanging] = useState(false)
@@ -69,7 +79,7 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
   const [advChanging, setAdvChanging] = useState(false)
   const [advMsg, setAdvMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
 
-  const { resetStore, loadFromServer } = usePageStore()
+  const { resetStore, loadFromServer, setCurrentVaultName } = usePageStore()
 
   // 볼트 정보 로드 — 설정 탭 열릴 때마다 실행 (탐색기 폴더 자동 인식)
   // Python으로 치면: async def load_vault_info(self): self.info = await api.get('/vault-info')
@@ -119,6 +129,80 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
       setSwitchMsg({ type: 'error', text: s.errorServer })
     } finally {
       setSwitching(null)
+    }
+  }
+
+  // 새 볼트 폴더 생성 — 삭제 기능은 의도적으로 제공하지 않음
+  // Python으로 치면: async def create_vault(name): api.post('/settings/vaults', name)
+  const handleCreateVault = async () => {
+    const vaultName = newVaultName.trim()
+    if (!vaultName) {
+      setCreateVaultMsg({ type: 'error', text: s.createVaultEmpty })
+      return
+    }
+
+    setCreatingVault(true)
+    setCreateVaultMsg(null)
+    try {
+      const res = await fetch(BASE_URL + '/api/settings/vaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vault_name: vaultName }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setCreateVaultMsg({ type: 'error', text: err.detail ?? s.errorServer })
+        return
+      }
+
+      setNewVaultName('')
+      await loadInfo()
+      setCreateVaultMsg({ type: 'ok', text: s.createVaultSuccess })
+    } catch {
+      setCreateVaultMsg({ type: 'error', text: s.errorServer })
+    } finally {
+      setCreatingVault(false)
+    }
+  }
+
+  // 볼트 폴더명 변경 시작
+  // Python으로 치면: def start_rename(vault): self.rename_value = vault.name
+  const startRenameVault = (vaultName: string) => {
+    setRenamingVault(vaultName)
+    setRenameVaultName(vaultName)
+    setRenameVaultMsg(null)
+  }
+
+  // 볼트 폴더명 변경 저장 — 현재 볼트라면 사이드바 이름도 즉시 갱신
+  // Python으로 치면: async def rename_vault(old, new): api.patch(...)
+  const handleRenameVault = async (oldName: string) => {
+    const newName = renameVaultName.trim()
+    if (!newName) {
+      setRenameVaultMsg({ type: 'error', text: s.renameVaultEmpty })
+      return
+    }
+
+    setRenameVaultMsg(null)
+    try {
+      const res = await fetch(BASE_URL + `/api/settings/vaults/${encodeURIComponent(oldName)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_name: newName }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setRenameVaultMsg({ type: 'error', text: err.detail ?? s.errorServer })
+        return
+      }
+
+      const result: { vault_name: string; was_current: boolean } = await res.json()
+      if (result.was_current) setCurrentVaultName(result.vault_name)
+      setRenamingVault(null)
+      setRenameVaultName('')
+      await loadInfo()
+      setRenameVaultMsg({ type: 'ok', text: s.renameVaultSuccess })
+    } catch {
+      setRenameVaultMsg({ type: 'error', text: s.errorServer })
     }
   }
 
@@ -309,6 +393,40 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
 
             <div className="text-xs text-gray-400 mb-2">{s.vaultListHint}</div>
 
+            <div className="flex gap-2 mb-2">
+              <input
+                value={newVaultName}
+                onChange={e => setNewVaultName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleCreateVault() }}
+                disabled={creatingVault}
+                className="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5"
+                placeholder={s.createVaultPlaceholder}
+              />
+              <button
+                onClick={handleCreateVault}
+                disabled={creatingVault}
+                className="text-xs px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 shrink-0"
+              >
+                {creatingVault ? s.creatingVault : s.createVault}
+              </button>
+            </div>
+
+            {createVaultMsg && (
+              <div className={`text-xs mb-2 px-2 py-1 rounded ${
+                createVaultMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {createVaultMsg.text}
+              </div>
+            )}
+
+            {renameVaultMsg && (
+              <div className={`text-xs mb-2 px-2 py-1 rounded ${
+                renameVaultMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {renameVaultMsg.text}
+              </div>
+            )}
+
             {switchMsg && (
               <div className={`text-xs mb-2 px-2 py-1 rounded ${
                 switchMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
@@ -328,20 +446,57 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
                   <span className={`text-sm ${vault.is_current ? 'text-green-500' : 'text-gray-300'}`}>
                     {vault.is_current ? '●' : '○'}
                   </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-700 truncate">{vault.name}</div>
-                    <div className="text-xs text-gray-400">
-                      {vault.initialized ? `${vault.page_count}${s.pageUnit}` : s.emptyVault}
+                  {renamingVault === vault.name ? (
+                    <div className="flex-1 flex items-center gap-1 min-w-0">
+                      <input
+                        autoFocus
+                        value={renameVaultName}
+                        onChange={e => setRenameVaultName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') handleRenameVault(vault.name)
+                          if (e.key === 'Escape') setRenamingVault(null)
+                        }}
+                        className="flex-1 min-w-0 text-xs border border-blue-300 rounded px-2 py-1"
+                        aria-label={s.renameVaultPlaceholder}
+                      />
+                      <button
+                        onClick={() => handleRenameVault(vault.name)}
+                        className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      >
+                        {s.renameVaultSave}
+                      </button>
+                      <button
+                        onClick={() => setRenamingVault(null)}
+                        className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
+                      >
+                        {s.renameVaultCancel}
+                      </button>
                     </div>
-                  </div>
-                  {!vault.is_current && (
-                    <button
-                      onClick={() => handleSwitch(vault.name)}
-                      disabled={switching !== null}
-                      className="text-xs px-2.5 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 shrink-0"
-                    >
-                      {switching === vault.name ? '...' : s.openVault}
-                    </button>
+                  ) : (
+                    <>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-gray-700 truncate">{vault.name}</div>
+                        <div className="text-xs text-gray-400">
+                          {vault.initialized ? `${vault.page_count}${s.pageUnit}` : s.emptyVault}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => startRenameVault(vault.name)}
+                        className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 shrink-0"
+                        title={s.renameVault}
+                      >
+                        ✏️
+                      </button>
+                      {!vault.is_current && (
+                        <button
+                          onClick={() => handleSwitch(vault.name)}
+                          disabled={switching !== null}
+                          className="text-xs px-2.5 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 shrink-0"
+                        >
+                          {switching === vault.name ? '...' : s.openVault}
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               ))}

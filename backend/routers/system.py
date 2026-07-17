@@ -90,6 +90,94 @@ class SwitchVaultBody(BaseModel):
     vault_name: str
 
 
+def _resolve_vault_path(vault_name: str) -> tuple[str, Path]:
+    """볼트 이름을 검증하고 vaults_root 바로 아래의 안전한 경로로 변환한다.
+    Python으로 치면: def resolve_vault_path(name): validate(name); return root / name
+    """
+    name = vault_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="볼트 이름을 입력해 주세요")
+
+    # Windows 폴더명 금지 문자와 경로 이동 문자를 차단
+    if not re.match(r'^[^/\\:*?"<>|\x00]+$', name) or '..' in name or name == '.':
+        raise HTTPException(status_code=400, detail="허용되지 않는 문자가 포함된 볼트 이름입니다")
+
+    # Windows 예약 장치명은 확장자가 붙어도 폴더명으로 사용할 수 없음
+    reserved_names = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+    if name.split('.')[0].upper() in reserved_names:
+        raise HTTPException(status_code=400, detail="Windows에서 사용할 수 없는 볼트 이름입니다")
+
+    root = get_vaults_root().resolve()
+    new_path = (root / name).resolve()
+    try:
+        new_path.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="볼트 경로가 루트 폴더 밖을 벗어납니다") from exc
+
+    if new_path == root:
+        raise HTTPException(status_code=400, detail="볼트 이름을 확인해 주세요")
+
+    return name, new_path
+
+
+@router.post("/settings/vaults", status_code=201)
+def create_vault(body: SwitchVaultBody):
+    """vaults_root 아래에 빈 볼트 폴더만 생성한다. 현재 볼트는 전환하지 않는다.
+    Python으로 치면: def create_vault(name): (vaults_root / name).mkdir()
+    """
+    vault_name, new_path = _resolve_vault_path(body.vault_name)
+    if new_path.exists():
+        raise HTTPException(status_code=409, detail="같은 이름의 볼트가 이미 있습니다")
+
+    try:
+        new_path.mkdir(parents=True, exist_ok=False)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"폴더를 만들 수 없습니다: {exc}") from exc
+
+    _log.info("create_vault: 빈 볼트 폴더 생성 → %s", new_path)
+    return {"ok": True, "vault_name": vault_name, "vault_path": str(new_path)}
+
+
+class RenameVaultBody(BaseModel):
+    # 변경할 새 볼트 폴더명
+    new_name: str
+
+
+@router.patch("/settings/vaults/{vault_name}")
+def rename_vault(vault_name: str, body: RenameVaultBody):
+    """볼트 폴더명을 같은 vaults_root 안에서 변경한다.
+    Python으로 치면: def rename_vault(old, new): (root / old).rename(root / new)
+    """
+    old_name, old_path = _resolve_vault_path(vault_name)
+    new_name, new_path = _resolve_vault_path(body.new_name)
+
+    if old_path == new_path:
+        raise HTTPException(status_code=400, detail="현재 이름과 동일합니다")
+    if not old_path.is_dir():
+        raise HTTPException(status_code=404, detail="볼트를 찾을 수 없습니다")
+    if new_path.exists():
+        raise HTTPException(status_code=409, detail="같은 이름의 볼트가 이미 있습니다")
+
+    was_current = old_path.resolve() == get_vault_dir().resolve()
+    try:
+        old_path.rename(new_path)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"볼트 이름을 변경할 수 없습니다: {exc}") from exc
+
+    # 현재 볼트의 폴더명을 바꾼 경우 런타임 경로와 vault_config.json도 즉시 갱신
+    if was_current:
+        set_vault_dir(new_path)
+
+    _log.info("rename_vault: %s → %s", old_path, new_path)
+    return {
+        "ok": True,
+        "old_name": old_name,
+        "vault_name": new_name,
+        "vault_path": str(new_path),
+        "was_current": was_current,
+    }
+
+
 @router.post("/settings/switch-vault")
 def switch_vault(body: SwitchVaultBody):
     """
@@ -99,22 +187,7 @@ def switch_vault(body: SwitchVaultBody):
     - vault_config.json 즉시 저장
     Python으로 치면: set_vault_dir(root / name); save_config()
     """
-    vault_name = body.vault_name.strip()
-    if not vault_name:
-        raise HTTPException(status_code=400, detail="볼트 이름을 입력해 주세요")
-
-    # 경로 트래버설 차단: 구분자·특수문자·'..' 포함 불가
-    # Python으로 치면: re.match(r'^[^/\\:*?"<>|\x00]+$', name) and '..' not in name
-    if not re.match(r'^[^/\\:*?"<>|\x00]+$', vault_name) or '..' in vault_name:
-        raise HTTPException(status_code=400, detail="허용되지 않는 문자가 포함된 볼트 이름입니다")
-
-    new_path = get_vaults_root() / vault_name
-
-    # 해석된 경로가 vaults_root 안에 있는지 최종 확인
-    try:
-        new_path.resolve().relative_to(get_vaults_root().resolve())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="볼트 경로가 루트 폴더 밖을 벗어납니다")
+    vault_name, new_path = _resolve_vault_path(body.vault_name)
 
     if new_path.resolve() == get_vault_dir().resolve():
         raise HTTPException(status_code=400, detail="현재 볼트와 동일합니다")

@@ -4,7 +4,7 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently --names \"next,fastapi\" --prefix-colors \"blue,green\" \"next dev\" \"node scripts/start-backend.js\"",
+    "dev": "concurrently --kill-others-on-fail --names \"fastapi,next\" --prefix-colors \"green,blue\" \"node scripts/start-backend.js\" \"wait-on http-get://127.0.0.1:8000/api/pages && next dev\"",
     "dev:next": "next dev",
     "dev:api": "node scripts/start-backend.js",
     "electron:dev": "concurrently --names \"next,electron\" --prefix-colors \"blue,cyan\" --kill-others-on-fail \"next dev\" \"wait-on http://localhost:3000 && electron .\"",

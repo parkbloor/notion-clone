@@ -4,7 +4,7 @@
 // Python으로 치면: import requests; def get_pages(): return requests.get(url).json()
 // ==============================================
 
-import { Page, Category, PlanEvent } from '@/types/block'
+import { Page, Category, PlanEvent, Routine } from '@/types/block'
 
 // FastAPI 서버 주소 (Windows에서 localhost가 IPv6 ::1로 해석되는 문제로 127.0.0.1 사용)
 // Python으로 치면: BASE_URL = 'http://127.0.0.1:8000'
@@ -38,6 +38,33 @@ function parsePage(p: Page): Page {
     ...p,
     blocks: p.blocks ?? [],
   }
+}
+
+// -----------------------------------------------
+// API 응답 → Routine[] 타입으로 정규화
+// 저장 파일이 손상됐을 때 잘못된 값이 플래너 상태에 들어가지 않게 방지
+// Python으로 치면: def parse_routines(data): validate_each_routine(data)
+// -----------------------------------------------
+function parseRoutines(data: unknown): Routine[] {
+  if (!Array.isArray(data)) throw new Error('루틴 응답 형식이 올바르지 않습니다.')
+
+  return data.map((item, index) => {
+    if (
+      !item ||
+      typeof item !== 'object' ||
+      typeof item.id !== 'string' ||
+      typeof item.title !== 'string' ||
+      typeof item.start !== 'string' ||
+      typeof item.end !== 'string' ||
+      typeof item.color !== 'string' ||
+      !Array.isArray(item.days) ||
+      !item.days.every((day: unknown) => typeof day === 'number')
+    ) {
+      throw new Error(`루틴 응답 ${index + 1}번의 형식이 올바르지 않습니다.`)
+    }
+
+    return item as Routine
+  })
 }
 
 // -----------------------------------------------
@@ -447,15 +474,15 @@ export const plannerApi = {
 
   // 루틴 목록 로드 (앱 시작 시 settingsStore에서 호출)
   // Python으로 치면: requests.get('/api/planner/routines').json()
-  getRoutines: async (): Promise<unknown[]> => {
+  getRoutines: async (): Promise<Routine[]> => {
     const res = await fetch(`${BASE_URL}/api/planner/routines`)
     if (!res.ok) throw new Error('루틴 로드 실패')
-    return res.json()
+    return parseRoutines(await res.json())
   },
 
   // 루틴 목록 전체 저장 (setPlannerRoutines 호출 시 자동 실행)
   // Python으로 치면: requests.put('/api/planner/routines', json=routines)
-  saveRoutines: async (routines: unknown[]): Promise<void> => {
+  saveRoutines: async (routines: Routine[]): Promise<void> => {
     const res = await fetch(`${BASE_URL}/api/planner/routines`, {
       method:  'PUT',
       headers: { 'Content-Type': 'application/json' },

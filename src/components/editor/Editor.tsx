@@ -179,10 +179,16 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     attributes,
     listeners,
     setNodeRef,
-    transform,
+    transform: sortableTransform,
     transition,
     isDragging,
   } = useSortable({ id: block.id, disabled: !!isChild })
+
+  // dnd-kit은 서로 다른 높이의 블록 위를 지날 때 활성 블록에 scaleX/scaleY를 적용한다.
+  // 위치 이동(x/y)은 유지하되 배율을 1로 고정해 드래그 시작 당시 블록 크기를 보존한다.
+  const transform = sortableTransform
+    ? { ...sortableTransform, scaleX: 1, scaleY: 1 }
+    : null
 
   // 슬래시 메뉴 상태 — position은 top/bottom 중 하나만 사용 (커서 위/아래 방향에 따라)
   // Python으로 치면: slash_menu = SlashMenuState()

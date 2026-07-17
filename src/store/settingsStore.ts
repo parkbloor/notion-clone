@@ -562,7 +562,7 @@ export const useSettingsStore = create<SettingsStore>()(
       loadRoutinesFromFile: async () => {
         try {
           const routines = await plannerApi.getRoutines()
-          set((state) => { state.plannerRoutines = routines as Routine[] })
+          set((state) => { state.plannerRoutines = routines })
         } catch {
           // 백엔드 미실행 시 기존 localStorage 값 유지
         }

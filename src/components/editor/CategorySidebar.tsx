@@ -32,7 +32,7 @@ import DraggablePageRow from '@/components/sidebar/DraggablePageRow'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useDroppable } from '@dnd-kit/core'
 // 테이블 뷰 아이콘
-import { Table2, ChevronsDown, ChevronsUp, GitFork, Settings, Trash2, FolderPlus } from 'lucide-react'
+import { Table2, ChevronsDown, ChevronsUp, GitFork, Settings, Trash2, FolderPlus, ListChecks } from 'lucide-react'
 
 
 // -----------------------------------------------
@@ -168,6 +168,12 @@ export default function CategorySidebar({
 
   // 새 페이지 다이얼로그 (템플릿 선택 포함)
   const [newPageDialogOpen, setNewPageDialogOpen] = useState(false)
+
+  // 메모 다중 선택 및 일괄 폴더 이동 상태
+  const [bulkSelectMode, setBulkSelectMode] = useState(false)
+  const [selectedPageIds, setSelectedPageIds] = useState<Set<string>>(new Set())
+  const [bulkMoveMessage, setBulkMoveMessage] = useState('')
+  const selectedPageIdList = useMemo(() => [...selectedPageIds], [selectedPageIds])
 
   // 사이드바 상단 탭: 노트 / 계획
   // Python으로 치면: self.sidebar_tab = 'notes'
@@ -377,6 +383,33 @@ export default function CategorySidebar({
     onCloseMobile?.()
   }
 
+  function toggleBulkSelectMode() {
+    setBulkSelectMode(prev => !prev)
+    setSelectedPageIds(new Set())
+    setBulkMoveMessage('')
+  }
+
+  function togglePageForBulkMove(pageId: string) {
+    setSelectedPageIds(prev => {
+      const next = new Set(prev)
+      if (next.has(pageId)) next.delete(pageId)
+      else next.add(pageId)
+      return next
+    })
+    setBulkMoveMessage('')
+  }
+
+  function handleBulkMoveComplete(successCount: number, totalCount: number) {
+    setSelectedPageIds(new Set())
+    setBulkMoveMessage(
+      successCount === totalCount
+        ? t.sidebar.bulkMoveComplete.replace('{count}', String(successCount))
+        : t.sidebar.bulkMovePartial
+            .replace('{success}', String(successCount))
+            .replace('{failed}', String(totalCount - successCount))
+    )
+  }
+
   // -----------------------------------------------
   // 폴더 트리 재귀 렌더링
   // depth=0: SortableCategoryRow (순서 변경 가능)
@@ -484,6 +517,11 @@ export default function CategorySidebar({
                   onDelete={() => deletePage(page.id)}
                   onDuplicate={() => duplicatePage(page.id)}
                   onSplitPage={() => onSplitPage?.(page.id)}
+                  selectionMode={bulkSelectMode}
+                  isBulkSelected={selectedPageIds.has(page.id)}
+                  onToggleBulkSelection={() => togglePageForBulkMove(page.id)}
+                  bulkSelectedPageIds={selectedPageIdList}
+                  onBulkMoveComplete={handleBulkMoveComplete}
                 />
               ))}
             </SortableContext>
@@ -751,6 +789,16 @@ export default function CategorySidebar({
           >
             <FolderPlus size={14} />
           </button>
+          {/* 메모 다중 선택 */}
+          <button
+            type="button"
+            onClick={toggleBulkSelectMode}
+            title={bulkSelectMode ? t.sidebar.cancelSelection : t.sidebar.bulkSelect}
+            className="icon-btn shrink-0"
+            style={bulkSelectMode ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
+          >
+            <ListChecks size={14} />
+          </button>
           {/* 캘린더 탭 빠른 이동 */}
           <button
             type="button"
@@ -770,6 +818,31 @@ export default function CategorySidebar({
             <GitFork size={14} />
           </button>
         </div>
+
+        {/* ── 메모 다중 선택 / 묶음 드래그 안내 ─────── */}
+        {bulkSelectMode && (
+          <div className="px-2 py-2 border-b hairline shrink-0 space-y-1.5" style={{ background: "var(--color-accent-soft)" }}>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold shrink-0" style={{ color: "var(--color-accent-ink)" }}>
+                {t.sidebar.selectedNotes.replace('{count}', String(selectedPageIds.size))}
+              </span>
+              <button
+                type="button"
+                onClick={toggleBulkSelectMode}
+                className="ml-auto text-[10px] px-1.5 py-0.5 rounded transition-colors"
+                style={{ color: "var(--color-text-muted)" }}
+              >
+                {t.sidebar.cancelSelection}
+              </button>
+            </div>
+            <p className="text-[10px] leading-4" style={{ color: "var(--color-accent-ink)" }}>
+              {selectedPageIds.size > 0 ? t.sidebar.dragSelectedHint : t.sidebar.selectNotesHint}
+            </p>
+            {bulkMoveMessage && (
+              <p className="text-[10px]" style={{ color: "var(--color-accent-ink)" }}>{bulkMoveMessage}</p>
+            )}
+          </div>
+        )}
 
         {/* ── 검색바 ─────────────────────────────────
             --bg-sunken 배경 + ⌘P 단축키 힌트 표시
@@ -941,6 +1014,11 @@ export default function CategorySidebar({
                     onDuplicate={() => duplicatePage(page.id)}
                     onSplitPage={() => onSplitPage?.(page.id)}
                     searchCategoryName={catName}
+                    selectionMode={bulkSelectMode}
+                    isBulkSelected={selectedPageIds.has(page.id)}
+                    onToggleBulkSelection={() => togglePageForBulkMove(page.id)}
+                    bulkSelectedPageIds={selectedPageIdList}
+                    onBulkMoveComplete={handleBulkMoveComplete}
                   />
                 )
               })
@@ -955,7 +1033,7 @@ export default function CategorySidebar({
                 사이드바 상단에 ★ 고정 목록 표시
                 dnd-kit 중복 ID 방지를 위해 순수 버튼으로 렌더링 (드래그 불필요)
                 Python으로 치면: if starred_pages: render StarredSection() */}
-            {starredPages.length > 0 && (
+            {!bulkSelectMode && starredPages.length > 0 && (
               <>
                 {/* 즐겨찾기 섹션 헤더 — label 스타일 시각적 분리 */}
                 <div className="px-2 pt-1 pb-0.5 flex items-center gap-1 label">
@@ -1024,6 +1102,11 @@ export default function CategorySidebar({
                     onDelete={() => deletePage(page.id)}
                     onDuplicate={() => duplicatePage(page.id)}
                     onSplitPage={() => onSplitPage?.(page.id)}
+                    selectionMode={bulkSelectMode}
+                    isBulkSelected={selectedPageIds.has(page.id)}
+                    onToggleBulkSelection={() => togglePageForBulkMove(page.id)}
+                    bulkSelectedPageIds={selectedPageIdList}
+                    onBulkMoveComplete={handleBulkMoveComplete}
                   />
                 ))}
               </>

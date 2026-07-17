@@ -52,6 +52,9 @@ export const usePageStore = create<PageStore>()(
     trashedItems: [],
     activeTagFilter: null,
     currentVaultName: '',
+    // 현재 볼트 폴더명 변경 시 사이드바 라벨을 즉시 갱신
+    // Python으로 치면: def set_current_vault_name(self, name): self.current_vault_name = name
+    setCurrentVaultName: (name) => set((state) => { state.currentVaultName = name }),
 
     // Magazine Layout 초기 상태
     // Python으로 치면: self.layout_descriptors = {}
@@ -1224,6 +1227,7 @@ export const usePageStore = create<PageStore>()(
             }
           }
         })
+        return true
       } catch {
         // 서버 실패해도 로컬 categoryMap은 업데이트 + 사용자 알림
         set((state) => {
@@ -1234,6 +1238,7 @@ export const usePageStore = create<PageStore>()(
           }
         })
         toast.warning('서버 이동에 실패했습니다. 새로고침 시 되돌아갈 수 있습니다.')
+        return false
       }
     },
 

@@ -170,7 +170,7 @@
 
 ## [src/components/settings/tabs/StorageTab.tsx](../src/components/settings/tabs/StorageTab.tsx)
 
-**역할:** 멀티 vault 관리 탭 — vault 목록·전환·루트 변경·스캔·고급 경로 변경.
+**역할:** 멀티 vault 관리 탭 — vault 생성·이름 변경·목록·전환·루트 변경·스캔·고급 경로 변경. 삭제는 안전을 위해 탐색기에서만 수행한다.
 
 ### exports
 
@@ -190,6 +190,8 @@
 | 동작 | 설명 |
 |------|------|
 | 정보 조회 | `GET /api/settings/vault-info` → 현재 vault·목록 표시 |
+| 새 vault 생성 | 이름을 입력해 `POST /api/settings/vaults` 호출 → 루트 아래 빈 폴더 생성 후 목록 갱신. 현재 vault는 유지 |
+| vault 이름 변경 | 목록의 연필 버튼에서 `PATCH /api/settings/vaults/{name}` 호출. 현재 vault면 사이드바 이름도 즉시 갱신 |
 | 전환 / 루트 변경 | `POST /api/settings/switch-vault`, `POST /api/settings/vaults-root` 후 페이지 스토어 재로딩 |
 | 스캔 / 고급 변경 | `scan-vault`, `vault-path`, 폴더 선택 API로 외부에서 추가한 메모와 경로 변경을 처리 |
 

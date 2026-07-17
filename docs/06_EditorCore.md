@@ -162,6 +162,12 @@
 | `blockToMarkdown(block)` | 블록 하나 → 마크다운 문자열 (30개 블록 타입 지원) |
 | `pageToMarkdown(page)` | 페이지 전체 → 마크다운 문자열 (제목 + 태그 + 블록 목록) |
 
+### 블록 드래그
+
+- 일반 문서 모드는 `DndContext` + `verticalListSortingStrategy`로 블록 순서를 변경한다.
+- `Editor`가 `useSortable()`의 transform을 렌더링하기 직전에 `scaleX`, `scaleY`를 항상 `1`로 정규화한다.
+- 따라서 서로 다른 폰트 크기·높이의 블록 위를 지나도 드래그 중인 블록 크기는 시작 상태로 고정되고, x/y 위치 이동과 반투명 효과만 유지된다.
+
 ### 섹션 접기/펼치기 로직
 
 - `HEADING_LEVEL` 맵으로 각 heading의 레벨(1~6) 판단

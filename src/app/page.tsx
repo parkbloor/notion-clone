@@ -126,6 +126,7 @@ export default function Home() {
   // 사이드바 메모 드래그 미리보기용 active page id
   // Python으로 치면: active_drag_page_id: str | None = None
   const [activeDragPageId, setActiveDragPageId] = useState<string | null>(null)
+  const [activeDragPageCount, setActiveDragPageCount] = useState(1)
 
   // -----------------------------------------------
   // Ctrl+Alt+N 단축키 → 빠른 노트 팝업 열기
@@ -816,7 +817,11 @@ export default function Home() {
     const activeType = event.active.data.current?.type as string | undefined
     if (activeType === 'page') {
       const pageId = event.active.data.current?.pageId
-      if (pageId) setActiveDragPageId(pageId as string)
+      if (pageId) {
+        setActiveDragPageId(pageId as string)
+        const bulkPageIds = event.active.data.current?.bulkPageIds
+        setActiveDragPageCount(Array.isArray(bulkPageIds) && bulkPageIds.length > 0 ? bulkPageIds.length : 1)
+      }
     }
   }, [])
 
@@ -840,9 +845,10 @@ export default function Home() {
   // useCallback([categoryOrder, categoryChildOrder]): indexOf 계산에 배열 클로저 필요
   // Zustand 액션들(movePageToCategory 등)은 stable reference → deps 불필요
   // Python으로 치면: @lru_cache(lambda self: (self.category_order, self.child_order))
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     const { active, over } = event
     setActiveDragPageId(null)
+    setActiveDragPageCount(1)
     if (!over) return
 
     const activeType = active.data.current?.type as string | undefined
@@ -855,7 +861,20 @@ export default function Home() {
       // Python으로 치면: if page_id := active.data.get('pageId'): move(page_id, target)
       const pageId = active.data.current?.pageId
       if (pageId) {
-        movePageToCategory(pageId as string, targetCategoryId)
+        const rawBulkPageIds = active.data.current?.bulkPageIds
+        const bulkPageIds = Array.isArray(rawBulkPageIds)
+          ? rawBulkPageIds.filter((id): id is string => typeof id === 'string')
+          : []
+        const pageIdsToMove = bulkPageIds.length > 0 ? bulkPageIds : [pageId as string]
+        const onBulkMoveComplete = active.data.current?.onBulkMoveComplete
+        let successCount = 0
+        // 실제 폴더와 index를 함께 바꾸므로 다중 이동은 순차 처리한다.
+        for (const pageIdToMove of pageIdsToMove) {
+          if (await movePageToCategory(pageIdToMove, targetCategoryId)) successCount += 1
+        }
+        if (typeof onBulkMoveComplete === 'function') {
+          onBulkMoveComplete(successCount, pageIdsToMove.length)
+        }
       }
     } else if (activeType === 'category' && overType === 'category' && active.id !== over.id) {
       // 드래그한 폴더와 드롭 대상 폴더의 parentId 비교
@@ -886,7 +905,12 @@ export default function Home() {
         // Python으로 치면: move_category(active.id, new_parent_id=over.id)
         moveCategoryToParent(active.id as string, over.id as string)
       }
-    } else if (activeType === 'page' && overType === 'page' && active.id !== over.id) {
+    } else if (
+      activeType === 'page'
+      && overType === 'page'
+      && active.id !== over.id
+      && !Array.isArray(active.data.current?.bulkPageIds)
+    ) {
       // 메모 목록 내 순서 변경
       reorderPages(active.id as string, over.id as string)
     }
@@ -894,6 +918,7 @@ export default function Home() {
 
   const handleDragCancel = useCallback(() => {
     setActiveDragPageId(null)
+    setActiveDragPageCount(1)
   }, [])
 
   return (
@@ -1157,6 +1182,11 @@ export default function Home() {
           >
             <span className="text-sm shrink-0">{activeDragPage.icon}</span>
             <span className="truncate flex-1 font-medium">{activeDragPage.title || t.common.untitled}</span>
+            {activeDragPageCount > 1 && (
+              <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold" style={{ background: "var(--color-accent)", color: "#fff" }}>
+                {activeDragPageCount}
+              </span>
+            )}
           </div>
         )}
       </DragOverlay>

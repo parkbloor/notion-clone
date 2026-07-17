@@ -185,6 +185,8 @@ if __name__ == '__main__':
 |------|------|------|
 | `GET` | `/api/settings/vault-info` | 현재 vault와 탐지된 vault 목록·용량 정보 |
 | `GET` | `/api/settings/vault-path` | 현재 vault 경로 조회 |
+| `POST` | `/api/settings/vaults` | vault root 아래에 빈 vault 폴더 생성. 삭제 API는 제공하지 않음 |
+| `PATCH` | `/api/settings/vaults/{vault_name}` | vault 폴더명 변경. 현재 vault면 활성 경로와 설정도 갱신 |
 | `POST` | `/api/settings/switch-vault` | vault 전환 후 현재 저장소 변경 |
 | `POST` | `/api/settings/vaults-root` | vault root 변경 |
 | `POST` | `/api/settings/vault-path` | 데이터 이동 옵션을 포함한 고급 경로 변경 |

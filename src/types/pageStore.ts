@@ -195,7 +195,7 @@ export interface PageStore {
   // Python으로 치면: async def delete_category(self, cat_id) -> dict
   deleteCategory: (categoryId: string) => Promise<{ hasPages: boolean; hasChildren?: boolean; count?: number }>
   // 페이지를 다른 카테고리로 이동 (null = 미분류)
-  movePageToCategory: (pageId: string, categoryId: string | null) => Promise<void>
+  movePageToCategory: (pageId: string, categoryId: string | null) => Promise<boolean>
   reorderCategories: (newOrder: string[]) => void
   // 하위 카테고리 순서 변경 → 서버에도 저장
   // Python으로 치면: def reorder_child_categories(self, parent_id, new_order): ...
@@ -228,6 +228,7 @@ export interface PageStore {
   // ── 현재 볼트 이름 (폴더명) — 사이드바 표시용 ──
   // Python으로 치면: self.current_vault_name: str = ''
   currentVaultName: string
+  setCurrentVaultName: (name: string) => void
 
   // ── Magazine Layout 상태/액션 ─────────────────
   // pageId → LayoutDescriptor 매핑 (메모리 캐시)

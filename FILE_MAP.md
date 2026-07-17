@@ -209,7 +209,7 @@
 | [src/components/settings/tabs/PluginsTab.tsx](src/components/settings/tabs/PluginsTab.tsx) | 플러그인 ON/OFF 토글 관리 |
 | [src/components/settings/tabs/AITab.tsx](src/components/settings/tabs/AITab.tsx) | AI 설정 (공급자/모델/API 키) |
 | [src/components/settings/tabs/DataTab.tsx](src/components/settings/tabs/DataTab.tsx) | 데이터 관리 (내보내기/가져오기) |
-| [src/components/settings/tabs/StorageTab.tsx](src/components/settings/tabs/StorageTab.tsx) | Vault 경로 설정 |
+| [src/components/settings/tabs/StorageTab.tsx](src/components/settings/tabs/StorageTab.tsx) | Vault 생성·이름 변경·목록·전환·경로 설정 (삭제는 탐색기 전용) |
 | [src/components/settings/tabs/CloudSyncTab.tsx](src/components/settings/tabs/CloudSyncTab.tsx) | 클라우드 동기화 설정 (Google Drive / OneDrive OAuth 연동) |
 | [src/components/settings/tabs/TemplatesTab.tsx](src/components/settings/tabs/TemplatesTab.tsx) | 사용자 정의 템플릿 관리 |
 | [src/components/settings/tabs/DebugTab.tsx](src/components/settings/tabs/DebugTab.tsx) | 디버그 로그 뷰어 |
