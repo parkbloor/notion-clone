@@ -132,6 +132,14 @@ export function blocksToMarkdown(page: Page): string {
     }
     const text = block.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
     switch (block.type) {
+      case 'record': {
+        try {
+          const data = JSON.parse(block.content) as { date?: string; title?: string; kind?: string }
+          const label = [data.date, data.kind, data.title].filter(Boolean).join(' ')
+          if (label) lines.push(label)
+        } catch { /* 손상된 기록 헤더는 검색에서 제외 */ }
+        break
+      }
       case 'heading1':    lines.push(`# ${text}`); break
       case 'heading2':    lines.push(`## ${text}`); break
       case 'heading3':    lines.push(`### ${text}`); break

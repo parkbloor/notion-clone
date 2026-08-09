@@ -10,6 +10,13 @@ import { Page, Category, PlanEvent, Routine } from '@/types/block'
 // Python으로 치면: BASE_URL = 'http://127.0.0.1:8000'
 export const BASE_URL = 'http://127.0.0.1:8000'
 
+export interface ImageUploadResult {
+  url: string
+  name: string
+  size: number
+  mime: string
+}
+
 // -----------------------------------------------
 // Date 직렬화 헬퍼
 // Page/Block의 Date 객체를 ISO 문자열로 변환 (JSON 전송용)
@@ -95,6 +102,13 @@ export const api = {
     return data
   },
 
+  // 단일 페이지 최신본 조회 — 저장 충돌 복구에 사용
+  getPage: async (pageId: string): Promise<Page> => {
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}`)
+    if (!res.ok) throw new Error('페이지 불러오기 실패')
+    return parsePage(await res.json())
+  },
+
   // ── 새 페이지 생성 ────────────────────────────
   // categoryId를 전달하면 해당 카테고리 폴더에 생성
   // Python으로 치면: requests.post(url, json={'title': title, 'icon': icon, 'categoryId': cat_id})
@@ -111,14 +125,16 @@ export const api = {
 
   // ── 페이지 저장 (upsert) ──────────────────────
   // 제목 변경으로 폴더 rename된 경우 → 업데이트된 Page 반환 (이미지 URL 갱신용)
-  // rename 없으면 → null 반환
+  // 모든 성공 저장은 서버의 최신 페이지(이미지 URL·revision 포함)를 반환
   // Python으로 치면: res = requests.put(url, json=page_data); return res.json()['page'] if renamed
   // categoryId: 신규 페이지(로컬 폴백으로 생성된 경우)를 카테고리 폴더에 배치
   // Python으로 치면: requests.put(url, json=page_data, params={'categoryId': cat_id})
   savePage: async (pageId: string, page: Page, categoryId?: string | null): Promise<Page | null> => {
-    const url = categoryId
-      ? `${BASE_URL}/api/pages/${pageId}?categoryId=${encodeURIComponent(categoryId)}`
-      : `${BASE_URL}/api/pages/${pageId}`
+    const params = new URLSearchParams()
+    if (categoryId) params.set('categoryId', categoryId)
+    if (page.revision !== undefined) params.set('expectedRevision', String(page.revision))
+    const query = params.size ? `?${params.toString()}` : ''
+    const url = `${BASE_URL}/api/pages/${pageId}${query}`
     const res = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -131,9 +147,7 @@ export const api = {
       throw new Error(`저장 실패 (${res.status}): ${errText}`)
     }
     const data = await res.json()
-    // rename이 발생한 경우에만 업데이트된 page 반환
-    if (!data.renamed || !data.page) return null
-    return parsePage(data.page)
+    return data.page ? parsePage(data.page) : null
   },
 
   // ── 페이지 삭제 ──────────────────────────────
@@ -154,7 +168,7 @@ export const api = {
 
   // ── 이미지 파일 업로드 ───────────────────────
   // Python으로 치면: requests.post(url, files={'file': file_obj})
-  uploadImage: async (pageId: string, file: File): Promise<string> => {
+  uploadImage: async (pageId: string, file: File): Promise<ImageUploadResult> => {
     const form = new FormData()
     form.append('file', file)
     const res = await fetch(`${BASE_URL}/api/pages/${pageId}/images`, {
@@ -167,7 +181,47 @@ export const api = {
       throw Object.assign(new Error(body.detail || '이미지 업로드 실패'), { status: res.status })
     }
     const data = await res.json()
-    return data.url as string
+    return {
+      url: data.url as string,
+      name: (data.originalName as string | undefined) || file.name,
+      size: Number(data.size ?? file.size),
+      mime: (data.mime as string | undefined) || file.type || 'application/octet-stream',
+    }
+  },
+
+  // ── 현재 메모가 참조하는 이미지 원본 다운로드 ──
+  downloadImage: async (pageId: string, url: string): Promise<Blob> => {
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/images/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || '이미지 원본 다운로드에 실패했습니다')
+    }
+    return await res.blob()
+  },
+
+  // ── 현재 메모의 로컬 원본 이미지 전체 ZIP 다운로드 ──
+  downloadAllImages: async (pageId: string): Promise<Blob> => {
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/images/download-all`)
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || '이미지 전체 다운로드에 실패했습니다')
+    }
+    return await res.blob()
+  },
+
+  // ── 본문·커버·히스토리에서 참조되지 않는 이미지 파일만 정리 ──
+  cleanupImage: async (pageId: string, url: string): Promise<{ deleted: boolean }> => {
+    const res = await fetch(`${BASE_URL}/api/pages/${pageId}/images/cleanup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    if (!res.ok) throw new Error('이미지 파일 정리에 실패했습니다')
+    return await res.json() as { deleted: boolean }
   },
 
   // ── 비디오 파일 업로드 ───────────────────────
@@ -381,6 +435,25 @@ export const templateApi = {
     return data.templates as Template[]
   },
 
+  // 현재 볼트의 새 메모 기본 템플릿
+  getDefault: async (): Promise<string | null> => {
+    const res = await fetch(`${BASE_URL}/api/templates/default`)
+    if (!res.ok) return null
+    const data = await res.json()
+    return typeof data.templateId === 'string' ? data.templateId : null
+  },
+
+  setDefault: async (templateId: string | null): Promise<string | null> => {
+    const res = await fetch(`${BASE_URL}/api/templates/default`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ templateId }),
+    })
+    if (!res.ok) throw new Error('기본 템플릿 저장 실패')
+    const data = await res.json()
+    return typeof data.templateId === 'string' ? data.templateId : null
+  },
+
   // 새 템플릿 생성
   // Python으로 치면: requests.post(url, json=body).json()
   create: async (body: Omit<Template, 'id'>): Promise<Template> => {
@@ -410,6 +483,39 @@ export const templateApi = {
   delete: async (id: string): Promise<void> => {
     const res = await fetch(`${BASE_URL}/api/templates/${id}`, { method: 'DELETE' })
     if (!res.ok) throw new Error('템플릿 삭제 실패')
+  },
+}
+
+// ── 볼트별 기능 표시 설정 ────────────────────────
+export interface VaultPlannerFeatures {
+  todayShortcut: boolean
+  planMenu: boolean
+  reviews: boolean
+  calendar: boolean
+  timeline: boolean
+  routines: boolean
+  slashPlannerBlocks: boolean
+}
+
+export interface VaultPreferences {
+  planner: VaultPlannerFeatures
+}
+
+export const vaultPreferencesApi = {
+  get: async (): Promise<VaultPreferences> => {
+    const res = await fetch(`${BASE_URL}/api/vault-preferences`)
+    if (!res.ok) throw new Error('볼트 기능 설정 불러오기 실패')
+    return res.json()
+  },
+
+  updatePlanner: async (planner: Partial<VaultPlannerFeatures>): Promise<VaultPreferences> => {
+    const res = await fetch(`${BASE_URL}/api/vault-preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planner }),
+    })
+    if (!res.ok) throw new Error('볼트 기능 설정 저장 실패')
+    return res.json()
   },
 }
 

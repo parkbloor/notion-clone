@@ -7,7 +7,7 @@
     "dev": "concurrently --kill-others-on-fail --names \"fastapi,next\" --prefix-colors \"green,blue\" \"node scripts/start-backend.js\" \"wait-on http-get://127.0.0.1:8000/api/pages && next dev\"",
     "dev:next": "next dev",
     "dev:api": "node scripts/start-backend.js",
-    "electron:dev": "concurrently --names \"next,electron\" --prefix-colors \"blue,cyan\" --kill-others-on-fail \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:dev": "concurrently --names \"next,electron\" --prefix-colors \"blue,cyan\" --kill-others \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "next build",
     "build:next": "next build && node scripts/copy-next-static.js",
     "build:backend": ".venv\\Scripts\\python.exe -m PyInstaller backend/backend.spec --distpath dist-backend --workpath build-backend --noconfirm",

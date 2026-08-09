@@ -17,10 +17,13 @@ const {
   Menu,
   dialog,
   ipcMain,
+  nativeImage,
   screen,
+  shell,
   utilityProcess,
 } = require('electron')
 const { spawn } = require('child_process')
+const { installShutdownSignalHandlers, stopChildProcess } = require('./process-manager')
 const path = require('path')
 const http = require('http')
 const net = require('net')
@@ -159,7 +162,7 @@ function waitForServer(url, timeoutMs = 40000) {
 
 // -----------------------------------------------
 // 모든 자식 프로세스 종료
-// Windows에서는 SIGTERM이 무시될 수 있어 kill()을 직접 호출
+// Windows에서는 PyInstaller 자식까지 프로세스 트리 단위로 종료
 // Python으로 치면: def kill_all(): backend.terminate(); next_proc.terminate()
 // -----------------------------------------------
 function killAllProcesses() {
@@ -167,23 +170,31 @@ function killAllProcesses() {
   isQuitting = true
 
   if (backendProcess) {
-    try {
-      // Windows: process.kill() + taskkill 으로 강제 종료
-      backendProcess.kill()
-      if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(backendProcess.pid), '/f', '/t'], { shell: true })
-      }
-    } catch (_) {}
+    stopChildProcess(backendProcess)
     backendProcess = null
   }
 
   if (nextProcess) {
     try {
       nextProcess.kill()
-    } catch (_) {}
+    } catch {}
     nextProcess = null
   }
 }
+
+// 개발 배치 창의 Ctrl+C 또는 concurrently의 SIGTERM도 Electron 정상 종료로 연결한다.
+// Windows 콘솔 신호로 프로세스가 바로 끝나 before-quit가 누락되는 것을 방지한다.
+// Python으로 치면: signal.signal(SIGINT, lambda *_: graceful_shutdown())
+installShutdownSignalHandlers(process, (signal) => {
+  console.log(`[electron] ${signal} 수신 — 개발 서버를 종료합니다.`)
+  cleanupImageDragTemp()
+  killAllProcesses()
+  if (app.isReady()) {
+    app.quit()
+  } else {
+    app.exit(0)
+  }
+})
 
 
 // -----------------------------------------------
@@ -427,12 +438,118 @@ ipcMain.handle('select-folder', async () => {
   return result.filePaths[0]
 })
 
+ipcMain.handle('open-external-url', async (_event, rawUrl) => {
+  const parsed = new URL(String(rawUrl || ''))
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('허용되지 않은 외부 링크 프로토콜입니다')
+  }
+  await shell.openExternal(parsed.toString())
+  return true
+})
+
+// -----------------------------------------------
+// 이미지 원본을 Windows 탐색기로 끌어내기
+// 렌더러가 임의 경로를 지정하지 못하도록 활성 볼트 URL만 경로로 변환한다.
+// Python으로 치면: def start_image_drag(url, name): validate(url); shell.start_drag(file)
+// -----------------------------------------------
+function resolveVaultImageUrl(rawUrl) {
+  const parsed = new URL(String(rawUrl || ''))
+  if (parsed.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(parsed.hostname)) {
+    throw new Error('로컬 이미지 URL이 아닙니다')
+  }
+  if (parsed.port && parsed.port !== String(BACKEND_PORT)) {
+    throw new Error('허용되지 않은 이미지 포트입니다')
+  }
+  const prefix = '/static/'
+  const decodedPath = decodeURIComponent(parsed.pathname)
+  if (!decodedPath.startsWith(prefix)) throw new Error('정적 이미지 URL이 아닙니다')
+  const parts = decodedPath.slice(prefix.length).split('/').filter(Boolean)
+  if (parts.length < 3 || parts.some((part) => part === '.' || part === '..')) {
+    throw new Error('허용되지 않은 이미지 경로입니다')
+  }
+
+  const configPath = isDev
+    ? path.join(__dirname, '..', 'vault_config.json')
+    : path.join(app.getPath('appData'), 'NotionClone', 'vault_config.json')
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+  const vaultRoot = path.resolve(String(config.vaults_root || ''))
+  const vaultDir = path.resolve(vaultRoot, String(config.current_vault || ''))
+  const vaultRelative = path.relative(vaultRoot, vaultDir)
+  if (!vaultRelative || vaultRelative.startsWith('..') || path.isAbsolute(vaultRelative)) {
+    throw new Error('활성 볼트 설정이 올바르지 않습니다')
+  }
+  const filePath = path.resolve(vaultDir, ...parts)
+  const relative = path.relative(vaultDir, filePath)
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error('활성 볼트 밖의 파일입니다')
+  }
+
+  const allowedExts = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'])
+  const extension = path.extname(filePath).toLowerCase()
+  const uuidStem = path.basename(filePath, extension)
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  if (path.basename(path.dirname(filePath)).toLowerCase() !== 'images'
+      || !allowedExts.has(extension)
+      || !uuidPattern.test(uuidStem)
+      || !fs.statSync(filePath).isFile()) {
+    throw new Error('검증된 원본 이미지 파일이 아닙니다')
+  }
+  return filePath
+}
+
+function getImageDragRoot() {
+  return path.join(app.getPath('temp'), 'NotionCloneImageDrag')
+}
+
+function cleanupImageDragTemp() {
+  const dragRoot = getImageDragRoot()
+  try {
+    fs.rmSync(dragRoot, { recursive: true, force: true })
+  } catch (error) {
+    // 임시파일 정리 실패가 앱 시작·종료를 막아서는 안 된다.
+    console.error('[image-drag-cleanup]', error instanceof Error ? error.message : error)
+  }
+}
+
+function createNamedDragCopy(sourcePath, requestedName) {
+  const extension = path.extname(sourcePath).toLowerCase()
+  let safeName = path.basename(String(requestedName || '')).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim()
+  safeName = safeName.replace(/[. ]+$/g, '').slice(0, 160)
+  if (!safeName || path.extname(safeName).toLowerCase() !== extension) {
+    safeName = `${path.basename(safeName, path.extname(safeName)) || 'image'}${extension}`
+  }
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(safeName)) safeName = `_${safeName}`
+
+  const dragRoot = getImageDragRoot()
+  const dragDir = path.join(dragRoot, path.basename(sourcePath, extension))
+  const dragPath = path.join(dragDir, safeName)
+  // 같은 원본의 표시 이름이 바뀌어도 이전 이름의 복사본이 누적되지 않게 한다.
+  fs.rmSync(dragDir, { recursive: true, force: true })
+  fs.mkdirSync(dragDir, { recursive: true })
+  fs.copyFileSync(sourcePath, dragPath)
+  return dragPath
+}
+
+ipcMain.on('start-image-drag', (event, payload) => {
+  try {
+    const sourcePath = resolveVaultImageUrl(payload?.url)
+    const dragPath = createNamedDragCopy(sourcePath, payload?.name)
+    let icon = nativeImage.createFromPath(sourcePath)
+    if (!icon.isEmpty()) icon = icon.resize({ width: 32, height: 32 })
+    event.sender.startDrag({ file: dragPath, icon: icon.isEmpty() ? sourcePath : icon })
+  } catch (error) {
+    console.error('[image-drag]', error instanceof Error ? error.message : error)
+  }
+})
+
 
 // -----------------------------------------------
 // 앱 시작 진입점
 // Python으로 치면: if __name__ == '__main__': main()
 // -----------------------------------------------
 app.whenReady().then(async () => {
+  // 이전 비정상 종료에서 남은 원본 드래그 임시 복사본을 먼저 정리한다.
+  cleanupImageDragTemp()
   // ── 1단계: 포트 사용 가능 여부 확인 ─────────────────────
   // 개발 모드에서 Next.js는 이미 외부에서 실행 중이므로 체크 제외
   const portsToCheck = isDev
@@ -497,14 +614,18 @@ app.whenReady().then(async () => {
 
 // ── 앱 종료 이벤트 처리 ──────────────────────────────────
 // Python으로 치면: atexit.register(kill_all)
-app.on('before-quit', killAllProcesses)
+app.on('before-quit', () => {
+  cleanupImageDragTemp()
+  killAllProcesses()
+})
 
 // force-kill(SIGKILL 등) 대비 동기 최후 정리
 // before-quit가 발화하지 않는 비정상 종료 경로에서 자식 프로세스 고아 방지
 // Python으로 치면: atexit.register(sync_kill_all)
 process.on('exit', () => {
-  if (backendProcess) { try { backendProcess.kill() } catch (_) {} }
-  if (nextProcess) { try { nextProcess.kill() } catch (_) {} }
+  cleanupImageDragTemp()
+  if (backendProcess) stopChildProcess(backendProcess)
+  if (nextProcess) { try { nextProcess.kill() } catch {} }
 })
 
 app.on('window-all-closed', () => {

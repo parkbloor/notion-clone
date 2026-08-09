@@ -9,12 +9,13 @@ import json
 import re
 import shutil
 import sys
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import logging
 
@@ -29,6 +30,9 @@ from backend.core import (
     save_index,
     scan_vault_for_pages,
     mem_handler,
+    read_operation_errors,
+    inspect_vault_integrity,
+    serialized_vault_write,
 )
 
 _log = logging.getLogger(__name__)
@@ -38,6 +42,140 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 # tkinter 다이얼로그는 반드시 단일 스레드에서 순차 실행 (GUI 이벤트 루프 충돌 방지)
 _tk_executor = ThreadPoolExecutor(max_workers=1)
+
+VAULT_GROUPS_FILENAME = ".vault_groups.json"
+
+
+class VaultGroupPayload(BaseModel):
+    id: str
+    name: str
+    vaults: list[str] = Field(default_factory=list)
+
+
+class VaultGroupsBody(BaseModel):
+    groups: list[VaultGroupPayload] = Field(default_factory=list)
+
+
+def _vault_groups_path() -> Path:
+    return get_vaults_root() / VAULT_GROUPS_FILENAME
+
+
+def _load_vault_groups() -> list[dict]:
+    path = _vault_groups_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        groups = data.get("groups", []) if isinstance(data, dict) else []
+        return groups if isinstance(groups, list) else []
+    except (OSError, json.JSONDecodeError) as exc:
+        _log.warning("볼트 그룹 메타데이터 읽기 실패: %s", exc)
+        return []
+
+
+def _write_vault_groups(groups: list[dict]) -> None:
+    path = _vault_groups_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(path.name + ".tmp")
+    try:
+        temp_path.write_text(
+            json.dumps({"version": 1, "groups": groups}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _validate_vault_groups(groups: list[VaultGroupPayload]) -> list[dict]:
+    if len(groups) > 50:
+        raise HTTPException(status_code=400, detail="볼트 그룹은 최대 50개까지 만들 수 있습니다")
+
+    available_vaults = {vault["name"] for vault in list_vaults()}
+    seen_ids: set[str] = set()
+    seen_names: set[str] = set()
+    assigned_vaults: set[str] = set()
+    normalized: list[dict] = []
+
+    for group in groups:
+        try:
+            group_id = str(uuid.UUID(group.id))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="볼트 그룹 ID가 올바르지 않습니다") from exc
+        if group_id in seen_ids:
+            raise HTTPException(status_code=400, detail="중복된 볼트 그룹 ID가 있습니다")
+        seen_ids.add(group_id)
+
+        name = group.name.strip()
+        if not name or len(name) > 40:
+            raise HTTPException(status_code=400, detail="볼트 그룹 이름은 1~40자로 입력해 주세요")
+        name_key = name.casefold()
+        if name_key in seen_names:
+            raise HTTPException(status_code=400, detail="같은 이름의 볼트 그룹이 이미 있습니다")
+        seen_names.add(name_key)
+
+        vault_names: list[str] = []
+        for vault_name in group.vaults:
+            if vault_name not in available_vaults:
+                raise HTTPException(status_code=400, detail=f"존재하지 않는 볼트입니다: {vault_name}")
+            if vault_name in assigned_vaults:
+                raise HTTPException(status_code=400, detail=f"볼트가 여러 그룹에 중복 배치되었습니다: {vault_name}")
+            assigned_vaults.add(vault_name)
+            vault_names.append(vault_name)
+
+        normalized.append({"id": group_id, "name": name, "vaults": vault_names})
+
+    return normalized
+
+
+def _replace_grouped_vault_name(old_name: str, new_name: str) -> None:
+    groups = _load_vault_groups()
+    changed = False
+    for group in groups:
+        vaults = group.get("vaults", [])
+        if old_name in vaults:
+            group["vaults"] = [new_name if name == old_name else name for name in vaults]
+            changed = True
+    if changed:
+        _write_vault_groups(groups)
+
+
+@router.get("/settings/vault-groups")
+def get_vault_groups():
+    vaults = list_vaults()
+    available_names = {vault["name"] for vault in vaults}
+    groups: list[dict] = []
+    assigned: set[str] = set()
+
+    # 탐색기에서 볼트가 삭제·이름 변경된 경우 화면에는 유효한 참조만 노출한다.
+    for raw_group in _load_vault_groups():
+        if not isinstance(raw_group, dict):
+            continue
+        group_id = raw_group.get("id")
+        name = raw_group.get("name")
+        if not isinstance(group_id, str) or not isinstance(name, str):
+            continue
+        group_vaults = []
+        for vault_name in raw_group.get("vaults", []):
+            if vault_name in available_names and vault_name not in assigned:
+                group_vaults.append(vault_name)
+                assigned.add(vault_name)
+        groups.append({"id": group_id, "name": name, "vaults": group_vaults})
+
+    return {
+        "groups": groups,
+        "vaults": vaults,
+        "ungrouped": [vault["name"] for vault in vaults if vault["name"] not in assigned],
+    }
+
+
+@router.put("/settings/vault-groups")
+@serialized_vault_write
+def put_vault_groups(body: VaultGroupsBody):
+    groups = _validate_vault_groups(body.groups)
+    _write_vault_groups(groups)
+    return {"ok": True, "groups": groups}
 
 
 # -----------------------------------------------
@@ -167,6 +305,12 @@ def rename_vault(vault_name: str, body: RenameVaultBody):
     # 현재 볼트의 폴더명을 바꾼 경우 런타임 경로와 vault_config.json도 즉시 갱신
     if was_current:
         set_vault_dir(new_path)
+
+    # 전역 그룹은 실제 경로가 아닌 볼트 이름 참조만 보관하므로 함께 교체한다.
+    try:
+        _replace_grouped_vault_name(old_name, new_name)
+    except OSError as exc:
+        _log.warning("볼트 이름 변경 후 그룹 메타데이터 갱신 실패: %s", exc)
 
     _log.info("rename_vault: %s → %s", old_path, new_path)
     return {
@@ -405,3 +549,15 @@ def get_debug_logs():
     if getattr(sys, 'frozen', False):
         raise HTTPException(status_code=403, detail="디버그 로그는 개발 모드에서만 사용할 수 있습니다")
     return {"logs": list(mem_handler.records)}
+
+
+@router.get("/debug/operation-errors")
+def get_operation_errors():
+    """앱 재시작 뒤에도 남는 최근 무결성/작업 오류 로그를 반환한다."""
+    return {"logs": read_operation_errors()}
+
+
+@router.post("/settings/check-integrity")
+def check_integrity():
+    """사용자가 요청한 전체 볼트 검사. 오류만 영구 작업 로그에 남긴다."""
+    return {"ok": True, **inspect_vault_integrity(include_images=True, log_errors=True)}

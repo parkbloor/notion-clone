@@ -25,6 +25,11 @@ def get_templates_dir():
 
 # Python으로 치면: router = Blueprint('templates', __name__, url_prefix='/api')
 router = APIRouter(prefix="/api", tags=["templates"])
+DEFAULT_TEMPLATE_FILENAME = ".default-template"
+
+
+def get_default_template_path():
+    return get_templates_dir() / DEFAULT_TEMPLATE_FILENAME
 
 
 # -----------------------------------------------
@@ -166,6 +171,10 @@ class TemplateBody(BaseModel):
     content: str = ""
 
 
+class DefaultTemplateBody(BaseModel):
+    templateId: str | None = None
+
+
 # -----------------------------------------------
 # 전체 템플릿 목록 반환
 # Python으로 치면: def get_templates(): return [json.load(f) for f in get_templates_dir().glob('*.json')]
@@ -181,6 +190,41 @@ def get_templates():
         except Exception:
             pass
     return {"templates": templates}
+
+
+@router.get("/templates/default")
+def get_default_template():
+    """현재 볼트의 새 메모 기본 템플릿 ID를 반환한다."""
+    preference_path = get_default_template_path()
+    if not preference_path.exists():
+        return {"templateId": None}
+
+    template_id = preference_path.read_text(encoding="utf-8").strip()
+    try:
+        validate_uuid(template_id, "템플릿 ID")
+    except HTTPException:
+        return {"templateId": None}
+
+    if not (get_templates_dir() / f"{template_id}.json").is_file():
+        return {"templateId": None}
+    return {"templateId": template_id}
+
+
+@router.put("/templates/default")
+def set_default_template(body: DefaultTemplateBody):
+    """현재 볼트의 새 메모 기본 템플릿을 지정하거나 해제한다."""
+    preference_path = get_default_template_path()
+    template_id = (body.templateId or "").strip()
+    if not template_id:
+        preference_path.unlink(missing_ok=True)
+        return {"templateId": None}
+
+    validate_uuid(template_id, "템플릿 ID")
+    if not (get_templates_dir() / f"{template_id}.json").is_file():
+        raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
+
+    preference_path.write_text(template_id, encoding="utf-8")
+    return {"templateId": template_id}
 
 
 # -----------------------------------------------
@@ -244,4 +288,7 @@ def delete_template(template_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="템플릿을 찾을 수 없습니다")
     path.unlink()
+    preference_path = get_default_template_path()
+    if preference_path.exists() and preference_path.read_text(encoding="utf-8").strip() == template_id:
+        preference_path.unlink(missing_ok=True)
     return {"ok": True}

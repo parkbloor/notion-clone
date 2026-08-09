@@ -5,7 +5,7 @@
 // Python으로 치면: def analyze_blocks(blocks: list[Block]) -> list[BlockAnalysis]: ...
 // =============================================
 
-import { Block, BlockRole, LayoutCell, LayoutDescriptor, LayoutTemplate, createLayoutDescriptor, DEFAULT_LAYOUT_THEME } from '@/types/block'
+import { Block, BlockRole, LayoutCell, LayoutDescriptor, createLayoutDescriptor } from '@/types/block'
 
 // 분석 결과 하나 — blockId + 역할 + 가중치
 // Python으로 치면: @dataclass class BlockAnalysis: block_id, role, weight
@@ -321,6 +321,7 @@ function estimateRowSpan(type: Block['type'], content: string): number {
     return 10  // 복잡한 비주얼 블록 — 충분한 높이
   }
   if (type === 'image' || type === 'video' || type === 'embed') return 5
+  if (type === 'record') return 2
   if (type === 'code') {
     const lineCount = (content.match(/\n/g) ?? []).length
     return Math.max(3, Math.ceil(lineCount * 0.8) + 2)

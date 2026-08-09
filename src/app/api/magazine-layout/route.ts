@@ -9,11 +9,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 
-// 클라이언트는 첫 호출 시 초기화 (환경변수 없으면 해당 provider 호출 시 에러)
-// Python으로 치면: _claude = None; _openai = None
-const _claude: Anthropic | null = null
-const _openai: OpenAI | null = null
-
 // 요청마다 키가 달라질 수 있으므로 키를 인자로 받아 클라이언트 생성
 // Python으로 치면: def get_claude_client(key): return anthropic.Anthropic(api_key=key)
 function getClaudeClient(apiKey: string): Anthropic {
@@ -38,6 +33,15 @@ function describeBlock(
   const idx = index + 1
 
   switch (block.type) {
+    case 'record': {
+      try {
+        const data = JSON.parse(block.content) as { date?: string; title?: string; kind?: string }
+        const label = [data.date, data.kind, data.title].filter(Boolean).join(' · ')
+        return `${idx}. [날짜 기록 헤더] id:"${block.id}" → "${label}"`
+      } catch {
+        return `${idx}. [날짜 기록 헤더] id:"${block.id}"`
+      }
+    }
     case 'heading1':    return `${idx}. [H1 대제목] id:"${block.id}" → "${preview}"`
     case 'heading2':    return `${idx}. [H2 소제목] id:"${block.id}" → "${preview}"`
     case 'heading3':    return `${idx}. [H3 항목] id:"${block.id}" → "${preview}"`

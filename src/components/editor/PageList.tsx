@@ -143,7 +143,7 @@ function blocksToMarkdown(page: Page): string {
   return lines.join('\n\n')
 }
 
-function PageContextMenu({ page, currentCategoryId: _currentCategoryId, onClose }: PageContextMenuProps) {
+function PageContextMenu({ page, onClose }: PageContextMenuProps) {
   const { categories, categoryMap, movePageToCategory, deletePage, duplicatePage } = usePageStore()
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -702,7 +702,6 @@ export default function PageList({ onOpenSettings, onCloseMobile, dbViewActive, 
     categoryMap,
     categories,
     setCurrentPage,
-    addPage,
     recentPageIds,
     pushRecentPage,
   } = usePageStore()

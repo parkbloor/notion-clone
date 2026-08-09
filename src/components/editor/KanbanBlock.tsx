@@ -13,7 +13,6 @@ import {
   DragOverlay,
   DragStartEvent,
   DragOverEvent,
-  DragEndEvent,
   PointerSensor,
   useSensor,
   useSensors,
@@ -295,7 +294,7 @@ function DroppableColumn({
 // KanbanBlock: 메인 칸반 보드 컴포넌트
 // Python으로 치면: class KanbanBlock(Widget): def render(self): return KanbanBoard(self.data)
 // -----------------------------------------------
-export default function KanbanBlock({ blockId, pageId: _pageId, content, onChange }: KanbanBlockProps) {
+export default function KanbanBlock({ blockId, content, onChange }: KanbanBlockProps) {
   const t = useLocale()
 
   // content prop → 로컬 state 초기화 (마운트 시 한 번만)
@@ -423,7 +422,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
   // 드래그 종료 핸들러 — 최종 상태를 onChange로 저장
   // Python으로 치면: def on_drag_end(self, e): self.save(self._cols_ref)
   // -----------------------------------------------
-  function handleDragEnd(_event: DragEndEvent) {
+  function handleDragEnd() {
     setActiveCard(null)
     activeColumnIdRef.current = null
     save(columnsRef.current)
@@ -439,7 +438,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
       col.id === colId ? { ...col, cards: [...col.cards, newCard] } : col
     )
     save(newCols)
-  }, [data.columns, save])
+  }, [data.columns, save, t.blocks.kanban.newCard])
 
   // 카드 삭제
   // Python으로 치면: def delete_card(self, col_id, card_id): col.cards.remove(card)
@@ -474,7 +473,7 @@ export default function KanbanBlock({ blockId, pageId: _pageId, content, onChang
       cards: [],
     }
     save([...data.columns, newCol])
-  }, [data.columns, save])
+  }, [data.columns, save, t.blocks.kanban.newColumn])
 
   // 열 삭제 (안에 카드가 있어도 삭제)
   // Python으로 치면: def delete_column(self, col_id): self.columns.remove(col)

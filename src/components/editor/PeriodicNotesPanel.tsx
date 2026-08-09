@@ -6,14 +6,17 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { createBlock } from '@/types/block'
 import type { Block } from '@/types/block'
 import { useLocale } from '@/locales'
-import { templateApi } from '@/lib/api'
+import { BASE_URL, templateApi } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
+import type { RecordCalendarEntry } from '@/lib/recordCalendar'
+import MonthlyRecordSummary from './MonthlyRecordSummary'
 
 // -----------------------------------------------
 // ISO 8601 주차 계산 (1월 첫째 목요일이 속한 주 = 1주)
@@ -25,6 +28,10 @@ function getISOWeek(date: Date): number {
   d.setUTCDate(d.getUTCDate() + 4 - dayNum)
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
   return Math.ceil((((d.valueOf() - yearStart.valueOf()) / 86400000) + 1) / 7)
+}
+
+function localDateString(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 // -----------------------------------------------
@@ -277,7 +284,23 @@ export function makeYearlyTemplate(title: string, year: number): Block[] {
 // -----------------------------------------------
 // PeriodicNotesPanel — 일간/주간/월간 탭 패널
 // -----------------------------------------------
-export default function PeriodicNotesPanel() {
+interface PeriodicNotesPanelProps {
+  onOpenDayPlanner?: () => void
+  calendar?: ReactNode
+  showReviews?: boolean
+  showTimeline?: boolean
+  showRoutines?: boolean
+  onOpenRecord?: (record: RecordCalendarEntry) => void
+}
+
+export default function PeriodicNotesPanel({
+  onOpenDayPlanner,
+  calendar,
+  showReviews = true,
+  showTimeline = true,
+  showRoutines = true,
+  onOpenRecord,
+}: PeriodicNotesPanelProps) {
   // 로케일 훅
   const t = useLocale()
 
@@ -292,6 +315,10 @@ export default function PeriodicNotesPanel() {
   // 장기 탭 상태: 'quarterly' | 'yearly'
   // Python으로 치면: self.long_tab = 'quarterly'
   const [longTab, setLongTab] = useState<'quarterly' | 'yearly'>('quarterly')
+
+  // 사용 빈도가 낮은 주기 보기는 기본 접힘으로 보존한다.
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [exportingPeriod, setExportingPeriod] = useState<'today' | 'week' | null>(null)
 
   // 장기 뷰 연도 (분기/연간 공통)
   // Python으로 치면: self.long_view_year = today.year
@@ -513,8 +540,146 @@ export default function PeriodicNotesPanel() {
   // Python으로 치면: current_quarter = ceil(today.month / 3)
   const todayCurQ = Math.ceil(todayMonth / 3) as 1|2|3|4
 
+  async function handleExportPeriod(period: 'today' | 'week') {
+    if (exportingPeriod) return
+    const start = new Date(today)
+    const end = new Date(today)
+    if (period === 'week') {
+      const mondayOffset = today.getDay() === 0 ? -6 : 1 - today.getDay()
+      start.setDate(today.getDate() + mondayOffset)
+      end.setTime(start.getTime())
+      end.setDate(start.getDate() + 6)
+    }
+    const startDate = localDateString(start)
+    const endDate = localDateString(end)
+    const label = period === 'today'
+      ? t.overlay.periodic.todayHtmlTitle.replace('{date}', startDate)
+      : t.overlay.periodic.weekHtmlTitle.replace('{start}', startDate).replace('{end}', endDate)
+
+    setExportingPeriod(period)
+    try {
+      const query = new URLSearchParams({ start_date: startDate, end_date: endDate, label })
+      const response = await fetch(`${BASE_URL}/api/export/planner-period?${query}`)
+      if (!response.ok) throw new Error(await response.text().catch(() => String(response.status)))
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `${label}.html`
+      anchor.click()
+      URL.revokeObjectURL(url)
+      toast.success(t.overlay.periodic.periodHtmlSuccess)
+    } catch (error) {
+      console.error('기간 HTML 내보내기 오류:', error)
+      toast.error(t.overlay.periodic.periodHtmlError)
+    } finally {
+      setExportingPeriod(null)
+    }
+  }
+
   return (
-    <div className="border-t hairline">
+    <div>
+      {/* 오늘 — 가장 자주 쓰는 일정·루틴과 일간 노트 */}
+      <section className="border-b hairline px-2 py-2">
+        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+          {t.overlay.periodic.sectionToday}
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={onOpenDayPlanner}
+            disabled={!onOpenDayPlanner}
+            className="flex min-h-14 flex-col items-start justify-center rounded-lg bg-blue-50 px-2.5 py-2 text-left text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span className="text-base">🗓️</span>
+            <span className="mt-0.5 text-[11px] font-semibold">{t.overlay.periodic.openDayPlanner}</span>
+            <span className="text-[9px] opacity-70">{t.overlay.periodic.scheduleAndRoutines}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenDaily}
+            className="flex min-h-14 flex-col items-start justify-center rounded-lg bg-amber-50 px-2.5 py-2 text-left text-amber-700 transition-colors hover:bg-amber-100"
+          >
+            <span className="text-base">📅</span>
+            <span className="mt-0.5 text-[11px] font-semibold">{t.overlay.periodic.openTodayNote}</span>
+            <span className="text-[9px] opacity-70">{todayDateStr}</span>
+          </button>
+        </div>
+        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => void handleExportPeriod('today')} disabled={exportingPeriod !== null}
+            className="rounded-md border border-gray-200 px-2 py-1.5 text-[10px] font-medium text-gray-500 transition-colors hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">
+            {exportingPeriod === 'today' ? t.overlay.periodic.exportingHtml : t.overlay.periodic.exportTodayHtml}
+          </button>
+          <button type="button" onClick={() => void handleExportPeriod('week')} disabled={exportingPeriod !== null}
+            className="rounded-md border border-gray-200 px-2 py-1.5 text-[10px] font-medium text-gray-500 transition-colors hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">
+            {exportingPeriod === 'week' ? t.overlay.periodic.exportingHtml : t.overlay.periodic.exportWeekHtml}
+          </button>
+        </div>
+      </section>
+
+      {/* 계획하기 — 기존 주간 타임라인과 루틴 관리 진입점 */}
+      {(showTimeline || showRoutines) && <section className="border-b hairline px-2 py-2">
+        <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+          {t.overlay.periodic.sectionPlan}
+        </div>
+        <div className="space-y-1">
+          {showTimeline && <button
+            type="button"
+            onClick={handleOpenWeekly}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 transition-colors hover:bg-violet-50 hover:text-violet-700"
+          >
+            <span>📆</span>
+            <span className="flex-1 font-medium">{t.overlay.periodic.openWeeklyTimeline}</span>
+            <span className="text-gray-300">›</span>
+          </button>}
+          {showRoutines && <button
+            type="button"
+            onClick={onOpenDayPlanner}
+            disabled={!onOpenDayPlanner}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 transition-colors hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span>🔁</span>
+            <span className="flex-1 font-medium">{t.overlay.periodic.manageRoutines}</span>
+            <span className="text-gray-300">›</span>
+          </button>}
+        </div>
+      </section>}
+
+      {/* 살펴보기 — 월간 날짜 탐색과 이번 달 노트 */}
+      <section className="border-b hairline py-2">
+        <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+          {t.overlay.periodic.sectionExplore}
+        </div>
+        {calendar}
+        <MonthlyRecordSummary pages={pages} onOpenRecord={onOpenRecord} />
+        <div className="px-2 pt-1">
+          <button
+            type="button"
+            onClick={handleOpenMonthly}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
+          >
+            <span>🗓️</span>
+            <span className="flex-1 font-medium">{t.overlay.periodic.openMonthlyView}</span>
+            <span className="text-gray-300">›</span>
+          </button>
+        </div>
+      </section>
+
+      {/* 돌아보기 — 기존 단기/장기 주기 노트를 기본 접힘으로 보존 */}
+      {showReviews && <section>
+        <button
+          type="button"
+          onClick={() => setReviewOpen(open => !open)}
+          aria-expanded={reviewOpen}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:bg-gray-50"
+        >
+          <span className="text-[10px]">{reviewOpen ? '▼' : '▶'}</span>
+          <span className="flex-1 font-semibold">{t.overlay.periodic.sectionReview}</span>
+          <span className="text-[10px] text-gray-400">{t.overlay.periodic.reviewHint}</span>
+        </button>
+
+        {reviewOpen && (
+          <div className="border-t hairline">
 
       {/* ── 단기/장기 뷰 모드 토글 — seg 스타일 ── */}
       <div className="px-2 pt-2 pb-1">
@@ -819,7 +984,9 @@ export default function PeriodicNotesPanel() {
           )}
         </>
       )}
-
+          </div>
+        )}
+      </section>}
     </div>
   )
 }

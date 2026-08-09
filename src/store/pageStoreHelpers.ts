@@ -8,6 +8,7 @@
 import { toast } from 'sonner'
 import { Block } from '@/types/block'
 import { api } from '@/lib/api'
+import { runSerializedTask } from '@/lib/serializedTaskQueue'
 import type { PageStore } from '@/types/pageStore'
 
 // -----------------------------------------------
@@ -15,6 +16,77 @@ import type { PageStore } from '@/types/pageStore'
 // Python으로 치면: save_timers: dict[str, threading.Timer] = {}
 // -----------------------------------------------
 export const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const conflictedPageIds = new Set<string>()
+type StoreSetter = (fn: (state: PageStore) => void) => void
+
+export function clearAllPageSaveConflicts(): void {
+  conflictedPageIds.clear()
+}
+
+async function keepLocalConflictVersion(
+  pageId: string,
+  getState: () => PageStore,
+  setState: StoreSetter,
+): Promise<void> {
+  const toastId = `save-conflict-${pageId}`
+  try {
+    const serverPage = await api.getPage(pageId)
+    setState((state) => {
+      const local = state.pages.find(page => page.id === pageId)
+      if (local) local.revision = serverPage.revision
+    })
+    conflictedPageIds.delete(pageId)
+    const saved = await saveNow(pageId, getState, setState)
+    if (!saved) throw new Error('conflict save failed')
+    toast.dismiss(toastId)
+    toast.success('현재 편집 내용으로 저장했습니다.')
+  } catch {
+    conflictedPageIds.add(pageId)
+    toast.error('충돌 복구에 실패했습니다. 다른 창을 닫고 다시 시도해 주세요.', { id: toastId, duration: Infinity })
+  }
+}
+
+async function loadServerConflictVersion(pageId: string, setState: StoreSetter): Promise<void> {
+  const toastId = `save-conflict-${pageId}`
+  try {
+    const serverPage = await api.getPage(pageId)
+    setState((state) => {
+      const index = state.pages.findIndex(page => page.id === pageId)
+      if (index !== -1) state.pages[index] = serverPage
+      state.saveStatus = 'saved'
+    })
+    conflictedPageIds.delete(pageId)
+    toast.dismiss(toastId)
+    toast.success('서버의 최신 내용을 불러왔습니다.')
+  } catch {
+    toast.error('최신 내용을 불러오지 못했습니다.', { id: toastId, duration: Infinity })
+  }
+}
+
+function showSaveConflict(
+  pageId: string,
+  getState: () => PageStore,
+  setState: StoreSetter,
+): void {
+  const toastId = `save-conflict-${pageId}`
+  toast.error('다른 창의 저장과 충돌했습니다.', {
+    id: toastId,
+    duration: Infinity,
+    description: '자동 저장을 멈췄습니다. 남길 내용을 선택해 주세요.',
+    action: {
+      label: '현재 내용 저장',
+      onClick: () => {
+        void keepLocalConflictVersion(pageId, getState, setState)
+      },
+    },
+    cancel: {
+      label: '최신본 불러오기',
+      onClick: () => {
+        void loadServerConflictVersion(pageId, setState)
+      },
+    },
+  })
+}
 
 // Python으로 치면: def schedule_save(page_id, get_state, set_state): ...
 export function scheduleSave(
@@ -26,13 +98,22 @@ export function scheduleSave(
   const existing = saveTimers.get(pageId)
   if (existing) clearTimeout(existing)
 
+  // 사용자가 어느 버전을 남길지 결정할 때까지 같은 stale revision의 반복 저장을 막는다.
+  if (conflictedPageIds.has(pageId)) {
+    saveTimers.delete(pageId)
+    setState((state) => { state.saveStatus = 'unsaved' })
+    return
+  }
+
   // 변경 발생 → 미저장 상태로 전환
   // Python으로 치면: self.save_status = 'unsaved'
   setState((state) => { state.saveStatus = 'unsaved' })
 
   // 500ms 후 저장
-  saveTimers.set(pageId, setTimeout(async () => {
+  saveTimers.set(pageId, setTimeout(() => {
+    void runSerializedTask(pageId, async () => {
     saveTimers.delete(pageId)
+    if (conflictedPageIds.has(pageId)) return
     setState((state) => { state.saveStatus = 'saving' })
     const state0 = getState()
     const page = state0.pages.find(p => p.id === pageId)
@@ -40,6 +121,10 @@ export function scheduleSave(
     // Python으로 치면: cat_id = state.category_map.get(page_id)
     const categoryId = state0.categoryMap[pageId] ?? null
     if (page) {
+      // 저장 요청에 포함한 content를 보관한다. 제목 변경 시 서버가 폴더명에
+      // 맞춰 이미지 URL을 교정해 반환하므로, 요청 뒤 실제로 수정된 블록만
+      // 로컬 content를 보존하고 나머지는 서버 교정본을 적용해야 한다.
+      const sentBlockContents = new Map(page.blocks.map(block => [block.id, block.content]))
       try {
         const updatedPage = await api.savePage(pageId, page, categoryId)
         // 백엔드가 이미지 URL 등을 업데이트한 page를 반환 → store에 반영
@@ -55,11 +140,11 @@ export function scheduleSave(
                 if (!localBlock) return serverBlock
                 return {
                   ...serverBlock,
-                  // content는 로컬 우선 — 서버 저장 응답 대기 중 추가 편집이 있으면
-                  // serverBlock.content(구버전)가 localBlock.content(최신)를 덮어쓰는
-                  // 레이스 컨디션을 방지한다.
-                  // Python으로 치면: merged['content'] = local.content or server.content
-                  content: localBlock.content ?? serverBlock.content,
+                  // 요청 뒤에 바뀐 블록만 로컬 content를 보존한다. 그대로라면
+                  // 제목 변경에 따라 서버가 교정한 이미지 URL을 적용한다.
+                  content: localBlock.content === sentBlockContents.get(serverBlock.id)
+                    ? serverBlock.content
+                    : localBlock.content,
                   backgroundColor: localBlock.backgroundColor,
                   canvasX: localBlock.canvasX,
                   canvasY: localBlock.canvasY,
@@ -85,16 +170,24 @@ export function scheduleSave(
           })
         }
         setState((state) => { state.saveStatus = 'saved' })
-      } catch {
-        // 자동 저장 실패 — unsaved 상태 유지 + 토스트
+      } catch (error) {
+        // 자동 저장 실패 — unsaved 상태 유지. 409은 다른 창의 최신 저장을
+        // 덮지 않았다는 뜻이므로 연결 오류와 구분해 사용자가 해결할 수 있게 한다.
         // Python으로 치면: toast_map['save-error'] = show_once(msg)
         setState((state) => { state.saveStatus = 'unsaved' })
-        toast.error('자동 저장 실패. 서버 연결을 확인해 주세요.', {
-          id: 'save-error',
-          duration: 3000,
-        })
+        const isConflict = error instanceof Error && error.message.includes('(409)')
+        if (isConflict) {
+          conflictedPageIds.add(pageId)
+          showSaveConflict(pageId, getState, setState)
+        } else {
+          toast.error('자동 저장 실패. 서버 연결을 확인해 주세요.', {
+            id: 'save-error',
+            duration: 3000,
+          })
+        }
       }
     }
+    })
   }, 500))
 }
 
@@ -107,14 +200,18 @@ export async function saveNow(
   pageId: string,
   getState: () => PageStore,
   setState: (fn: (state: PageStore) => void) => void
-) {
+): Promise<boolean> {
   // 기존 디바운스 타이머 취소 (중복 저장 방지)
   const existing = saveTimers.get(pageId)
   if (existing) { clearTimeout(existing); saveTimers.delete(pageId) }
+  if (conflictedPageIds.has(pageId)) return false
+  return runSerializedTask(pageId, async () => {
   const state0 = getState()
   const page = state0.pages.find(p => p.id === pageId)
-  if (!page) return
+  if (!page) return false
   const categoryId = state0.categoryMap[pageId] ?? null
+  // scheduleSave와 같은 규칙: 서버 응답 대기 중 새로 수정된 content만 보존한다.
+  const sentBlockContents = new Map(page.blocks.map(block => [block.id, block.content]))
   setState((state) => { state.saveStatus = 'saving' })
   try {
     const updatedPage = await api.savePage(pageId, page, categoryId)
@@ -128,11 +225,11 @@ export async function saveNow(
             if (!localBlock) return serverBlock
             return {
               ...serverBlock,
-              // content는 로컬 우선 — saveNow 응답 대기 중 추가 편집이 있으면
-              // serverBlock.content(구버전)가 localBlock.content(최신)를 덮어쓰는
-              // 레이스 컨디션을 방지한다. (scheduleSave와 동일한 보호)
-              // Python으로 치면: merged['content'] = local.content or server.content
-              content: localBlock.content ?? serverBlock.content,
+              // 요청 뒤에 바뀐 content만 보존하고, 제목 변경으로 서버가
+              // 교정한 URL은 현재 상태에도 반영한다.
+              content: localBlock.content === sentBlockContents.get(serverBlock.id)
+                ? serverBlock.content
+                : localBlock.content,
               backgroundColor: localBlock.backgroundColor,
               canvasX: localBlock.canvasX,
               canvasY: localBlock.canvasY,
@@ -157,9 +254,17 @@ export async function saveNow(
       })
     }
     setState((state) => { state.saveStatus = 'saved' })
-  } catch {
+    return true
+  } catch (error) {
     setState((state) => { state.saveStatus = 'unsaved' })
+    const isConflict = error instanceof Error && error.message.includes('(409)')
+    if (isConflict) {
+      conflictedPageIds.add(pageId)
+      showSaveConflict(pageId, getState, setState)
+    }
+    return false
   }
+  })
 }
 
 

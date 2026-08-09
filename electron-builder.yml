@@ -15,10 +15,11 @@ directories:
 
 # ── Electron 메인 파일 및 앱 포함 파일 ────────────────
 # 'files' = 앱 asar 번들에 포함할 파일
-# electron/main.js 는 Node.js 내장 모듈만 사용 → node_modules 불필요
+# electron/main.js와 process-manager.js는 Node.js 내장 모듈만 사용 → node_modules 불필요
 # node_modules 제외 시 app.asar 크기: ~440MB → ~수 KB 로 감소
 files:
   - electron/main.js
+  - electron/process-manager.js
   - electron/preload.js
   - package.json
   - "!node_modules/**"

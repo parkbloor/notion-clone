@@ -1109,6 +1109,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       color: newColor,
       done:  false,
       scheduled: !newUnscheduled,
+      source: 'manual',
     })
     setNewForm(null)
     setNewTitle('')
@@ -1201,6 +1202,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         color: r.color,
         done:  false,
         scheduled: true,
+        source: 'routine',
+        routineId: r.id,
       }))
   }
 
@@ -1436,6 +1439,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         color: EVENT_COLORS.some(c => c.id === e.color) ? e.color! : 'blue',
         done:  false,
         scheduled: true,
+        source: 'manual',
       }))
 
       const action = parsed.action ?? 'add'
@@ -1512,6 +1516,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
           color: EVENT_COLORS.some(c => c.id === e.color) ? e.color! : 'blue',
           done:  false,
           scheduled: true,
+          source: 'manual',
         }))
       setPendingEvents(previews)
     } catch {

@@ -329,7 +329,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     el.addEventListener('wheel', onWheel, { passive: false })
     // passive: false 옵션을 동일하게 전달해야 올바르게 제거됨
     return () => el.removeEventListener('wheel', onWheel, { passive: false } as EventListenerOptions)
-  }, [])
+  }, [t.blocks.mindmap.newNode])
 
   // ── 언마운트 시 진행 중인 AI 스트림 취소 ──────────
   // Python으로 치면: def __del__(self): self._abort_controller?.abort()
@@ -402,7 +402,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     setSelectedId(newNode.id)
     setTimeout(() => { setEditingId(newNode.id); setEditingText(t.blocks.mindmap.newNode) }, 30)
     return newNode
-  }, [])
+  }, [t.blocks.mindmap.newNode])
 
   const addSibling = useCallback((nodeId: string) => {
     if (readOnlyRef.current) return  // 읽기 모드 안전장치
@@ -412,7 +412,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     setNodes(prev => [...prev, newNode])
     setSelectedId(newNode.id)
     setTimeout(() => { setEditingId(newNode.id); setEditingText(t.blocks.mindmap.newNode) }, 30)
-  }, [])
+  }, [t.blocks.mindmap.newNode])
 
   const deleteNode = useCallback((nodeId: string) => {
     const toDelete = new Set<string>()
@@ -441,7 +441,7 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
     setNodes(prev => prev.map(n => n.id === editingId ? { ...n, text: trimmed } : n))
     setEditingId(null)
     setEditingText('')
-  }, [editingId, editingText])
+  }, [editingId, editingText, t.blocks.mindmap.newNode])
 
   // ── 키보드 핸들러 ─────────────────────────────────
   useEffect(() => {
@@ -626,7 +626,6 @@ export default function MindmapBlock({ block, pageId, readMode }: { block: Block
       window.removeEventListener('ai-block-deselect', handleDeselect)
       if (_activeMindmapBlockId === block.id) _activeMindmapBlockId = null
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [block.id])
 
   // ── 렌더 ──────────────────────────────────────────

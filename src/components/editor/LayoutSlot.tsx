@@ -112,7 +112,6 @@ interface LayoutSlotProps {
 }
 
 export default function LayoutSlot({
-  slotId: _slotId,
   blocks,
   onChange,
   className = '',
@@ -155,7 +154,7 @@ export default function LayoutSlot({
   return (
     <div className={`layout-slot overflow-y-auto bg-white rounded border border-gray-100 p-2 ${className}`}>
       <div className="space-y-0.5">
-        {blocks.map((block, _idx) => (
+        {blocks.map(block => (
           <SlotBlockEditor
             key={block.id}
             block={block}

@@ -4,11 +4,17 @@
 # Python으로 치면: Flask Blueprint('pages', ...)
 # ==============================================
 
+import json
 import shutil
+import tempfile
 import uuid
-from pathlib import Path
+import zipfile
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from typing import Optional
 
 from backend.routers.history import save_snapshot
@@ -21,11 +27,15 @@ from backend.core import (
     MAX_FILE_SIZE,
     get_vault_dir,
     CreatePageBody,
+    ImageCleanupBody,
+    ImageDownloadBody,
     MoveCategoryBody,
     PageModel,
     PageReorderBody,
     assert_inside_vault,
     auto_discover_new_folders,
+    begin_move_journal,
+    complete_move_journal,
     get_cat_dir,
     get_cat_rel_path,
     get_category_folder_name,
@@ -41,14 +51,107 @@ from backend.core import (
     replace_image_urls_in_page,
     resolve_content_file,
     resolve_trash_name,
+    record_operation_error,
     save_index,
     save_page_to_disk,
     save_trash_index,
+    serialized_vault_write,
     validate_uuid,
 )
 
 # Python으로 치면: blueprint = Blueprint('pages', __name__, url_prefix='/api')
 router = APIRouter(prefix="/api", tags=["pages"])
+
+
+# -----------------------------------------------
+# 이미지 다운로드 공통 헬퍼
+# -----------------------------------------------
+
+def _safe_download_name(name: str, fallback: str) -> str:
+    """사용자 파일명에서 경로·Windows 금지 문자를 제거한다."""
+    cleaned = Path(name or "").name.strip().replace("\x00", "")
+    for char in '<>:"/\\|?*':
+        cleaned = cleaned.replace(char, "_")
+    cleaned = cleaned.rstrip(". ")
+    cleaned = cleaned[:180] or fallback
+    # Windows 장치 예약어는 확장자가 붙어도 파일로 만들 수 없다.
+    # Python으로 치면: if Path(name).stem.upper() in RESERVED: name = f"_{name}"
+    reserved = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+    if Path(cleaned).stem.upper() in reserved:
+        cleaned = f"_{cleaned}"
+    return cleaned
+
+
+def _iter_image_items(page_data: dict):
+    """현재 메모의 이미지 블록을 중첩 children까지 저장 순서대로 순회한다."""
+    def walk(blocks: list[dict]):
+        for block in blocks:
+            if block.get("type") == "image":
+                content = block.get("content") or ""
+                try:
+                    parsed = json.loads(content)
+                except (json.JSONDecodeError, TypeError):
+                    parsed = content
+                if isinstance(parsed, dict) and isinstance(parsed.get("images"), list):
+                    for item in parsed["images"]:
+                        if isinstance(item, dict) and isinstance(item.get("src"), str):
+                            yield item
+                elif isinstance(parsed, dict) and isinstance(parsed.get("src"), str):
+                    yield {
+                        "src": parsed["src"],
+                        "name": parsed.get("name"),
+                        "caption": parsed.get("caption"),
+                    }
+                elif isinstance(parsed, str):
+                    yield {"src": parsed}
+            children = block.get("children") or []
+            if isinstance(children, list):
+                yield from walk(children)
+
+    yield from walk(page_data.get("blocks") or [])
+
+
+def _resolve_image_asset(url: str) -> Path:
+    """로컬 정적 이미지 URL을 활성 볼트 안의 UUID 이미지 파일로 변환한다."""
+    parsed = urlparse(url)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        raise HTTPException(status_code=400, detail="로컬 업로드 이미지 URL만 사용할 수 있습니다")
+    if parsed.port not in {None, 8000}:
+        raise HTTPException(status_code=400, detail="허용되지 않는 이미지 URL 포트입니다")
+
+    static_prefix = "/static/"
+    decoded_path = unquote(parsed.path)
+    if not decoded_path.startswith(static_prefix):
+        raise HTTPException(status_code=400, detail="정적 이미지 URL 형식이 아닙니다")
+    relative_parts = PurePosixPath(decoded_path[len(static_prefix):]).parts
+    if not relative_parts or any(part in {"", ".", ".."} for part in relative_parts):
+        raise HTTPException(status_code=400, detail="허용되지 않는 이미지 경로입니다")
+
+    asset_path = get_vault_dir().joinpath(*relative_parts)
+    assert_inside_vault(asset_path)
+    if asset_path.parent.name != "images" or asset_path.suffix.lower() not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail="업로드 이미지 경로가 아닙니다")
+    try:
+        uuid.UUID(asset_path.stem)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="업로드 이미지 파일명이 아닙니다") from exc
+    return asset_path
+
+
+def _load_referenced_image(page_id: str, url: str) -> tuple[dict, Path, dict]:
+    """메모가 현재 참조 중인 이미지인지 확인하고 메모·파일·메타데이터를 반환한다."""
+    validate_uuid(page_id, "페이지 ID")
+    index = load_index()
+    page_data = load_page(page_id, index)
+    if not page_data:
+        raise HTTPException(status_code=404, detail="메모를 찾을 수 없습니다")
+    item = next((candidate for candidate in _iter_image_items(page_data) if candidate.get("src") == url), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="현재 메모에서 참조하는 이미지를 찾을 수 없습니다")
+    asset_path = _resolve_image_asset(url)
+    if not asset_path.is_file():
+        raise HTTPException(status_code=404, detail="원본 이미지 파일을 찾을 수 없습니다")
+    return page_data, asset_path, item
 
 
 # -----------------------------------------------
@@ -105,6 +208,7 @@ def get_page(page_id: str):
 # -----------------------------------------------
 
 @router.post("/pages", status_code=201)
+@serialized_vault_write
 def create_page(body: CreatePageBody):
     """
     새 페이지 생성 → 카테고리가 지정되면 해당 카테고리 폴더 아래에 저장
@@ -163,10 +267,12 @@ def create_page(body: CreatePageBody):
 
 
 @router.put("/pages/{page_id}")
+@serialized_vault_write
 def save_page(
     page_id: str,
     page: PageModel,
     categoryId: Optional[str] = Query(None),
+    expectedRevision: Optional[int] = Query(None, ge=0),
 ):
     """
     페이지 저장 (upsert)
@@ -188,8 +294,26 @@ def save_page(
     index = load_index()
     folder_map = index.setdefault("folderMap", {})
 
+    # A page revision prevents a stale tab from silently overwriting a newer
+    # save from another window.  Legacy pages without this field start at 0.
+    existing_page = load_page(page_id, index)
+    current_revision = int(existing_page.get("revision", 0)) if existing_page else 0
+    if existing_page and expectedRevision is not None and expectedRevision != current_revision:
+        record_operation_error(
+            "page_save_conflict",
+            "stale page revision rejected",
+            pageId=page_id,
+            expectedRevision=expectedRevision,
+            currentRevision=current_revision,
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="다른 창에서 먼저 저장되었습니다. 최신 내용을 불러온 뒤 다시 저장해 주세요.",
+        )
+
     old_folder = get_folder_name(page_id, index)
     page_data = page.model_dump()
+    page_data["revision"] = current_revision + 1
     new_folder = make_folder_name(
         page_data["title"], page_data["createdAt"], page_id
     )
@@ -258,12 +382,11 @@ def save_page(
         index["pageOrder"].append(page_id)
         save_index(index)
 
-    if renamed:
-        return {"ok": True, "renamed": True, "page": page_data}
-    return {"ok": True, "renamed": False}
+    return {"ok": True, "renamed": renamed, "page": page_data}
 
 
 @router.delete("/pages/{page_id}")
+@serialized_vault_write
 def delete_page(page_id: str):
     """
     페이지 삭제 → _vault_trash/ 폴더로 물리 이동
@@ -352,6 +475,7 @@ def delete_page(page_id: str):
 # -----------------------------------------------
 
 @router.patch("/current")
+@serialized_vault_write
 def set_current_page(body: dict):
     """
     현재 선택된 페이지 ID 저장
@@ -364,6 +488,7 @@ def set_current_page(body: dict):
 
 
 @router.patch("/pages/reorder")
+@serialized_vault_write
 def reorder_pages(body: PageReorderBody):
     """
     페이지 표시 순서 변경
@@ -386,6 +511,7 @@ def reorder_pages(body: PageReorderBody):
 
 
 @router.patch("/pages/{page_id}/category")
+@serialized_vault_write
 def move_page_to_category(page_id: str, body: MoveCategoryBody):
     """
     페이지를 다른 카테고리로 이동 (또는 미분류로)
@@ -411,44 +537,78 @@ def move_page_to_category(page_id: str, body: MoveCategoryBody):
         return {"ok": True, "moved": False}
 
     page_folder = get_folder_name(page_id, index)
-    old_cat_folder = get_category_folder_name(old_cat_id, index)
-    new_cat_folder = get_category_folder_name(new_cat_id, index)
+    # 하위 카테고리는 마지막 폴더명만으로 경로를 만들면 안 된다.
+    # 예: work_log/2026년 아래 페이지는 "2026년"만 사용하면 다른
+    # 최상위 2026년 카테고리와 충돌하고, 이미지 URL도 잘못 갱신된다.
+    old_cat_rel = get_cat_rel_path(old_cat_id, index)
+    new_cat_rel = get_cat_rel_path(new_cat_id, index)
+    old_cat_dir = get_cat_dir(old_cat_id, index) if old_cat_id else get_vault_dir()
+    new_cat_dir = get_cat_dir(new_cat_id, index) if new_cat_id else get_vault_dir()
 
-    # 실제 폴더 이동
-    old_path = get_vault_dir() / old_cat_folder / page_folder if old_cat_folder else get_vault_dir() / page_folder
-    new_path = get_vault_dir() / new_cat_folder / page_folder if new_cat_folder else get_vault_dir() / page_folder
+    # 실제 폴더 이동 — 카테고리 전체 경로를 보존한다.
+    old_path = old_cat_dir / page_folder
+    new_path = new_cat_dir / page_folder
 
     # 🔒 vault 탈출 방지
     assert_inside_vault(old_path)
     assert_inside_vault(new_path)
 
-    if new_cat_folder:
-        # 대상 카테고리 폴더가 없으면 생성
-        (get_vault_dir() / new_cat_folder).mkdir(exist_ok=True)
+    if not old_path.exists():
+        record_operation_error("page_move", "source page folder missing", pageId=page_id, source=str(old_path), target=str(new_path))
+        raise HTTPException(status_code=404, detail="이동할 페이지 폴더를 찾을 수 없습니다")
+    if new_path.exists():
+        record_operation_error("page_move", "target page folder already exists", pageId=page_id, source=str(old_path), target=str(new_path))
+        raise HTTPException(status_code=409, detail="대상 위치에 같은 페이지 폴더가 이미 있습니다")
 
-    if old_path.exists():
-        shutil.move(str(old_path), str(new_path))
-
-    # 이미지 URL 교체
-    content_file = resolve_content_file(new_path)
+    # 대상 카테고리의 상위 경로까지 함께 준비한다.
+    new_cat_dir.mkdir(parents=True, exist_ok=True)
+    old_prefix = get_image_url_prefix(page_folder, old_cat_rel)
+    new_prefix = get_image_url_prefix(page_folder, new_cat_rel)
+    journal_id = begin_move_journal(
+        "page_move", old_path, new_path,
+        pageId=page_id, newCategoryId=new_cat_id, oldPrefix=old_prefix, newPrefix=new_prefix,
+    )
     updated_page = None
-    if content_file.exists():
-        import json
-        page_data = json.loads(content_file.read_text(encoding="utf-8"))
-        old_prefix = get_image_url_prefix(page_folder, old_cat_folder)
-        new_prefix = get_image_url_prefix(page_folder, new_cat_folder)
-        replace_image_urls_in_page(page_data, old_prefix, new_prefix)
-        # .nct로 저장 (save_page_to_disk가 구버전 .json 자동 삭제)
-        save_page_to_disk(page_data, new_path)
-        updated_page = page_data
+    moved = False
+    try:
+        shutil.move(str(old_path), str(new_path))
+        moved = True
 
-    # categoryMap 업데이트
-    if new_cat_id:
-        index.setdefault("categoryMap", {})[page_id] = new_cat_id
-    else:
-        index.get("categoryMap", {}).pop(page_id, None)
+        # 이미지 URL 교체
+        content_file = resolve_content_file(new_path)
+        if content_file.exists():
+            import json
+            page_data = json.loads(content_file.read_text(encoding="utf-8"))
+            replace_image_urls_in_page(page_data, old_prefix, new_prefix)
+            # .nct로 저장 (save_page_to_disk가 구버전 .json 자동 삭제)
+            save_page_to_disk(page_data, new_path)
+            updated_page = page_data
 
-    save_index(index)
+        # categoryMap 업데이트
+        if new_cat_id:
+            index.setdefault("categoryMap", {})[page_id] = new_cat_id
+        else:
+            index.get("categoryMap", {}).pop(page_id, None)
+
+        save_index(index)
+        complete_move_journal(journal_id)
+    except Exception as exc:
+        # 인덱스 저장 전 실패면 폴더와 URL을 원상태로 되돌린다.
+        try:
+            if moved and new_path.exists() and not old_path.exists():
+                rollback_file = resolve_content_file(new_path)
+                if rollback_file.exists():
+                    import json
+                    rollback_page = json.loads(rollback_file.read_text(encoding="utf-8"))
+                    replace_image_urls_in_page(rollback_page, new_prefix, old_prefix)
+                    save_page_to_disk(rollback_page, new_path)
+                old_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(new_path), str(old_path))
+        except Exception as rollback_exc:
+            record_operation_error("page_move", "rollback failed", pageId=page_id, error=str(rollback_exc))
+        record_operation_error("page_move", "move failed and was rolled back", pageId=page_id, error=str(exc))
+        complete_move_journal(journal_id)
+        raise HTTPException(status_code=500, detail="메모 이동 중 오류가 발생해 원래 위치로 되돌렸습니다")
 
     return {"ok": True, "moved": True, "page": updated_page}
 
@@ -465,7 +625,7 @@ async def upload_image(page_id: str, file: UploadFile = File(...)):
     보안:
     - page_id UUID 검증
     - 허용 확장자만 수락 (.jpg/.png/.gif/.webp/.svg/.bmp)
-    - 파일 크기 10MB 제한
+    - 파일 크기 20MB 제한
     - vault 탈출 방지 (resolve 체크)
 
     Python으로 치면: file.save(path); return {'url': url}
@@ -491,6 +651,11 @@ async def upload_image(page_id: str, file: UploadFile = File(...)):
         )
 
     index = load_index()
+    # 페이지가 없거나 인덱스와 실제 폴더가 어긋난 상태에서 이미지만 먼저
+    # 저장하면 화면에 절대 나타날 수 없는 고아 파일이 생긴다.
+    if not load_page(page_id, index):
+        record_operation_error("image_upload", "page missing before image upload", pageId=page_id, pageDir=str(get_page_dir(page_id, index)))
+        raise HTTPException(status_code=404, detail="이미지를 추가할 메모를 찾을 수 없습니다")
     page_dir = get_page_dir(page_id, index)
     images_dir = page_dir / "images"
 
@@ -502,7 +667,19 @@ async def upload_image(page_id: str, file: UploadFile = File(...)):
     # Python으로 치면: filename = f"{uuid.uuid4()}{safe_suffix}"
     filename = f"{uuid.uuid4()}{raw_suffix}"
     file_path = images_dir / filename
-    file_path.write_bytes(content)
+    temp_path = images_dir / f".{filename}.uploading"
+    if not content:
+        record_operation_error("image_upload", "empty image file rejected", pageId=page_id, filename=file.filename or "")
+        raise HTTPException(status_code=422, detail="비어 있는 이미지 파일은 업로드할 수 없습니다")
+    try:
+        # 업로드 도중 중단돼도 반쯤 저장된 이미지가 화면에 노출되지 않도록
+        # 임시 파일을 원자적으로 교체한다.
+        temp_path.write_bytes(content)
+        temp_path.replace(file_path)
+    except OSError as exc:
+        temp_path.unlink(missing_ok=True)
+        record_operation_error("image_upload", "image file write failed", pageId=page_id, path=str(file_path), error=str(exc))
+        raise HTTPException(status_code=500, detail="이미지 파일 저장에 실패했습니다") from exc
 
     # URL 경로 계산 (부모 체인 포함 전체 카테고리 상대경로 사용)
     page_folder = get_folder_name(page_id, index)
@@ -511,7 +688,123 @@ async def upload_image(page_id: str, file: UploadFile = File(...)):
     prefix = get_image_url_prefix(page_folder, cat_rel)
     url = f"{prefix}images/{filename}"
 
-    return {"url": url, "filename": filename}
+    return {
+        "url": url,
+        "filename": filename,
+        "originalName": _safe_download_name(file.filename or "", filename),
+        "size": len(content),
+        "mime": file.content_type or "application/octet-stream",
+    }
+
+
+# -----------------------------------------------
+# 이미지 원본 다운로드
+# -----------------------------------------------
+@router.post("/pages/{page_id}/images/download")
+def download_image(page_id: str, body: ImageDownloadBody):
+    """현재 메모가 참조하는 이미지 원본을 안전한 파일명으로 내려준다."""
+    _page_data, asset_path, item = _load_referenced_image(page_id, body.url)
+    requested_name = _safe_download_name(str(item.get("name") or ""), asset_path.name)
+    if Path(requested_name).suffix.lower() != asset_path.suffix.lower():
+        requested_name = f"{Path(requested_name).stem or 'image'}{asset_path.suffix.lower()}"
+    return FileResponse(asset_path, filename=requested_name)
+
+
+@router.get("/pages/{page_id}/images/download-all")
+def download_all_images(page_id: str):
+    """현재 메모의 이미지 블록이 참조하는 원본을 저장 순서대로 ZIP에 담는다."""
+    validate_uuid(page_id, "페이지 ID")
+    index = load_index()
+    page_data = load_page(page_id, index)
+    if not page_data:
+        raise HTTPException(status_code=404, detail="메모를 찾을 수 없습니다")
+
+    resolved: list[tuple[Path, dict]] = []
+    seen_paths: set[Path] = set()
+    for item in _iter_image_items(page_data):
+        src = item.get("src")
+        if not isinstance(src, str):
+            continue
+        try:
+            asset_path = _resolve_image_asset(src)
+        except HTTPException:
+            # data URL·외부 URL은 로컬 원본 ZIP 대상이 아니다.
+            continue
+        if asset_path in seen_paths:
+            continue
+        if not asset_path.is_file():
+            raise HTTPException(status_code=404, detail=f"원본 이미지 파일을 찾을 수 없습니다: {asset_path.name}")
+        seen_paths.add(asset_path)
+        resolved.append((asset_path, item))
+
+    if not resolved:
+        raise HTTPException(status_code=404, detail="다운로드할 로컬 원본 이미지가 없습니다")
+
+    # 이미지 총량만큼 RAM을 점유하지 않도록 임시 ZIP 파일에 스트리밍해서 쓴다.
+    # 응답 전송이 끝나면 BackgroundTask가 정확한 임시 파일 하나만 삭제한다.
+    archive_handle = tempfile.NamedTemporaryFile(prefix="notion-images-", suffix=".zip", delete=False)
+    archive_path = Path(archive_handle.name)
+    archive_handle.close()
+    used_names: set[str] = set()
+    try:
+        with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+            for index_no, (asset_path, item) in enumerate(resolved, start=1):
+                fallback = f"image-{index_no:02d}{asset_path.suffix.lower()}"
+                base_name = _safe_download_name(str(item.get("name") or ""), fallback)
+                if Path(base_name).suffix.lower() != asset_path.suffix.lower():
+                    base_name = f"{Path(base_name).stem or f'image-{index_no:02d}'}{asset_path.suffix.lower()}"
+                candidate = base_name
+                duplicate_no = 2
+                while candidate.casefold() in used_names:
+                    candidate = f"{Path(base_name).stem} ({duplicate_no}){asset_path.suffix.lower()}"
+                    duplicate_no += 1
+                used_names.add(candidate.casefold())
+                zip_file.write(asset_path, arcname=candidate)
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
+
+    safe_title = _safe_download_name(str(page_data.get("title") or "memo"), "memo")
+    filename = f"{safe_title}-images.zip"
+    return FileResponse(
+        archive_path,
+        media_type="application/zip",
+        filename=filename,
+        background=BackgroundTask(archive_path.unlink, missing_ok=True),
+    )
+
+
+# -----------------------------------------------
+# 미참조 이미지 정리
+# -----------------------------------------------
+@router.post("/pages/{page_id}/images/cleanup")
+@serialized_vault_write
+def cleanup_unreferenced_image(page_id: str, body: ImageCleanupBody):
+    """본문·커버·히스토리에 참조되지 않는 업로드 이미지만 삭제한다.
+
+    페이지/블록 복제는 같은 URL을 공유하고, 버전 히스토리는 과거 URL을
+    다시 복원할 수 있으므로 현재 페이지 하나만 보고 파일을 지우면 안 된다.
+    """
+    validate_uuid(page_id, "페이지 ID")
+
+    asset_path = _resolve_image_asset(body.url)
+
+    if not asset_path.exists():
+        return {"deleted": False, "reason": "missing"}
+
+    # UUID 파일명은 업로드마다 새로 생성되므로 이름 자체가 안전한 참조 키다.
+    # _history와 _vault_trash도 포함해 Undo/복원/다른 페이지 복제본을 보존한다.
+    filename = asset_path.name
+    for nct_file in get_vault_dir().rglob("*.nct"):
+        try:
+            if filename in nct_file.read_text(encoding="utf-8"):
+                return {"deleted": False, "reason": "referenced"}
+        except (OSError, UnicodeDecodeError):
+            # 읽을 수 없는 파일이 있어도 보수적으로 삭제를 진행하지 않는다.
+            return {"deleted": False, "reason": "scan_failed"}
+
+    asset_path.unlink()
+    return {"deleted": True}
 
 
 # -----------------------------------------------

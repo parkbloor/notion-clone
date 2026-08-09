@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom'
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { BlockType } from '@/types/block'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import { useLocale } from '@/locales'
 
 interface SlashCommandProps {
@@ -23,7 +24,6 @@ interface SlashCommandProps {
 }
 
 export default function SlashCommand({
-  editor: _editor,
   isOpen,
   position,
   onSelect,
@@ -71,6 +71,9 @@ export default function SlashCommand({
 
   // 플러그인 설정
   const { plugins } = useSettingsStore()
+  const showPlannerBlocks = useVaultPreferencesStore(
+    state => state.preferences.planner.slashPlannerBlocks,
+  )
 
   // ── 7개 카테고리 커맨드 목록 ──────────────────────────────────────
   // Python으로 치면: COMMANDS = [{'key':..., 'group':..., 'items':[...]}, ...]
@@ -138,6 +141,7 @@ export default function SlashCommand({
       key: 'planner',
       group: t.slash.groupPlanner,
       items: [
+        { icon: '📌', name: t.slash.record.label,        description: t.slash.record.desc,        type: 'record'           as BlockType },
         { icon: '🗓️', name: t.slash.dayPlanner.label,    description: t.slash.dayPlanner.desc,    type: 'dayplanner'       as BlockType },
         { icon: '🗃️', name: t.slash.weekPlanner.label,   description: t.slash.weekPlanner.desc,   type: 'weekplanner'      as BlockType },
         { icon: '📆', name: t.slash.weeklyPlanner.label, description: t.slash.weeklyPlanner.desc, type: 'weeklyplanner'    as BlockType },
@@ -174,6 +178,7 @@ export default function SlashCommand({
   // Python으로 치면: visible_cats = filter_by_plugins(COMMANDS)
   const filteredCategories = useMemo(() => (
     COMMANDS
+      .filter(cat => showPlannerBlocks || cat.key !== 'planner')
       .map(cat => ({
         ...cat,
         items: cat.items.filter(item =>
@@ -182,7 +187,7 @@ export default function SlashCommand({
       }))
       .filter(cat => cat.items.length > 0)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [COMMANDS, plugins])
+  ), [COMMANDS, plugins, showPlannerBlocks])
 
   // 현재 활성 카테고리의 항목 목록
   // Python으로 치면: active_items = get_items(active_category)

@@ -75,7 +75,7 @@ export default function GraphView({ onClose }: GraphViewProps) {
   const simRef = useRef<SimNode[]>([])
 
   // 렌더 트리거: 시뮬레이션 결과를 SVG에 반영할 때 증가
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
 
   // 시뮬레이션 실행 플래그
   const runningRef = useRef(true)

@@ -17,6 +17,7 @@ import DebugTab      from './tabs/DebugTab'
 import TemplatesTab  from './tabs/TemplatesTab'
 import AITab        from './tabs/AITab'
 import CloudSyncTab from './tabs/CloudSyncTab'
+import VaultFeaturesTab from './tabs/VaultFeaturesTab'
 
 interface SettingsModalProps {
   onClose: () => void
@@ -26,12 +27,13 @@ interface SettingsModalProps {
 // 탭 목록 정의
 // Python으로 치면: TABS = [{'id': 'appearance', 'icon': '🎨'}, ...]
 // -----------------------------------------------
-type TabId = 'appearance' | 'editor' | 'plugins' | 'data' | 'storage' | 'cloud' | 'debug' | 'templates' | 'ai'
+type TabId = 'appearance' | 'editor' | 'plugins' | 'vaultFeatures' | 'data' | 'storage' | 'cloud' | 'debug' | 'templates' | 'ai'
 
 const TAB_ICONS: Record<TabId, string> = {
   appearance: '🎨',
   editor:     '✏️',
   plugins:    '🧩',
+  vaultFeatures: '🗂️',
   templates:  '📋',
   ai:         '✨',
   data:       '📦',
@@ -40,7 +42,7 @@ const TAB_ICONS: Record<TabId, string> = {
   debug:      '🔍',
 }
 
-const TAB_IDS: TabId[] = ['appearance', 'editor', 'plugins', 'templates', 'ai', 'data', 'storage', 'cloud', 'debug']
+const TAB_IDS: TabId[] = ['appearance', 'editor', 'plugins', 'vaultFeatures', 'templates', 'ai', 'data', 'storage', 'cloud', 'debug']
 
 // 탭 ID → 컴포넌트 매핑 (storage 탭은 onClose prop이 필요해 별도 렌더링)
 // Python으로 치면: TAB_COMPONENTS = {'appearance': AppearanceTab, ...}
@@ -49,6 +51,7 @@ const TAB_COMPONENTS: Record<NonStorageTabId, React.ComponentType> = {
   appearance: AppearanceTab,
   editor:     EditorTab,
   plugins:    PluginsTab,
+  vaultFeatures: VaultFeaturesTab,
   templates:  TemplatesTab,
   ai:         AITab,
   data:       DataTab,

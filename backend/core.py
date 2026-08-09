@@ -10,10 +10,15 @@ import os
 import re
 import shutil
 import sys
+import threading
+import time
+import uuid
+from urllib.parse import unquote
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional, TypeVar
+from functools import wraps
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -40,6 +45,11 @@ CONFIG_FILE = _APP_BASE / "vault_config.json"
 # ── 파일 확장자 ─────────────────────────────────────
 # .nct (Notion Clone Template) — 내부 포맷은 UTF-8 JSON과 동일, 확장자만 다름
 CONTENT_EXT = ".nct"
+OPERATION_LOG_DIR = "_logs"
+OPERATION_LOG_FILE = "operation_log.jsonl"
+PENDING_MOVE_FILE = "pending_moves.json"
+MAX_OPERATION_LOG_BYTES = 5 * 1024 * 1024
+MAX_OPERATION_LOG_LINES = 2_000
 
 # ── 이미지/비디오/파일 업로드 제한 ──────────────────
 ALLOWED_IMAGE_EXTS = frozenset({'.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'})
@@ -72,6 +82,22 @@ _vault_state: dict = {
     "root": None,   # 모든 볼트의 루트 폴더 (Path)
 }
 
+# A vault is backed by one shared index file and a tree of page folders.  File
+# moves, renames and saves must therefore not interleave inside this process.
+# The lock is deliberately process-wide: the desktop app runs one backend and
+# correctness is more important than allowing concurrent writes to one vault.
+_vault_write_lock = threading.RLock()
+_WriteResult = TypeVar("_WriteResult")
+
+
+def serialized_vault_write(func: Callable[..., _WriteResult]) -> Callable[..., _WriteResult]:
+    """Run a synchronous vault mutation without another mutation interleaving."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with _vault_write_lock:
+            return func(*args, **kwargs)
+    return wrapped
+
 _log = logging.getLogger(__name__)
 
 
@@ -81,6 +107,129 @@ def get_vault_dir() -> Path:
     Python으로 치면: def get_vault(): return _vault_state['dir']
     """
     return _vault_state["dir"]
+
+
+def record_operation_error(operation: str, message: str, **context: object) -> None:
+    """활성 볼트에 디버깅 가능한 오류 작업 로그를 JSONL로 남긴다.
+
+    일반 콘솔/메모리 로그는 앱 종료 후 사라지므로, 데이터 무결성 검사와
+    이동·업로드 실패처럼 사후 원인이 필요한 오류만 별도 파일에 기록한다.
+    """
+    vault = get_vault_dir()
+    if vault is None:
+        _log.warning("operation log skipped before vault init: %s", message)
+        return
+    record = {
+        "time": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+        "level": "ERROR",
+        "operation": operation,
+        "message": message,
+        "context": context,
+    }
+    try:
+        log_dir = vault / OPERATION_LOG_DIR
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / OPERATION_LOG_FILE
+        with log_file.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        # Repeated failures must not grow the vault without limit.  Keep the
+        # most recent JSONL records; each line remains independently readable.
+        if log_file.stat().st_size > MAX_OPERATION_LOG_BYTES:
+            lines = log_file.read_text(encoding="utf-8").splitlines()[-MAX_OPERATION_LOG_LINES:]
+            _atomic_write(log_file, "\n".join(lines) + ("\n" if lines else ""))
+    except OSError as exc:
+        _log.warning("operation log write failed: %s", exc)
+    _log.error("[%s] %s | %s", operation, message, context)
+
+
+def read_operation_errors(limit: int = 100) -> list[dict]:
+    """최근 영구 오류 로그를 반환한다. 손상된 행은 건너뛴다."""
+    vault = get_vault_dir()
+    if vault is None:
+        return []
+    log_file = vault / OPERATION_LOG_DIR / OPERATION_LOG_FILE
+    if not log_file.exists():
+        return []
+    records: deque = deque(maxlen=max(1, min(limit, 500)))
+    try:
+        with log_file.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+    return list(records)
+
+
+def inspect_vault_integrity(include_images: bool = False, log_errors: bool = True) -> dict:
+    """인덱스·페이지 파일(선택 시 이미지 파일) 일치 여부를 검사한다."""
+    started = time.perf_counter()
+    index = load_index()
+    vault = get_vault_dir()
+    issues: list[dict] = []
+    category_ids = {cat.get("id") for cat in index.get("categories", [])}
+    folder_map = index.get("folderMap", {})
+    category_map = index.get("categoryMap", {})
+
+    def add_issue(kind: str, page_id: str, **context: object) -> None:
+        issue = {"kind": kind, "pageId": page_id, **context}
+        issues.append(issue)
+        if log_errors:
+            record_operation_error("vault_integrity", kind, **issue)
+
+    checked_pages = 0
+    checked_images = 0
+    for page_id in index.get("pageOrder", []):
+        folder_name = folder_map.get(page_id)
+        if not folder_name:
+            add_issue("page folder mapping missing", page_id)
+            continue
+        cat_id = category_map.get(page_id)
+        if cat_id and cat_id not in category_ids:
+            add_issue("page category mapping missing", page_id, categoryId=cat_id)
+            continue
+        page_dir = get_page_dir(page_id, index)
+        content_file = resolve_content_file(page_dir)
+        if not content_file.exists():
+            add_issue("page content file missing", page_id, expectedPath=str(content_file))
+            continue
+        checked_pages += 1
+        if not include_images:
+            continue
+        try:
+            text = content_file.read_text(encoding="utf-8")
+            for static_path in re.findall(r"http://(?:127\.0\.0\.1|localhost):8000/static/([^\s\"'<>]+)", text):
+                checked_images += 1
+                asset = vault.joinpath(*Path(unquote(static_path)).parts)
+                if not asset.is_file():
+                    add_issue("image asset missing", page_id, expectedPath=str(asset))
+        except (OSError, UnicodeDecodeError) as exc:
+            add_issue("page content read failed", page_id, error=str(exc))
+
+    # Restore paths are just as important as active pages: an image referenced
+    # only by Trash or version history must remain available when restored.
+    if include_images:
+        archive_files = list((vault / "_vault_trash").rglob(f"content{CONTENT_EXT}"))
+        archive_files.extend(vault.rglob(f"_history/*{CONTENT_EXT}"))
+        for content_file in archive_files:
+            archive_id = f"archive:{content_file.relative_to(vault)}"
+            try:
+                text = content_file.read_text(encoding="utf-8")
+                for static_path in re.findall(r"http://(?:127\.0\.0\.1|localhost):8000/static/([^\s\"'<>]+)", text):
+                    checked_images += 1
+                    asset = vault.joinpath(*Path(unquote(static_path)).parts)
+                    if not asset.is_file():
+                        add_issue("archived image asset missing", archive_id, expectedPath=str(asset))
+            except (OSError, UnicodeDecodeError) as exc:
+                add_issue("archived content read failed", archive_id, error=str(exc))
+    return {
+        "checkedPages": checked_pages,
+        "checkedImages": checked_images,
+        "issues": issues,
+        "durationMs": round((time.perf_counter() - started) * 1000, 1),
+    }
 
 
 def get_vaults_root() -> Path:
@@ -319,6 +468,14 @@ class CategoryReorderBody(BaseModel):
 
 class PageReorderBody(BaseModel):
     order: list[str]
+
+
+class ImageCleanupBody(BaseModel):
+    url: str
+
+
+class ImageDownloadBody(BaseModel):
+    url: str
 
 
 class ImportBody(BaseModel):
@@ -716,6 +873,86 @@ def save_index(data: dict) -> None:
         index_legacy.unlink()
 
 
+def _pending_moves_path() -> Path:
+    path = get_vault_dir() / OPERATION_LOG_DIR
+    path.mkdir(exist_ok=True)
+    return path / PENDING_MOVE_FILE
+
+
+def _read_pending_moves() -> list[dict]:
+    path = _pending_moves_path()
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def begin_move_journal(operation: str, source: Path, target: Path, **context: object) -> str:
+    """Persist a move intent before changing the vault tree."""
+    vault = get_vault_dir()
+    assert_inside_vault(source)
+    assert_inside_vault(target)
+    entry_id = str(uuid.uuid4())
+    entries = _read_pending_moves()
+    entries.append({
+        "id": entry_id,
+        "operation": operation,
+        "source": str(source.relative_to(vault)),
+        "target": str(target.relative_to(vault)),
+        "context": context,
+    })
+    _atomic_write(_pending_moves_path(), json.dumps(entries, ensure_ascii=False, indent=2))
+    return entry_id
+
+
+def complete_move_journal(entry_id: str) -> None:
+    entries = [entry for entry in _read_pending_moves() if entry.get("id") != entry_id]
+    _atomic_write(_pending_moves_path(), json.dumps(entries, ensure_ascii=False, indent=2))
+
+
+def recover_pending_moves() -> dict:
+    """Resolve interrupted moves from the persistent journal on backend startup."""
+    entries = _read_pending_moves()
+    if not entries:
+        return {"recovered": 0, "unresolved": 0}
+    vault = get_vault_dir()
+    index = load_index()
+    remaining: list[dict] = []
+    recovered = 0
+    for entry in entries:
+        context = entry.get("context", {})
+        committed = False
+        if entry.get("operation") == "page_move":
+            committed = index.get("categoryMap", {}).get(context.get("pageId")) == context.get("newCategoryId")
+        elif entry.get("operation") == "category_move":
+            category = next((c for c in index.get("categories", []) if c.get("id") == context.get("categoryId")), None)
+            committed = category is not None and category.get("parentId") == context.get("newParentId")
+        if committed:
+            continue
+        source = vault / entry.get("source", "")
+        target = vault / entry.get("target", "")
+        try:
+            assert_inside_vault(source)
+            assert_inside_vault(target)
+            if target.exists() and not source.exists():
+                old_prefix = context.get("oldPrefix")
+                new_prefix = context.get("newPrefix")
+                if isinstance(old_prefix, str) and isinstance(new_prefix, str):
+                    for content_file in target.rglob(f"content{CONTENT_EXT}"):
+                        page_data = json.loads(content_file.read_text(encoding="utf-8"))
+                        replace_image_urls_in_page(page_data, new_prefix, old_prefix)
+                        save_page_to_disk(page_data, content_file.parent)
+                source.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(target), str(source))
+            recovered += 1
+            record_operation_error("move_recovery", "interrupted move rolled back", moveOperation=entry.get("operation"), source=str(source), target=str(target))
+        except Exception as exc:
+            remaining.append(entry)
+            record_operation_error("move_recovery", "interrupted move recovery failed", moveOperation=entry.get("operation"), error=str(exc))
+    _atomic_write(_pending_moves_path(), json.dumps(remaining, ensure_ascii=False, indent=2))
+    return {"recovered": recovered, "unresolved": len(remaining)}
+
+
 # -----------------------------------------------
 # _vault_trash 헬퍼 — 실물 파일 이동 기반 휴지통
 # Python으로 치면: import trash_utils; trash_utils.get_dir(), trash_utils.load(), ...
@@ -886,9 +1123,16 @@ def get_image_url_prefix(page_folder: str, cat_rel_path: Optional[str]) -> str:
 
 def replace_image_urls_in_page(page_data: dict, old_prefix: str, new_prefix: str) -> None:
     """page_data 내 모든 블록과 커버의 이미지 URL을 일괄 교체 (in-place)"""
-    for block in page_data.get("blocks", []):
+    def replace_block_urls(block: dict) -> None:
         if block.get("content"):
             block["content"] = block["content"].replace(old_prefix, new_prefix)
+        for child in block.get("children") or []:
+            if isinstance(child, dict):
+                replace_block_urls(child)
+
+    for block in page_data.get("blocks", []):
+        if isinstance(block, dict):
+            replace_block_urls(block)
     if page_data.get("cover"):
         page_data["cover"] = page_data["cover"].replace(old_prefix, new_prefix)
 

@@ -6,8 +6,8 @@
 
 'use client'
 
-import { useRef, useState, useEffect, useMemo, useCallback } from 'react'
-import { Undo2, Redo2, Lock, Unlock, Trash2, Copy, X } from 'lucide-react'
+import { useRef, useState, useEffect, useCallback } from 'react'
+import { Undo2, Redo2, Lock, Unlock, Trash2, Copy, X, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { api, BASE_URL } from '@/lib/api'
@@ -17,7 +17,6 @@ import CanvasPageEditor from './CanvasPageEditor'
 import EmojiPicker from './EmojiPicker'
 import CoverPicker from './CoverPicker'
 import TemplatePanel from './TemplatePanel'
-import TocPanel from './TocPanel'
 import BacklinkPanel from './BacklinkPanel'
 import FindReplacePanel from './FindReplacePanel'
 import PropertyPanel from './PropertyPanel'
@@ -82,6 +81,12 @@ function blockToMarkdown(block: Block): string {
   const c = block.content
 
   switch (block.type) {
+    case 'record': {
+      try {
+        const data = JSON.parse(c) as { date?: string; title?: string; kind?: string }
+        return `## 📅 ${[data.date, data.kind, data.title].filter(Boolean).join(' · ')}`
+      } catch { return '## 📅 기록' }
+    }
     case 'paragraph':
       return htmlToMdInline(c).trim()
 
@@ -275,6 +280,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   const {
     updatePageTitle, addBlock, moveBlock,
     updatePageIcon, updatePageCover, updatePageCoverPosition,
+    savePageNow,
     addTagToPage, removeTagFromPage,
     undoPage, redoPage, canUndo, canRedo,
     applyTemplate, togglePageStar, toggleCanvasMode, sortBlocksByCanvas,
@@ -346,7 +352,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   useEffect(() => {
     clearBlockSelection()
     selectionAnchorRef.current = null
-  }, [pageId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pageId, clearBlockSelection])
 
   // 선택 핸들 클릭 핸들러 (체크박스 클릭 → Shift 여부로 분기)
   // Python으로 치면: def handle_select(block_id, event): ...
@@ -413,6 +419,10 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   const [exportOpen, setExportOpen] = useState(false)
   // 내보내기 메뉴 DOM 참조 (외부 클릭 감지용)
   const exportMenuRef = useRef<HTMLDivElement>(null)
+  // 우측 통합 패널(목차/백링크/버전) 표시 여부
+  const [rightPanelVisible, setRightPanelVisible] = useState(true)
+  // 우측 패널 안의 목차 탭 표시 여부
+  const [tocPanelVisible, setTocPanelVisible] = useState(true)
 
   // ── 찾기/바꾸기 스토어 (Ctrl+H 핸들러용) ──────────
   // Python으로 치면: self.find_replace = find_replace_store
@@ -605,7 +615,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
       area.removeEventListener('mouseout', onMouseOut)
       if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current)
     }
-  }, [pageId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pageId])
 
   // 페이지 변경 시 읽기 모드 초기화
   // Python으로 치면: def on_page_change(self): self.read_mode = False
@@ -692,13 +702,54 @@ export default function PageEditor({ pageId }: PageEditorProps) {
   //       try: url = await api.upload(file); update_cover(url)
   //       except: toast.error(...); return  # base64 저장 안 함
   // -----------------------------------------------
+  async function updateCoverAndCleanup(nextCover: string | undefined) {
+    const previousCover = page?.cover
+    updatePageCover(pageId, nextCover)
+    const saved = await savePageNow(pageId)
+    if (!saved) {
+      toast.error('커버 변경 저장에 실패했습니다. 저장 버튼으로 다시 시도하세요.')
+      return
+    }
+    if (previousCover?.startsWith('http')) {
+      try {
+        await api.cleanupImage(pageId, previousCover)
+      } catch {
+        // 외부 이미지·색상 커버·정리 실패는 저장된 커버를 손상시키지 않는다.
+      }
+    }
+  }
+
+  // -----------------------------------------------
+  // 현재 메모가 참조하는 로컬 원본 이미지 전체 ZIP 다운로드
+  // Python으로 치면: def download_all_images(): api.download_all_images(page.id).save(zip_name)
+  // -----------------------------------------------
+  async function handleDownloadAllImages() {
+    if (!page) return
+    setExportOpen(false)
+    const toastId = toast.loading('원본 이미지 묶는 중...')
+    try {
+      const blob = await api.downloadAllImages(page.id)
+      const objectUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = `${page.title || t.page.untitled}-images.zip`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      toast.success('원본 이미지 ZIP 저장 완료', { id: toastId })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '이미지 전체 다운로드 실패', { id: toastId })
+    }
+  }
+
   async function handleCoverChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
     try {
-      const url = await api.uploadImage(pageId, file)
-      updatePageCover(pageId, url)
+      const result = await api.uploadImage(pageId, file)
+      await updateCoverAndCleanup(result.url)
     } catch {
       // 업로드 실패 시 에러 표시만 — base64 fallback 제거
       toast.error(t.page.coverUploadError)
@@ -801,6 +852,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             />
           ) : (
             // 이미지 URL — objectPosition으로 Y 위치 조정
+            // eslint-disable-next-line @next/next/no-img-element -- user-selected cover URL is resolved at runtime
             <img
               src={page.cover}
               alt="페이지 커버"
@@ -849,7 +901,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                 {/* 커버 삭제 */}
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); updatePageCover(pageId, undefined) }}
+                  onClick={(e) => { e.stopPropagation(); void updateCoverAndCleanup(undefined) }}
                   className="px-3 py-1 text-xs bg-white bg-opacity-90 rounded shadow text-red-500 hover:bg-white transition-colors"
                 >
                   삭제
@@ -883,7 +935,7 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             {/* CoverPicker: 커버 추가/변경 모두 이 위치에서 렌더링 */}
             {coverPickerOpen && (
               <CoverPicker
-                onSelect={(cover) => updatePageCover(pageId, cover)}
+                onSelect={(cover) => { void updateCoverAndCleanup(cover) }}
                 onUpload={() => coverInputRef.current?.click()}
                 onClose={() => setCoverPickerOpen(false)}
               />
@@ -1045,6 +1097,38 @@ export default function PageEditor({ pageId }: PageEditorProps) {
             </>
           )}
 
+          {/* 우측 패널에서 목차 탭만 숨기거나 다시 표시 */}
+          {plugins.tableOfContents && (
+            <button
+              type="button"
+              onClick={() => setTocPanelVisible(visible => !visible)}
+              className={tocPanelVisible
+                ? "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                : "flex items-center gap-1 px-2 py-1 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"}
+              title={tocPanelVisible ? '목차 숨기기' : '목차 표시'}
+              aria-pressed={tocPanelVisible}
+            >
+              <span>📑</span>
+              <span>{tocPanelVisible ? '목차 숨기기' : '목차 표시'}</span>
+            </button>
+          )}
+
+          {/* 우측 통합 패널(목차/백링크/버전) 표시 토글 */}
+          {(plugins.tableOfContents || plugins.backlinks) && (
+            <button
+              type="button"
+              onClick={() => setRightPanelVisible(visible => !visible)}
+              className={rightPanelVisible
+                ? "flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+                : "flex items-center gap-1 px-2 py-1 text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors"}
+              title={rightPanelVisible ? '우측 패널 숨기기' : '우측 패널 표시'}
+              aria-pressed={rightPanelVisible}
+            >
+              {rightPanelVisible ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+              <span>{rightPanelVisible ? '패널 숨기기' : '패널 표시'}</span>
+            </button>
+          )}
+
           {/* 구분선 */}
           <div className="w-px h-4 bg-gray-200 mx-1" />
 
@@ -1141,6 +1225,18 @@ export default function PageEditor({ pageId }: PageEditorProps) {
                   <div>
                     <div className="font-medium text-xs">HTML로 저장</div>
                     <div className="text-xs text-gray-400">이미지 포함 단일 파일</div>
+                  </div>
+                </button>
+                {/* 현재 메모의 이미지 블록 원본을 ZIP으로 다운로드 */}
+                <button
+                  type="button"
+                  onClick={handleDownloadAllImages}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  <span>🖼️</span>
+                  <div>
+                    <div className="font-medium text-xs">원본 이미지 전체 저장</div>
+                    <div className="text-xs text-gray-400">이미지 블록 원본 · ZIP 파일</div>
                   </div>
                 </button>
               </div>
@@ -1528,13 +1624,13 @@ export default function PageEditor({ pageId }: PageEditorProps) {
           sticky top-20: 스크롤 시 상단에 고정
           Python으로 치면: if plugins.table_of_contents: render TocPanel(page.blocks) */}
       {/* 우측 통합 패널 (TOC/백링크/버전) — 플러그인 중 하나라도 활성 시 표시 */}
-      {(plugins.tableOfContents || plugins.backlinks) && (
+      {rightPanelVisible && (plugins.tableOfContents || plugins.backlinks) && (
         <RightPanel
           pageId={pageId}
           blocks={page.blocks}
           collapsedIds={collapsedSections}
           onToggleCollapse={toggleSection}
-          showToc={plugins.tableOfContents}
+          showToc={plugins.tableOfContents && tocPanelVisible}
           showBacklinks={plugins.backlinks}
         />
       )}

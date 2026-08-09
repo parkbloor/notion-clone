@@ -612,16 +612,29 @@ def _blocks_to_html(blocks: list, page_date: str = '') -> str:
             else:
                 try:
                     data = json.loads(content) if isinstance(content, str) and content.startswith('{') else {}
-                    src = data.get("src", content)
-                    caption = data.get("caption", "")
-                    width = data.get("width")
+                    width = data.get("width") if isinstance(data, dict) else None
+                    if isinstance(data, dict) and isinstance(data.get("images"), list):
+                        image_items = data["images"]
+                    else:
+                        image_items = [{
+                            "src": data.get("src", content) if isinstance(data, dict) else content,
+                            "caption": data.get("caption", "") if isinstance(data, dict) else "",
+                        }]
                 except Exception:
-                    src = content
-                    caption = ""
                     width = None
-                if not src:
-                    parts.append('<p><em>[빈 이미지 블록]</em></p>')
-                else:
+                    image_items = [{"src": content, "caption": ""}]
+
+                rendered_images = []
+                for item in image_items:
+                    if not isinstance(item, dict):
+                        continue
+                    src = item.get("src", "")
+                    caption = item.get("caption", "")
+                    if not isinstance(src, str) or not src:
+                        continue
+                    if not isinstance(caption, str):
+                        caption = ""
+
                     static_match = re.search(r'http://(?:127\.0\.0\.1|localhost):8000/static/(.+)', src)
                     if static_match:
                         b64 = _url_to_base64(static_match.group(1))
@@ -630,9 +643,16 @@ def _blocks_to_html(blocks: list, page_date: str = '') -> str:
                     width_attr = f' width="{width}"' if width else ' style="max-width:100%"'
                     img_tag = f'<img src="{src}"{width_attr} alt="{_html_mod.escape(caption)}">'
                     if caption:
-                        parts.append(f'<figure>{img_tag}<figcaption>{_html_mod.escape(caption)}</figcaption></figure>')
+                        rendered_images.append(
+                            f'<figure>{img_tag}<figcaption>{_html_mod.escape(caption)}</figcaption></figure>'
+                        )
                     else:
-                        parts.append(img_tag)
+                        rendered_images.append(img_tag)
+
+                if not rendered_images:
+                    parts.append('<p><em>[빈 이미지 블록]</em></p>')
+                else:
+                    parts.extend(rendered_images)
 
         elif btype == "video":
             # Python으로 치면: data = json.loads(content); src, width = data['src'], data.get('width')
@@ -742,6 +762,23 @@ def _blocks_to_html(blocks: list, page_date: str = '') -> str:
             except Exception:
                 parts.append(f'<div>[칸반 보드]</div>')
 
+        elif btype == "record":
+            # 날짜 기록 헤더 — 아래 일반 블록과 같은 문서 흐름을 유지
+            try:
+                data = json.loads(content) if isinstance(content, str) else {}
+            except Exception:
+                data = {}
+            date_text = _html_mod.escape(str(data.get("date", "")))
+            kind_text = _html_mod.escape(str(data.get("kind", "")))
+            title_text = _html_mod.escape(str(data.get("title", "")))
+            meta = " · ".join(part for part in (date_text, kind_text) if part)
+            title_html = f'<strong>{title_text}</strong>' if title_text else ''
+            block_id = _html_mod.escape(str(block.get("id", "")))
+            parts.append(
+                f'<div class="record-header" id="record-{block_id}">'
+                f'<span class="record-meta">📅 {meta}</span>{title_html}</div>'
+            )
+
         elif btype in ("dayPlanner", "dayplanner"):
             # page_date 전달 → 해당 날짜만 렌더 (일간 노트 내보내기)
             # Python으로 치면: parts.append(render_planner(content, page_date))
@@ -818,6 +855,12 @@ def _make_html_doc(title: str, icon: str, body_html: str,
     .kanban-col {{ min-width: 200px; background: #f8f8f8; border-radius: 8px; padding: 12px; }}
     .kanban-col ul {{ padding-left: 0; list-style: none; }}
     .kanban-col li {{ background: white; border-radius: 4px; padding: 6px 10px; margin: 6px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }}
+    .record-header {{ display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border: 1px solid #e0e0e0; background: #f8f8f8; border-radius: 8px; padding: 10px 12px; margin: 1.2em 0 0.6em; }}
+    .record-meta {{ color: #666; font-size: 0.9em; }}
+    .period-summary {{ display:flex; justify-content:space-between; gap:12px; background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:10px 12px; margin:1em 0; color:#9a3412; }}
+    .period-day {{ margin:2em 0; }}
+    .record-source {{ border-top:1px solid #e5e7eb; margin-top:1.5em; padding-top:.8em; }}
+    .record-source > h3 {{ color:#6b7280; font-size:1em; margin:.2em 0 .8em; }}
     figure {{ margin: 1em 0; }}
     figcaption {{ font-size: 0.85em; color: #888; text-align: center; margin-top: 4px; }}
   </style>
@@ -831,12 +874,166 @@ def _make_html_doc(title: str, icon: str, body_html: str,
 </html>"""
 
 
+def _slice_blocks_for_record(blocks: list, record_id: str) -> Optional[list]:
+    """선택한 최상위 기록 헤더부터 다음 기록 헤더 직전까지 반환한다."""
+    start_index = next(
+        (
+            index for index, block in enumerate(blocks)
+            if block.get("type") == "record" and block.get("id") == record_id
+        ),
+        None,
+    )
+    if start_index is None:
+        return None
+
+    end_index = next(
+        (
+            index for index in range(start_index + 1, len(blocks))
+            if blocks[index].get("type") == "record"
+        ),
+        len(blocks),
+    )
+    return blocks[start_index:end_index]
+
+
+def _collect_period_export_items(
+    pages: list[dict], start_date: str, end_date: str,
+) -> tuple[dict[str, list], list[dict]]:
+    """볼트 페이지에서 기간 내 일정과 기록 범위를 읽기 전용으로 집계한다."""
+    events_by_identity: dict[str, dict] = {}
+    records: list[dict] = []
+
+    for page in pages:
+        blocks = page.get("blocks", [])
+        for block in blocks:
+            if block.get("type") in ("dayPlanner", "dayplanner"):
+                try:
+                    planner_data = json.loads(block.get("content", "{}"))
+                except Exception:
+                    planner_data = {}
+                events_by_date = planner_data.get("eventsByDate", {})
+                if not events_by_date and planner_data.get("date") and isinstance(planner_data.get("events"), list):
+                    events_by_date = {planner_data["date"]: planner_data["events"]}
+                for date_key, events in events_by_date.items():
+                    if not (start_date <= date_key <= end_date) or not isinstance(events, list):
+                        continue
+                    for event in events:
+                        if not isinstance(event, dict) or not isinstance(event.get("id"), str):
+                            continue
+                        identity = f'{date_key}:{event["id"]}'
+                        events_by_identity.setdefault(identity, {"date": date_key, "event": event})
+
+            if block.get("type") != "record":
+                continue
+            try:
+                record_data = json.loads(block.get("content", "{}"))
+            except Exception:
+                record_data = {}
+            date_key = record_data.get("date", "")
+            if not isinstance(date_key, str) or not (start_date <= date_key <= end_date):
+                continue
+            record_blocks = _slice_blocks_for_record(blocks, block.get("id", ""))
+            if record_blocks is None:
+                continue
+            records.append({
+                "date": date_key,
+                "pageId": page.get("id", ""),
+                "pageTitle": page.get("title", "제목 없음"),
+                "pageIcon": page.get("icon", "📝"),
+                "blocks": record_blocks,
+            })
+
+    events_by_date: dict[str, list] = {}
+    for item in events_by_identity.values():
+        events_by_date.setdefault(item["date"], []).append(item["event"])
+    for events in events_by_date.values():
+        events.sort(key=lambda event: (event.get("start", ""), event.get("title", "")))
+    records.sort(key=lambda record: (record["date"], record["pageTitle"], record["pageId"]))
+    return events_by_date, records
+
+
+def _load_all_export_pages() -> list[dict]:
+    index = load_index()
+    folder_map = index.get("folderMap", {})
+    category_map = index.get("categoryMap", {})
+    categories = {category["id"]: category["folderName"] for category in index.get("categories", [])}
+    pages: list[dict] = []
+    for page_id in index.get("pageOrder", []):
+        folder_name = folder_map.get(page_id)
+        if not folder_name:
+            continue
+        cat_folder = categories.get(category_map.get(page_id))
+        page_dir = get_vault_dir() / cat_folder / folder_name if cat_folder else get_vault_dir() / folder_name
+        content_path = resolve_content_file(page_dir)
+        if not content_path.exists():
+            continue
+        try:
+            pages.append(json.loads(content_path.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return pages
+
+
+@router.get("/export/planner-period")
+def export_planner_period(start_date: str, end_date: str, label: str = ''):
+    """현재 볼트의 일정과 기록을 최대 31일 범위의 단일 HTML로 출력한다."""
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+        end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="날짜 형식은 YYYY-MM-DD여야 합니다") from exc
+    if end < start or (end - start).days > 30:
+        raise HTTPException(status_code=400, detail="출력 범위는 1일부터 31일까지 가능합니다")
+
+    pages = _load_all_export_pages()
+    events_by_date, records = _collect_period_export_items(pages, start_date, end_date)
+    records_by_date: dict[str, list[dict]] = {}
+    for record in records:
+        records_by_date.setdefault(record["date"], []).append(record)
+
+    dates = sorted(set(events_by_date) | set(records_by_date))
+    body_parts = [
+        f'<div class="period-summary"><strong>{_html_mod.escape(start_date)} – {_html_mod.escape(end_date)}</strong>',
+        f'<span>일정 {sum(len(events) for events in events_by_date.values())}개 · 기록 {len(records)}개</span></div>',
+    ]
+    for date_key in dates:
+        body_parts.append(f'<section class="period-day"><h2>{_html_mod.escape(date_key)}</h2>')
+        if events_by_date.get(date_key):
+            planner_content = json.dumps({"eventsByDate": {date_key: events_by_date[date_key]}}, ensure_ascii=False)
+            body_parts.append(_dayplanner_to_html(planner_content, target_date=date_key))
+        for record in records_by_date.get(date_key, []):
+            source = f'{record["pageIcon"]} {record["pageTitle"]}'
+            body_parts.append(
+                f'<section class="record-source"><h3>{_html_mod.escape(source)}</h3>'
+                f'{_blocks_to_html(record["blocks"], date_key)}</section>'
+            )
+        body_parts.append('</section>')
+    if not dates:
+        body_parts.append('<p><em>이 기간에 일정이나 기록이 없습니다.</em></p>')
+
+    exported_blocks = [block for record in records for block in record["blocks"]]
+    has_math = any(block.get("type") == "math" and block.get("content", "").strip() for block in exported_blocks)
+    has_mermaid = any(block.get("type") == "mermaid" and block.get("content", "").strip() for block in exported_blocks)
+    title = label.strip() or (start_date if start_date == end_date else f"{start_date} ~ {end_date}")
+    html_doc = _make_html_doc(
+        _html_mod.escape(title), "📅", "\n".join(body_parts), has_math, has_mermaid,
+    )
+    filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', title).strip() or "planner-period"
+    encoded_filename = urllib.parse.quote(f"{filename}.html", safe='')
+    return StreamingResponse(
+        io.BytesIO(html_doc.encode("utf-8")),
+        media_type="text/html; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"},
+    )
+
+
 @router.get("/export/html/{page_id}")
-def export_html(page_id: str, date: str = ''):
+def export_html(page_id: str, date: str = '', record_id: str = ''):
     """
     단일 페이지를 자기완결형 HTML 파일로 내보내기
     이미지·비디오는 base64로 인라인 임베딩
     date: 'YYYY-MM-DD' — 프론트엔드가 전달하는 DayPlanner 표시 날짜 필터
+    record_id: 지정 시 해당 최상위 기록 헤더부터 다음 기록 헤더 직전까지만 출력
     Python으로 치면: return send_file(html_bytes, filename='{title}.html')
     """
     validate_uuid(page_id, "page_id")
@@ -866,6 +1063,22 @@ def export_html(page_id: str, date: str = ''):
     title = page_data.get("title", "제목 없음")
     icon = page_data.get("icon", "📝")
     blocks = page_data.get("blocks", [])
+
+    if record_id:
+        record_blocks = _slice_blocks_for_record(blocks, record_id)
+        if record_blocks is None:
+            raise HTTPException(status_code=404, detail="기록 헤더를 찾을 수 없습니다")
+        blocks = record_blocks
+
+        # 직접 API를 호출해 date를 생략해도 선택한 기록 날짜의 일정이 출력되게 한다.
+        if not date:
+            try:
+                record_data = json.loads(blocks[0].get("content", "{}"))
+                record_date = record_data.get("date", "")
+                if isinstance(record_date, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", record_date):
+                    date = record_date
+            except Exception:
+                pass
 
     # 블록 타입 스캔 — CDN 포함 여부 결정
     # Python으로 치면: has_math = any(b['type']=='math' for b in flatten_blocks(blocks))

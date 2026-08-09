@@ -21,6 +21,8 @@ declare global {
     electronAPI?: {
       getVersion?: () => Promise<string>
       selectFolder?: () => Promise<string | null>
+      openExternalUrl?: (url: string) => Promise<boolean>
+      startImageDrag?: (payload: { url: string; name: string }) => void
     }
   }
 }
@@ -285,6 +287,8 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
   // 볼트 스캔 상태 — 탐색기에서 넣은 메모 폴더 인식용
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
+  const [integrityChecking, setIntegrityChecking] = useState(false)
+  const [integrityMsg, setIntegrityMsg] = useState<{ type: 'ok' | 'error', text: string } | null>(null)
 
   // 볼트 스캔 — 현재 볼트의 미인식 page 폴더를 찾아 _index.nct에 추가
   // Python으로 치면: async def scan(): api.post('/scan-vault'); reload()
@@ -311,6 +315,26 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
       setScanMsg({ type: 'error', text: s.errorServer })
     } finally {
       setScanning(false)
+    }
+  }
+
+  // 전체 페이지·이미지 경로를 점검한다. 오류는 볼트의 _logs에도 영구 기록된다.
+  const handleIntegrityCheck = async () => {
+    if (integrityChecking) return
+    setIntegrityChecking(true)
+    setIntegrityMsg(null)
+    try {
+      const res = await fetch(BASE_URL + '/api/settings/check-integrity', { method: 'POST' })
+      if (!res.ok) throw new Error('integrity check failed')
+      const data = await res.json()
+      const count = data.issues?.length ?? 0
+      setIntegrityMsg(count === 0
+        ? { type: 'ok', text: `점검 완료: 페이지 ${data.checkedPages}개, 이미지 ${data.checkedImages}개가 정상입니다.` }
+        : { type: 'error', text: `점검 완료: 오류 ${count}개를 발견했습니다. _logs/operation_log.jsonl에서 확인할 수 있습니다.` })
+    } catch {
+      setIntegrityMsg({ type: 'error', text: '메모 점검을 실행하지 못했습니다. 백엔드 연결을 확인하세요.' })
+    } finally {
+      setIntegrityChecking(false)
     }
   }
 
@@ -374,6 +398,29 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
                 scanMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
               }`}>
                 {scanMsg.text}
+              </div>
+            )}
+          </div>
+
+          <div className="border border-dashed border-amber-300 rounded-lg p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-gray-700">🛡️ 메모 무결성 점검</div>
+                <div className="text-xs text-gray-400 mt-0.5">페이지·이미지 경로를 검사하고 오류를 영구 로그에 기록합니다.</div>
+              </div>
+              <button
+                onClick={handleIntegrityCheck}
+                disabled={integrityChecking}
+                className="text-xs px-3 py-1.5 bg-amber-500 text-white rounded hover:bg-amber-600 disabled:opacity-50 shrink-0 ml-3"
+              >
+                {integrityChecking ? '점검 중...' : '메모 점검'}
+              </button>
+            </div>
+            {integrityMsg && (
+              <div className={`text-xs px-2 py-1 rounded ${
+                integrityMsg.type === 'ok' ? 'text-green-700 bg-green-50' : 'text-red-600 bg-red-50'
+              }`}>
+                {integrityMsg.text}
               </div>
             )}
           </div>

@@ -182,7 +182,7 @@ export default function YearlyPlannerBlock({ block, pageId, readMode, onUpdate }
       weeks.push(week)
     }
     return weeks
-  }, [data.year, pages])
+  }, [data.year, pages, plannerRoutines])
 
   // =============================================
   return (

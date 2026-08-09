@@ -13,7 +13,7 @@
 
 | 이름 | 종류 | 설명 |
 |------|------|------|
-| `BlockType` | `type (union)` | 블록 종류 문자열 리터럴 (37개). 새 블록 추가 시 여기에 먼저 등록 |
+| `BlockType` | `type (union)` | 블록 종류 문자열 리터럴 (38개). 새 블록 추가 시 여기에 먼저 등록 |
 | `PropertyType` | `type (union)` | 페이지 속성 종류 — `'date' \| 'status' \| 'select' \| 'text' \| 'relation' \| 'time'` |
 | `STATUS_OPTIONS` | `const` | 상태 속성 고정 선택지 `['미시작', '진행 중', '완료', '보류']` |
 | `PageProperty` | `interface` | 페이지 속성 하나 `{ id, name, type, value, options?, reminder?, weatherData? }` |
@@ -70,6 +70,7 @@
 | `ai` | AI 글쓰기 패널 트리거 (실제 블록 없음) |
 | `toc` | 인라인 목차 |
 | `file` | 파일 첨부 |
+| `record` | 날짜 기록 헤더 (`{ date, title, kind }`, 중첩 본문 없음) |
 | `dayplanner` | Day Planner |
 | `weekplanner` | 멀티데이 주간 타임라인 그리드 |
 | `weeklyplanner` | 주간 플래너 |

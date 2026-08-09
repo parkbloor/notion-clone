@@ -8,6 +8,11 @@
 
 import { useState, useMemo } from 'react'
 import { Page } from '@/types/block'
+import {
+  collectRecordCalendarEntries,
+  groupRecordCalendarEntriesByDate,
+  type RecordCalendarEntry,
+} from '@/lib/recordCalendar'
 
 // -----------------------------------------------
 // Props 타입 정의
@@ -19,6 +24,7 @@ interface CalendarWidgetProps {
   pages: Page[]
   selectedDate: string | null
   onSelectDate: (date: string | null) => void
+  onOpenRecord?: (record: RecordCalendarEntry) => void
 }
 
 // -----------------------------------------------
@@ -48,7 +54,7 @@ function isoToLocalDateStr(val: Date | string | unknown): string {
   return date && !Number.isNaN(date.getTime()) ? toDateStr(date) : ''
 }
 
-export default function CalendarWidget({ pages, selectedDate, onSelectDate }: CalendarWidgetProps) {
+export default function CalendarWidget({ pages, selectedDate, onSelectDate, onOpenRecord }: CalendarWidgetProps) {
 
   // 현재 보고있는 연·월 상태 (초기값: 오늘)
   // Python으로 치면: self.current_year, self.current_month = today.year, today.month
@@ -67,6 +73,11 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
       .map(p => isoToLocalDateStr(p.createdAt))
       .filter(d => d.length === 10)  // 변환 실패한 빈 문자열 제거
   ), [pages])
+
+  // 일반 메모 안의 기록 헤더를 날짜별로 집계한다.
+  const recordEntries = useMemo(() => collectRecordCalendarEntries(pages), [pages])
+  const recordsByDate = useMemo(() => groupRecordCalendarEntriesByDate(recordEntries), [recordEntries])
+  const selectedRecords = selectedDate ? (recordsByDate.get(selectedDate) ?? []) : []
 
   // -----------------------------------------------
   // 이전 달로 이동
@@ -129,6 +140,7 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
   // Python으로 치면: count = sum(1 for d in date_set if d.startswith(f'{year}-{month:02d}'))
   const monthPrefix = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}`
   const pagesThisMonth = [...pageDateSet].filter(d => d.startsWith(monthPrefix)).length
+  const recordsThisMonth = recordEntries.filter(record => record.date.startsWith(monthPrefix)).length
 
   return (
     <div className="px-2 py-2 border-b border-gray-200 shrink-0">
@@ -155,6 +167,14 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
           {pagesThisMonth > 0 && (
             <span className="text-xs px-1 py-0 rounded-full bg-blue-100 text-blue-500 font-medium">
               {pagesThisMonth}
+            </span>
+          )}
+          {recordsThisMonth > 0 && (
+            <span
+              className="text-xs px-1 py-0 rounded-full bg-amber-100 text-amber-600 font-medium"
+              title={`이번 달 기록 ${recordsThisMonth}개`}
+            >
+              기록 {recordsThisMonth}
             </span>
           )}
         </div>
@@ -202,6 +222,7 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
           const isToday = dateStr === todayStr
           const isSelected = dateStr === selectedDate
           const hasPages = pageDateSet.has(dateStr)
+          const recordCount = recordsByDate.get(dateStr)?.length ?? 0
           // 일요일(0) 또는 토요일(6) 여부 — idx는 0부터 시작하나 요일은 firstDay로 offset
           const weekday = (firstDayOfMonth + day - 1) % 7
 
@@ -223,13 +244,27 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
                   ? "relative flex flex-col items-center justify-center h-6 rounded text-xs text-blue-300 hover:bg-gray-100 transition-colors"
                   : "relative flex flex-col items-center justify-center h-6 rounded text-xs text-gray-400 hover:bg-gray-100 transition-colors"
               }
-              title={hasPages ? `${dateStr} — 메모 있음` : dateStr}
+              title={[
+                dateStr,
+                hasPages ? '메모 있음' : '',
+                recordCount > 0 ? `기록 ${recordCount}개` : '',
+              ].filter(Boolean).join(' — ')}
             >
               {day}
               {/* 페이지 존재 점 표시 — 선택 상태 아닐 때만 */}
               {/* Python으로 치면: if has_pages and not is_selected: render_dot() */}
               {hasPages && !isSelected && (
                 <span className={isToday ? "absolute bottom-0.5 w-1 h-1 rounded-full bg-blue-400" : "absolute bottom-0.5 w-1 h-1 rounded-full bg-blue-300"} />
+              )}
+              {recordCount > 0 && (
+                <span
+                  className={isSelected
+                    ? "absolute -right-0.5 -top-0.5 min-w-3 h-3 px-0.5 rounded-full bg-white text-[8px] leading-3 text-amber-600 shadow-sm"
+                    : "absolute -right-0.5 -top-0.5 min-w-3 h-3 px-0.5 rounded-full bg-amber-500 text-[8px] leading-3 text-white shadow-sm"}
+                  aria-label={`기록 ${recordCount}개`}
+                >
+                  {recordCount > 9 ? '9+' : recordCount}
+                </span>
               )}
             </button>
           )
@@ -239,13 +274,49 @@ export default function CalendarWidget({ pages, selectedDate, onSelectDate }: Ca
       {/* ── 필터 해제 버튼 (날짜 선택 중일 때만 표시) ─── */}
       {/* Python으로 치면: if selected_date: render_clear_button() */}
       {selectedDate && (
-        <button
-          type="button"
-          onClick={() => onSelectDate(null)}
-          className="mt-1.5 w-full text-xs text-center text-blue-500 hover:text-blue-600 hover:bg-blue-50 py-0.5 rounded transition-colors"
-        >
-          {selectedDate} 필터 해제 ✕
-        </button>
+        <>
+          {selectedRecords.length > 0 && (
+            <div className="mt-2 border-t pt-2" style={{ borderColor: 'var(--color-border)' }}>
+              <div className="mb-1 px-1 text-[10px] font-semibold" style={{ color: 'var(--color-text-muted)' }}>
+                {selectedDate} 기록 {selectedRecords.length}개
+              </div>
+              <div className="space-y-1">
+                {selectedRecords.map(record => (
+                  <button
+                    key={`${record.pageId}-${record.blockId}`}
+                    type="button"
+                    onClick={() => onOpenRecord?.(record)}
+                    disabled={!onOpenRecord}
+                    className="w-full rounded px-2 py-1.5 text-left transition-colors hover:bg-amber-50 disabled:cursor-default"
+                    title={`${record.pageTitle}의 기록으로 이동`}
+                  >
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="shrink-0 text-xs">{record.pageIcon || '📄'}</span>
+                      {record.kind && (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+                          {record.kind}
+                        </span>
+                      )}
+                      <span className="truncate text-[11px] font-medium" style={{ color: 'var(--color-text)' }}>
+                        {record.title || '제목 없는 기록'}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 truncate pl-5 text-[9px]" style={{ color: 'var(--color-text-muted)' }}>
+                      {record.pageTitle}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => onSelectDate(null)}
+            className="mt-1.5 w-full text-xs text-center text-blue-500 hover:text-blue-600 hover:bg-blue-50 py-0.5 rounded transition-colors"
+          >
+            {selectedDate} 필터 해제 ✕
+          </button>
+        </>
       )}
     </div>
   )

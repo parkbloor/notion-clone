@@ -14,6 +14,7 @@ import { isGridTemplate } from '@/lib/templateGrid'
 import TemplateEditorModal from '@/components/editor/TemplateEditorModal'
 import { useLocale } from '@/locales'
 import { useSettingsStore } from '@/store/settingsStore'
+import { usePageStore } from '@/store/pageStore'
 import { blocksToMarkdown } from '@/lib/templateParser'
 import {
   makeDailyTemplate,
@@ -27,6 +28,13 @@ import {
 // 버튼 바 + 도움말 모달에서 공통으로 사용
 // Python으로 치면: SPECIAL_BLOCKS = [{'syntax': ':::dayplanner', ...}, ...]
 const SPECIAL_BLOCKS = [
+  {
+    syntax: ':::record',
+    label: 'Record Header',
+    icon: '📌',
+    badge: '기록',
+    desc: '오늘 날짜를 기준으로 일반 메모 안에 기록 시작 위치를 표시합니다.',
+  },
   {
     syntax: ':::dayplanner',
     label: 'Day Planner',
@@ -180,6 +188,9 @@ export default function TemplatesTab() {
   // 서버에서 불러온 템플릿 목록
   // Python으로 치면: self.templates: list[Template] = []
   const [templates, setTemplates] = useState<Template[]>([])
+  const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null)
+  const [settingDefault, setSettingDefault] = useState(false)
+  const currentVaultName = usePageStore(s => s.currentVaultName)
 
   // 현재 편집 중인 템플릿 ID (null = 새 템플릿 작성 모드)
   // Python으로 치면: self.editing_id: str | None = None
@@ -202,10 +213,26 @@ export default function TemplatesTab() {
   // Python으로 치면: self.templates = await api.get_all()
   // -----------------------------------------------
   useEffect(() => {
-    templateApi.getAll().then(setTemplates).catch(() => {
-      toast.error(t.settings.templates.loadError)
-    })
-  }, [])
+    Promise.all([templateApi.getAll(), templateApi.getDefault()])
+      .then(([loadedTemplates, loadedDefault]) => {
+        setTemplates(loadedTemplates)
+        setDefaultTemplateId(loadedDefault)
+      })
+      .catch(() => toast.error(t.settings.templates.loadError))
+  }, [t.settings.templates.loadError])
+
+  async function handleSetDefault(templateId: string | null) {
+    setSettingDefault(true)
+    try {
+      const saved = await templateApi.setDefault(templateId)
+      setDefaultTemplateId(saved)
+      toast.success(saved ? t.settings.templates.defaultSaved : t.settings.templates.defaultCleared)
+    } catch {
+      toast.error(t.settings.templates.defaultError)
+    } finally {
+      setSettingDefault(false)
+    }
+  }
 
   // -----------------------------------------------
   // 저장 (생성 또는 수정)
@@ -435,6 +462,26 @@ export default function TemplatesTab() {
         )}
       </div>
 
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-amber-800">{t.settings.templates.vaultDefault}</p>
+          <p className="mt-0.5 truncate text-xs text-amber-600">
+            {currentVaultName || t.settings.templates.currentVault}: {' '}
+            {templates.find(template => template.id === defaultTemplateId)?.name ?? t.settings.templates.defaultNone}
+          </p>
+        </div>
+        {defaultTemplateId && (
+          <button
+            type="button"
+            onClick={() => handleSetDefault(null)}
+            disabled={settingDefault}
+            className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 text-xs text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {t.settings.templates.clearDefault}
+          </button>
+        )}
+      </div>
+
       {/* ── 새 템플릿 작성 / 기존 편집 폼 ──────────── */}
       {editingId !== null && (
         <div className="border border-blue-200 rounded-xl bg-blue-50 p-4 space-y-3">
@@ -545,6 +592,17 @@ export default function TemplatesTab() {
                     {t.settings.templates.gridBadge}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => handleSetDefault(defaultTemplateId === tmpl.id ? null : tmpl.id)}
+                  disabled={settingDefault}
+                  className={defaultTemplateId === tmpl.id
+                    ? "px-2.5 py-1 text-xs text-amber-700 bg-amber-100 rounded-md hover:bg-amber-200 transition-colors disabled:opacity-30"
+                    : "px-2.5 py-1 text-xs text-gray-500 bg-gray-100 rounded-md hover:bg-amber-100 hover:text-amber-700 transition-colors disabled:opacity-30"}
+                  title={defaultTemplateId === tmpl.id ? t.settings.templates.clearDefault : t.settings.templates.setDefault}
+                >
+                  {defaultTemplateId === tmpl.id ? `★ ${t.settings.templates.defaultActive}` : `☆ ${t.settings.templates.setDefault}`}
+                </button>
                 {/* 비주얼 편집 버튼 (그리드 템플릿만) */}
                 {isGridTemplate(tmpl.content) ? (
                   <button

@@ -14,7 +14,7 @@ import { useMemo, useCallback } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
-import { ChevronLeft, ChevronRight, Plus, Trash2, CheckSquare, Square } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
 
@@ -204,7 +204,7 @@ export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdat
       weeks.push(week)
     }
     return weeks
-  }, [data.year, data.quarter, pages])
+  }, [data.year, data.quarter, pages, plannerRoutines])
 
   const todayStr = fmtDate(new Date())
   const quarterMonths = QUARTER_MONTHS[data.quarter]

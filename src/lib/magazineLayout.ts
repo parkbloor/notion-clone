@@ -34,7 +34,7 @@ const FEATURE_TYPES = new Set<BlockType>([
 
 // 섹션 구분자 — 이 타입이 나오면 새 섹션 시작
 // Python으로 치면: SECTION_STARTERS = frozenset({'heading1', 'heading2'})
-const SECTION_STARTERS = new Set<BlockType>(['heading1', 'heading2'])
+const SECTION_STARTERS = new Set<BlockType>(['heading1', 'heading2', 'record'])
 
 // 강조 블록 타입 — 콜아웃·인용 등
 const ACCENT_TYPES = new Set<BlockType>(['admonition'])

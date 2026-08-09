@@ -158,6 +158,10 @@ export interface SettingsStore {
   sidebarCollapsed: boolean
   toggleSidebarCollapsed: () => void
 
+  // ── 볼트 그룹 레일 접힘 여부 (메모 사이드바와 독립, localStorage 영속) ──
+  vaultRailCollapsed: boolean
+  toggleVaultRailCollapsed: () => void
+
   // ── 사이드바 너비 (px) — 마우스 드래그로 조절, localStorage에 영속 ──
   // min: 160px, max: 480px, 기본: 260px
   // Python으로 치면: self.sidebar_width: int = 260
@@ -374,6 +378,7 @@ export const useSettingsStore = create<SettingsStore>()(
       isFocusMode: false,
       // 사이드바 접힘 여부 기본값 — false = 전체 표시
       sidebarCollapsed: false,
+      vaultRailCollapsed: false,
       // 사이드바 너비 기본값 — 260px (두 패널 합친 것보다 좁은 통합 너비)
       sidebarWidth: 260,
       // 사이드바 폴더/메모 분할 높이 기본값 — 220px
@@ -484,6 +489,12 @@ export const useSettingsStore = create<SettingsStore>()(
       toggleSidebarCollapsed: () => {
         set((state) => {
           state.sidebarCollapsed = !state.sidebarCollapsed
+        })
+      },
+
+      toggleVaultRailCollapsed: () => {
+        set((state) => {
+          state.vaultRailCollapsed = !state.vaultRailCollapsed
         })
       },
 

@@ -122,7 +122,7 @@ export default function FileBlock({ block, pageId }: FileBlockProps) {
     } finally {
       setUploading(false)
     }
-  }, [pageId, block.id, updateBlock])
+  }, [pageId, block.id, updateBlock, t.blocks.file.sizeError, t.blocks.file.typeError, t.blocks.file.uploadError])
 
   // 파일 input change 핸들러
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {

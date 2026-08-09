@@ -8,7 +8,7 @@
 
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { templateApi, Template } from '@/lib/api'
 import { usePageStore } from '@/store/pageStore'
@@ -47,6 +47,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
 
   // 서버에서 불러온 템플릿 목록
   const [templates, setTemplates] = useState<Template[]>([])
+  const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [applying, setApplying] = useState(false)
 
@@ -57,11 +58,19 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
 
   // ── 마운트 시 템플릿 목록 로드 ───────────────
   useEffect(() => {
-    templateApi.getAll()
-      .then(setTemplates)
+    Promise.all([templateApi.getAll(), templateApi.getDefault()])
+      .then(([loadedTemplates, loadedDefault]) => {
+        setTemplates(loadedTemplates)
+        setDefaultTemplateId(loadedDefault)
+      })
       .catch(() => toast.error(t.settings.templates.loadError))
       .finally(() => setLoading(false))
-  }, [])
+  }, [t.settings.templates.loadError])
+
+  const defaultTemplate = useMemo(
+    () => templates.find(template => template.id === defaultTemplateId) ?? null,
+    [defaultTemplateId, templates],
+  )
 
   // ── Esc / 오버레이 클릭 → 닫기 ─────────────
   useEffect(() => {
@@ -144,6 +153,22 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
         {/* 본문 — 스크롤 가능 */}
         <div className="flex-1 overflow-y-auto p-4">
 
+          {defaultTemplate && (
+            <button
+              type="button"
+              onClick={() => handleTemplate(defaultTemplate)}
+              disabled={applying}
+              className="mb-4 flex w-full items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-left transition-colors hover:bg-amber-100 disabled:opacity-50"
+            >
+              <span className="text-2xl">{defaultTemplate.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[10px] font-semibold text-amber-600">{t.overlay.newPage.vaultDefault}</span>
+                <span className="block truncate text-sm font-semibold text-gray-800">{defaultTemplate.name}</span>
+              </span>
+              <span className="shrink-0 text-xs font-medium text-amber-700">{t.overlay.newPage.createDefault} ›</span>
+            </button>
+          )}
+
           {/* ── 카드 그리드 ── */}
           {/* Python으로 치면: grid = QGridLayout(); grid.setColumns(3) */}
           <div className="grid grid-cols-3 gap-3">
@@ -179,7 +204,7 @@ export default function NewPageDialog({ categoryId, onClose }: NewPageDialogProp
 
             {/* ── 템플릿 카드 목록 ── */}
             {/* Python으로 치면: for template in templates: render_card(template) */}
-            {templates.map(template => {
+            {templates.filter(template => template.id !== defaultTemplateId).map(template => {
               const isGrid = isGridTemplate(template.content)
               const gradientCls = iconToColor(template.icon)
               return (

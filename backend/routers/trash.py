@@ -25,6 +25,7 @@ from backend.core import (
     resolve_trash_name,
     save_index,
     save_trash_index,
+    serialized_vault_write,
     validate_uuid,
 )
 
@@ -76,6 +77,7 @@ def get_trash():
 # Python으로 치면: def restore(id): shutil.move(trash/item, original_path)
 # -----------------------------------------------
 @router.patch("/trash/{item_id}/restore")
+@serialized_vault_write
 def restore_item(item_id: str):
     validate_uuid(item_id, "항목 ID")
 
@@ -87,6 +89,8 @@ def restore_item(item_id: str):
     index = load_index()
     trash_dir = get_trash_dir()
     trashed_path = trash_dir / entry["trashedFolderName"]
+    if not trashed_path.exists():
+        raise HTTPException(status_code=409, detail="휴지통의 실제 폴더를 찾을 수 없어 복원할 수 없습니다")
 
     if entry["type"] == "page":
         _restore_page(entry, index, trashed_path)
@@ -252,6 +256,7 @@ def _rebuild_page(child: dict, index: dict) -> None:
 # Python으로 치면: shutil.rmtree(trash/item); entries.remove(item)
 # -----------------------------------------------
 @router.delete("/trash/{item_id}")
+@serialized_vault_write
 def permanent_delete(item_id: str):
     validate_uuid(item_id, "항목 ID")
 
@@ -275,6 +280,7 @@ def permanent_delete(item_id: str):
 # Python으로 치면: for e in entries: shutil.rmtree(trash/e); entries = []
 # -----------------------------------------------
 @router.delete("/trash")
+@serialized_vault_write
 def empty_trash():
     trash_entries = load_trash_index()
     trash_dir = get_trash_dir()

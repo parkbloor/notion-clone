@@ -315,7 +315,6 @@ export default function ChartBlock({ block, pageId }: ChartBlockProps) {
       window.removeEventListener('ai-block-select', handleSelect)
       window.removeEventListener('ai-block-deselect', handleDeselect)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [block.id])
 
   // ── recharts 공통 Props ──────────────────────────

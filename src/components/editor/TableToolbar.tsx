@@ -9,12 +9,18 @@
 
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import { Editor as TiptapEditor } from '@tiptap/react'
 import { usePageStore } from '@/store/pageStore'
 import { BlockType } from '@/types/block'
 import {
+  getSelectedColumnType,
+  setSelectedColumnType,
+  type TableColumnType,
+} from '@/extensions/StatusTableCell'
+import {
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Minus, Trash2,
+  Check, Minus, Trash2,
 } from 'lucide-react'
 
 interface TableToolbarProps {
@@ -63,6 +69,50 @@ function Sep() {
 // -----------------------------------------------
 export default function TableToolbar({ editor, pageId, blockId }: TableToolbarProps) {
   const { updateBlockType, updateBlock } = usePageStore()
+  const [columnType, setColumnType] = useState<TableColumnType>(() => getSelectedColumnType(editor.state))
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false)
+  const typeMenuRef = useRef<HTMLDivElement>(null)
+
+  // 커서가 다른 열로 이동하거나 표 transaction이 발생하면 툴바 표시값을 갱신한다.
+  // Python으로 치면: editor.on(['selection_update', 'transaction'], sync_column_type)
+  useEffect(() => {
+    function syncColumnType() {
+      setColumnType(getSelectedColumnType(editor.state))
+    }
+    editor.on('selectionUpdate', syncColumnType)
+    editor.on('transaction', syncColumnType)
+    return () => {
+      editor.off('selectionUpdate', syncColumnType)
+      editor.off('transaction', syncColumnType)
+    }
+  }, [editor])
+
+  // 열 타입 메뉴의 외부 클릭과 Escape 닫기를 처리한다.
+  // Python으로 치면: def close_type_menu_on_outside(event): ...
+  useEffect(() => {
+    function handleMouseDown(event: MouseEvent) {
+      if (!typeMenuRef.current?.contains(event.target as Node)) setTypeMenuOpen(false)
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setTypeMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [])
+
+  // 선택한 열 전체의 타입을 transaction 한 번으로 변경한다.
+  // Python으로 치면: def change_column_type(cell_type): dispatch(transaction)
+  function handleColumnTypeChange(cellType: TableColumnType) {
+    const transaction = setSelectedColumnType(editor.state, cellType)
+    if (transaction) editor.view.dispatch(transaction)
+    setColumnType(cellType)
+    setTypeMenuOpen(false)
+    editor.commands.focus()
+  }
 
   // 테이블 삭제 — Tiptap에서 테이블 제거 후 블록 타입을 paragraph로 복원
   // Python으로 치면: def delete_table(): editor.delete_table(); block.type = 'paragraph'
@@ -128,6 +178,39 @@ export default function TableToolbar({ editor, pageId, blockId }: TableToolbarPr
       >
         <Minus size={12} />
       </IconBtn>
+
+      <Sep />
+
+      {/* ── 선택 열 타입 ───────────────────────────── */}
+      <div ref={typeMenuRef} className="relative">
+        <button
+          type="button"
+          title="선택한 열의 타입 변경"
+          className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => setTypeMenuOpen(open => !open)}
+        >
+          <span className="text-gray-400 dark:text-gray-500">열 타입:</span>
+          <span>{columnType === 'status' ? '상태' : '텍스트'}</span>
+          <ChevronDown size={10} />
+        </button>
+        {typeMenuOpen && (
+          <div className="absolute left-0 top-7 z-30 w-28 rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+            {(['text', 'status'] as const).map(type => (
+              <button
+                key={type}
+                type="button"
+                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => handleColumnTypeChange(type)}
+              >
+                <span>{type === 'status' ? '상태' : '텍스트'}</span>
+                {columnType === type && <Check size={12} className="text-blue-500" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <Sep />
 

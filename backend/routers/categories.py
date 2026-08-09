@@ -11,6 +11,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 
 from backend.core import (
+    CONTENT_EXT,
     get_vault_dir,
     CategoryReorderBody,
     CreateCategoryBody,
@@ -18,6 +19,8 @@ from backend.core import (
     RenameCategoryBody,
     UpdateCategoryColorBody,
     assert_inside_vault,
+    begin_move_journal,
+    complete_move_journal,
     get_cat_dir,
     get_cat_rel_path,
     get_folder_name,
@@ -29,10 +32,12 @@ from backend.core import (
     replace_image_urls_in_page,
     resolve_content_file,
     resolve_trash_name,
+    record_operation_error,
     sanitize_category_name,
     save_index,
     save_page_to_disk,
     save_trash_index,
+    serialized_vault_write,
     validate_uuid,
 )
 
@@ -55,6 +60,7 @@ def get_categories():
 
 
 @router.post("/categories", status_code=201)
+@serialized_vault_write
 def create_category(body: CreateCategoryBody):
     """
     새 카테고리 생성 → vault/{folderName}/ 폴더 생성
@@ -125,6 +131,7 @@ def create_category(body: CreateCategoryBody):
 
 
 @router.put("/categories/{cat_id}")
+@serialized_vault_write
 def rename_category(cat_id: str, body: RenameCategoryBody):
     """
     카테고리 이름 변경 → 폴더 rename + 내부 페이지 이미지 URL 일괄 교체
@@ -197,6 +204,7 @@ def rename_category(cat_id: str, body: RenameCategoryBody):
 
 
 @router.delete("/categories/{cat_id}")
+@serialized_vault_write
 def delete_category(cat_id: str):
     """
     카테고리 삭제 → _vault_trash/ 폴더로 물리 이동
@@ -325,13 +333,14 @@ def delete_category(cat_id: str):
 
 
 @router.patch("/categories/{cat_id}/move")
+@serialized_vault_write
 def move_category(cat_id: str, body: MoveFolderBody):
     """
     카테고리(폴더)를 다른 부모로 이동
     body.parentId = None  → 최상위로 이동
     body.parentId = str   → 해당 카테고리의 자식으로 이동
     순환 참조(자신의 하위로 이동) 방지
-    Python으로 치면: category.parentId = body.parentId; save()
+    실제 폴더도 함께 이동하고, 내부 이미지 URL을 새 전체 경로로 갱신한다.
     """
     # 🔒 UUID 검증
     validate_uuid(cat_id, "카테고리 ID")
@@ -374,6 +383,21 @@ def move_category(cat_id: str, body: MoveFolderBody):
     if old_parent_id == new_parent_id:
         return {"ok": True, "category": cat}
 
+    # 인덱스를 바꾸기 전의 실제 위치와 URL 접두사를 보관한다.
+    old_cat_dir = get_cat_dir(cat_id, index)
+    old_cat_rel = get_cat_rel_path(cat_id, index)
+    new_parent_dir = get_cat_dir(new_parent_id, index) if new_parent_id else get_vault_dir()
+    new_cat_dir = new_parent_dir / cat["folderName"]
+
+    assert_inside_vault(old_cat_dir)
+    assert_inside_vault(new_cat_dir)
+    if not old_cat_dir.exists():
+        record_operation_error("category_move", "source category folder missing", categoryId=cat_id, source=str(old_cat_dir), target=str(new_cat_dir))
+        raise HTTPException(status_code=404, detail="이동할 카테고리 폴더를 찾을 수 없습니다")
+    if new_cat_dir.exists():
+        record_operation_error("category_move", "target category folder already exists", categoryId=cat_id, source=str(old_cat_dir), target=str(new_cat_dir))
+        raise HTTPException(status_code=409, detail="대상 위치에 같은 카테고리 폴더가 이미 있습니다")
+
     child_order = index.setdefault("categoryChildOrder", {})
 
     # ── 기존 부모에서 제거 ────────────────────────────
@@ -393,14 +417,60 @@ def move_category(cat_id: str, body: MoveFolderBody):
     else:
         child_order.setdefault(new_parent_id, []).append(cat_id)
 
-    # 카테고리 parentId 업데이트
+    # 카테고리 parentId를 메모리에서 먼저 바꿔 새 전체 경로를 계산한다.
+    # 디스크 이동과 URL 갱신이 끝날 때까지 index는 저장하지 않는다.
     cat["parentId"] = new_parent_id
 
-    save_index(index)
+    new_cat_rel = get_cat_rel_path(cat_id, index)
+    new_parent_dir.mkdir(parents=True, exist_ok=True)
+    old_prefix = f"http://127.0.0.1:8000/static/{old_cat_rel}/"
+    new_prefix = f"http://127.0.0.1:8000/static/{new_cat_rel}/"
+    journal_id = begin_move_journal(
+        "category_move", old_cat_dir, new_cat_dir,
+        categoryId=cat_id, newParentId=new_parent_id, oldPrefix=old_prefix, newPrefix=new_prefix,
+    )
+    moved = False
+    try:
+        shutil.move(str(old_cat_dir), str(new_cat_dir))
+        moved = True
+
+        # 카테고리 아래 모든 페이지(하위 카테고리 포함)의 정적 URL을 함께 이동한다.
+        for page_id, page_cat_id in index.get("categoryMap", {}).items():
+            page_dir = get_cat_dir(page_cat_id, index) / get_folder_name(page_id, index)
+            try:
+                page_dir.relative_to(new_cat_dir)
+            except ValueError:
+                continue
+            content_file = resolve_content_file(page_dir)
+            if not content_file.exists():
+                continue
+            page_data = json.loads(content_file.read_text(encoding="utf-8"))
+            replace_image_urls_in_page(page_data, old_prefix, new_prefix)
+            save_page_to_disk(page_data, page_dir)
+
+        save_index(index)
+        complete_move_journal(journal_id)
+    except Exception as exc:
+        # index는 아직 디스크에 저장하지 않았으므로, 물리 폴더와 URL만
+        # 원복하면 기존 인덱스와 다시 일치한다.
+        try:
+            if moved and new_cat_dir.exists() and not old_cat_dir.exists():
+                for content_file in new_cat_dir.rglob(f"content{CONTENT_EXT}"):
+                    page_data = json.loads(content_file.read_text(encoding="utf-8"))
+                    replace_image_urls_in_page(page_data, new_prefix, old_prefix)
+                    save_page_to_disk(page_data, content_file.parent)
+                old_cat_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(new_cat_dir), str(old_cat_dir))
+        except Exception as rollback_exc:
+            record_operation_error("category_move", "rollback failed", categoryId=cat_id, error=str(rollback_exc))
+        record_operation_error("category_move", "move failed and was rolled back", categoryId=cat_id, error=str(exc))
+        complete_move_journal(journal_id)
+        raise HTTPException(status_code=500, detail="폴더 이동 중 오류가 발생해 원래 위치로 되돌렸습니다")
     return {"ok": True, "category": cat}
 
 
 @router.patch("/categories/reorder")
+@serialized_vault_write
 def reorder_categories(body: CategoryReorderBody):
     """
     최상위 카테고리 표시 순서 변경
@@ -413,6 +483,7 @@ def reorder_categories(body: CategoryReorderBody):
 
 
 @router.patch("/categories/{parent_id}/reorder-children")
+@serialized_vault_write
 def reorder_children(parent_id: str, body: CategoryReorderBody):
     """
     특정 카테고리의 하위 폴더 순서 변경
@@ -435,6 +506,7 @@ def reorder_children(parent_id: str, body: CategoryReorderBody):
 
 
 @router.patch("/categories/{cat_id}/color")
+@serialized_vault_write
 def update_category_color(cat_id: str, body: UpdateCategoryColorBody):
     """
     폴더 아이콘 색상 변경

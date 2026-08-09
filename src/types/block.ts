@@ -41,6 +41,7 @@ export type BlockType =
   | 'ai'           // AI 글쓰기 슬래시 커맨드 전용 (실제 블록으로 저장되지 않음 — 슬래시 메뉴에서 패널만 열림)
   | 'toc'          // 인라인 목차 블록 (페이지 내 헤딩 목록 자동 생성)
   | 'file'         // 파일 첨부 블록 (PDF / docx / zip 등 일반 파일)
+  | 'record'           // 날짜 기록 헤더 — 뒤따르는 일반 블록의 기록 시작 위치
   | 'dayplanner'       // Day Planner 블록 — 인라인 타임라인 일정표
   | 'weekplanner'      // Week Planner 블록 — 멀티데이 주간 타임라인 그리드
   | 'weeklyplanner'   // Weekly Planner 블록 — 주간 캘린더 + 날씨 + 루틴 달성 매트릭스
@@ -151,6 +152,8 @@ export interface Page {
   properties?: PageProperty[]
   createdAt: string    // 생성 시각 (ISO 8601 문자열 — 서버 JSON과 타입 일치)
   updatedAt: string    // 마지막 수정 시각 (ISO 8601 문자열)
+  /** 서버 저장 충돌을 감지하기 위한 낙관적 동시성 버전 */
+  revision?: number
   // 캔버스 모드 여부 — true이면 블록을 절대 좌표로 배치
   // Python으로 치면: canvas_mode: bool = False
   canvasMode?: boolean
@@ -331,6 +334,8 @@ export interface PlanEvent {
   log?:      string   // 실제 수행 기록 (자유 텍스트)
   subtasks?: SubTask[] // 서브태스크 체크리스트
   energy?:   number   // 집중도/에너지 레벨 (1~5)
+  source?:   'manual' | 'routine' // 일정 생성 출처. 없으면 구버전 일반 일정
+  routineId?: string  // source='routine'일 때 원본 Routine ID
 }
 
 // 반복 루틴 프리셋
@@ -354,7 +359,7 @@ export function createBlock(type: BlockType = 'paragraph'): Block {
   // 'ai'는 슬래시 메뉴 전용 UI 타입 — 실제 블록으로 저장 불가
   if (type === 'ai') throw new Error("'ai' 블록은 저장할 수 없습니다. 슬래시 메뉴 전용 타입입니다.")
   const now = new Date().toISOString()  // 동일 타임스탬프 보장 (두 번 호출하면 미세 차이 발생)
-  return {
+  const block: Block = {
     id: crypto.randomUUID(),   // 브라우저 내장 UUID 생성기
     type,
     content: '',               // 처음엔 내용 없음
@@ -362,6 +367,12 @@ export function createBlock(type: BlockType = 'paragraph'): Block {
     createdAt: now,
     updatedAt: now,
   }
+  if (type === 'record') {
+    const today = new Date()
+    const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    block.content = JSON.stringify({ date, title: '', kind: '' })
+  }
+  return block
 }
 
 

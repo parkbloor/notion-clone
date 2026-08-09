@@ -110,7 +110,7 @@ export default function MagazineGrid({ pageId, blocks, descriptor, readMode = fa
     } finally {
       setIsGenerating(false)
     }
-  }, [blocks])
+  }, [aiModel, aiProvider, anthropicApiKey, blocks, openaiApiKey])
 
   const theme = descriptor.theme
   const fontStyle = FONT_PAIR_STYLES[theme.fontPair]

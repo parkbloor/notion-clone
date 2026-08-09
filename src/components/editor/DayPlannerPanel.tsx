@@ -149,6 +149,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       end:   formEnd,
       color: formColor,
       done:  false,
+      source: 'manual',
     }
 
     // 현재 페이지에서 dayplanner 블록 찾기 (날짜 무관 — 블록 타입으로 검색)

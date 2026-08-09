@@ -691,8 +691,6 @@ function renderGrid(
   const c0 = cols[0] ?? 50
   const c1 = cols[1] ?? 50
   const c2 = cols[2] ?? 34
-  const r0 = rows[0] ?? 50
-  const r1 = rows[1] ?? 50
 
   switch (template as BuiltinTemplateId) {
 
@@ -931,7 +929,7 @@ function LayoutGrid({
 
 // ── 메인 LayoutBlock 컴포넌트 ───────────────────────────────────
 // Python으로 치면: class LayoutBlock(Widget): def render(self): ...
-export default function LayoutBlock({ blockId: _blockId, content, onChange }: LayoutBlockProps) {
+export default function LayoutBlock({ content, onChange }: LayoutBlockProps) {
   const {
     layoutDefaultOrientation,
     layoutDefaultTemplate,

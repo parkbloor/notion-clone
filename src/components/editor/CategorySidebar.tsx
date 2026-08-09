@@ -13,13 +13,16 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import { useLocale } from '@/locales'
 import { Category, Page } from '@/types/block'
 import CalendarWidget from './CalendarWidget'
+import type { RecordCalendarEntry } from '@/lib/recordCalendar'
 import PeriodicNotesPanel from './PeriodicNotesPanel'
 import NewPageDialog from './NewPageDialog'
 import { GUIDE_COLORS, getPageSearchText } from '@/components/sidebar/sidebarUtils'
 import { SortableCategoryRow, DroppableCategoryRow, CollapsedFolderIcon } from '@/components/sidebar/CategoryRow'
+import type { CategoryDropPosition } from '@/components/sidebar/CategoryRow'
 
 function toLocalDateKey(value: Date | string | undefined): string {
   const date = value instanceof Date ? value : typeof value === 'string' ? new Date(value) : null
@@ -66,6 +69,9 @@ export interface CategorySidebarProps {
   onOpenGraphView?: () => void
   // 휴지통 패널 열기 콜백
   onOpenTrash?: () => void
+  // 오늘 일정과 루틴을 확인하는 Day Planner 패널 열기 콜백
+  onOpenDayPlanner?: () => void
+  categoryDropIndicator?: { categoryId: string; position: CategoryDropPosition } | null
 }
 
 
@@ -74,6 +80,8 @@ export interface CategorySidebarProps {
 // -----------------------------------------------
 export default function CategorySidebar({
   onOpenSettings, onCloseMobile, dbViewActive, onToggleDbView, onSplitPage, onOpenGraphView, onOpenTrash,
+  onOpenDayPlanner,
+  categoryDropIndicator,
 }: CategorySidebarProps) {
 
   // ── 페이지 스토어 ────────────────────────────
@@ -111,6 +119,12 @@ export default function CategorySidebar({
   // 번역 훅
   // Python으로 치면: t = get_locale()
   const t = useLocale()
+  const plannerFeatures = useVaultPreferencesStore(state => state.preferences.planner)
+  const loadVaultPreferences = useVaultPreferencesStore(state => state.loadForVault)
+
+  useEffect(() => {
+    if (currentVaultName) void loadVaultPreferences(currentVaultName)
+  }, [currentVaultName, loadVaultPreferences])
 
   // ── 컴포넌트 상태 ────────────────────────────
   // 펼쳐진 폴더 ID 집합 — localStorage에서 복원, 변경 시 자동 저장
@@ -179,6 +193,10 @@ export default function CategorySidebar({
   // Python으로 치면: self.sidebar_tab = 'notes'
   const [sidebarTab, setSidebarTab] = useState<'notes' | 'plan'>('notes')
 
+  useEffect(() => {
+    if (!plannerFeatures.planMenu && sidebarTab === 'plan') setSidebarTab('notes')
+  }, [plannerFeatures.planMenu, sidebarTab])
+
   // SSR hydration 안전 마운트 플래그 (최근 파일 섹션용)
   // Python으로 치면: self.mounted = False; def on_mount(self): self.mounted = True
   const [mounted, setMounted] = useState(false)
@@ -210,8 +228,8 @@ export default function CategorySidebar({
     document.addEventListener('mouseup', onMouseUp)
   }
 
-  // ── "전체보기" 드롭 대상 (미분류로 페이지 이동) ──
-  const { setNodeRef: setAllRef, isOver: isOverAll } = useDroppable({
+  // ── "미분류" 드롭 대상 (categoryId=null로 페이지 이동) ──
+  const { setNodeRef: setUncategorizedRef, isOver: isOverUncategorized } = useDroppable({
     id: 'uncategorized',
     data: { type: 'category', categoryId: null },
   })
@@ -383,6 +401,18 @@ export default function CategorySidebar({
     onCloseMobile?.()
   }
 
+  // 캘린더 기록 선택 → 원본 페이지를 열고 해당 기록 헤더로 이동
+  function handleOpenRecord(record: RecordCalendarEntry) {
+    setCurrentPage(record.pageId)
+    pushRecentPage(record.pageId)
+    onCloseMobile?.()
+
+    // 페이지 전환 후 에디터 블록 DOM이 준비되는 시간을 기다린다.
+    setTimeout(() => {
+      document.getElementById(record.blockId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 150)
+  }
+
   function toggleBulkSelectMode() {
     setBulkSelectMode(prev => !prev)
     setSelectedPageIds(new Set())
@@ -441,6 +471,7 @@ export default function CategorySidebar({
           isSelected={isSelected}
           collapsed={sidebarCollapsed}
           pageCount={pagesInCat.length}
+          dropPosition={categoryDropIndicator?.categoryId === catId ? categoryDropIndicator.position : null}
           onToggleExpand={() => toggleFolder(catId)}
           // 폴더 클릭 시 선택 + 펼치기/접기 토글 (옵시디언 스타일)
           onSelect={() => { setCurrentCategory(catId); setSearchQuery(''); setSelectedDate(null); toggleFolder(catId) }}
@@ -597,18 +628,18 @@ export default function CategorySidebar({
 
         {/* 전체보기 아이콘 */}
         <div className="px-1.5 py-2">
-          <div ref={setAllRef}>
+          <div ref={setUncategorizedRef}>
             <button
               onClick={() => setCurrentCategory(null)}
-              title={t.sidebar.allPages}
+              title={`${t.sidebar.allPages} · ${t.sidebar.dropToUncategorized}`}
               className="w-full flex items-center justify-center py-2 rounded-md text-base transition-colors"
-              style={isOverAll
+              style={isOverUncategorized
                 ? { background: "var(--color-accent-soft)", color: "var(--color-accent-ink)" }
                 : currentCategoryId === null
                   ? { background: "var(--color-active)", color: "var(--color-text)" }
                   : { color: "var(--color-text-muted)" }}
-              onMouseEnter={e => { if (currentCategoryId !== null && !isOverAll) (e.currentTarget as HTMLElement).style.background = "var(--color-hover)" }}
-              onMouseLeave={e => { if (currentCategoryId !== null && !isOverAll) (e.currentTarget as HTMLElement).style.background = "" }}
+              onMouseEnter={e => { if (currentCategoryId !== null && !isOverUncategorized) (e.currentTarget as HTMLElement).style.background = "var(--color-hover)" }}
+              onMouseLeave={e => { if (currentCategoryId !== null && !isOverUncategorized) (e.currentTarget as HTMLElement).style.background = "" }}
             >
               📋
             </button>
@@ -722,42 +753,43 @@ export default function CategorySidebar({
           </button>
         </div>
 
-        {/* ── 노트 / 계획 탭 토글 ──────────────────────
-            Python으로 치면: tab_bar = TabBar(['노트', '계획']) */}
-        <div className="flex items-center px-2 py-1.5 border-b border-gray-200 gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={() => { setSidebarTab('notes'); setSelectedDate(null) }}
-            className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${sidebarTab === 'notes' ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100'}`}
-          >
-            📓 {t.sidebar.tabNotes}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setSidebarTab('plan'); setSelectedDate(null) }}
-            className={`flex-1 py-1 text-xs rounded font-medium transition-colors ${sidebarTab === 'plan' ? 'bg-gray-200 text-gray-800' : 'text-gray-400 hover:bg-gray-100'}`}
-          >
-            📅 {t.sidebar.tabPlan}
-          </button>
-        </div>
-
         {/* ===================================================== */}
         {/* 계획 탭 — 캘린더 + PeriodicNotesPanel                   */}
         {/* Python으로 치면: if sidebar_tab == 'plan': render_plan() */}
         {/* ===================================================== */}
         {sidebarTab === 'plan' && (
-          <div className="flex-1 overflow-y-auto">
-            {/* 캘린더 위젯 (플러그인 ON일 때만) */}
-            {plugins.calendar && (
-              <CalendarWidget
-                pages={pages}
-                selectedDate={selectedDate}
-                onSelectDate={(d) => { setSelectedDate(d); setSearchQuery('') }}
-              />
-            )}
-            {/* 주기적 노트 패널 — 계획 탭에서는 항상 표시 */}
-            {/* Python으로 치면: render(PeriodicNotesPanel()) */}
-            <PeriodicNotesPanel />
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center gap-2 border-b hairline px-2 py-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => { setSidebarTab('notes'); setSelectedDate(null) }}
+                title={t.sidebar.tabNotes}
+                className="icon-btn shrink-0"
+              >
+                ‹
+              </button>
+              <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                📅 {t.sidebar.tabPlan}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+            {/* 계획 허브 — 기존 기능을 오늘 사용 흐름에 맞춰 재배치 */}
+            <PeriodicNotesPanel
+              onOpenDayPlanner={onOpenDayPlanner}
+              showReviews={plannerFeatures.reviews}
+              showTimeline={plannerFeatures.timeline}
+              showRoutines={plannerFeatures.routines}
+              onOpenRecord={handleOpenRecord}
+              calendar={plugins.calendar && plannerFeatures.calendar ? (
+                <CalendarWidget
+                  pages={pages}
+                  selectedDate={selectedDate}
+                  onSelectDate={(d) => { setSelectedDate(d); setSearchQuery('') }}
+                  onOpenRecord={handleOpenRecord}
+                />
+              ) : null}
+            />
+            </div>
           </div>
         )}
 
@@ -767,6 +799,25 @@ export default function CategorySidebar({
         {/* ===================================================== */}
         {sidebarTab === 'notes' && (
           <>
+        {/* 오늘 일정 빠른 진입점 — 메모 흐름을 벗어나지 않고 Day Planner 열기 */}
+        {plannerFeatures.todayShortcut && <div className="px-3 pt-2 shrink-0">
+          <button
+            type="button"
+            onClick={onOpenDayPlanner}
+            disabled={!onOpenDayPlanner}
+            title={`${t.overlay.periodic.openDayPlanner} (Ctrl+Shift+D)`}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ background: "var(--color-accent-soft)", color: "var(--color-accent-ink)" }}
+          >
+            <span className="text-base leading-none">🗓️</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11.5px] font-semibold leading-4">{t.overlay.periodic.openDayPlanner}</span>
+              <span className="block truncate text-[9.5px] leading-3 opacity-70">{t.overlay.periodic.scheduleAndRoutines}</span>
+            </span>
+            <span className="text-[9px] opacity-60">Ctrl+Shift+D</span>
+          </button>
+        </div>}
+
         {/* ── 새 노트 CTA 버튼 영역 ───────────────────
             accent 풀-width 버튼 + 캘린더·그래프 아이콘
             Python으로 치면: cta_bar = HBox([NewNoteButton(), CalBtn(), GraphBtn()]) */}
@@ -798,15 +849,6 @@ export default function CategorySidebar({
             style={bulkSelectMode ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
           >
             <ListChecks size={14} />
-          </button>
-          {/* 캘린더 탭 빠른 이동 */}
-          <button
-            type="button"
-            onClick={() => { setSidebarTab('plan'); setSelectedDate(null) }}
-            title={t.sidebar.tabPlan}
-            className="icon-btn shrink-0"
-          >
-            📅
           </button>
           {/* 그래프 뷰 */}
           <button
@@ -1060,13 +1102,11 @@ export default function CategorySidebar({
               </>
             )}
 
-            {/* 전체보기 — 드롭 대상 (미분류로 페이지 이동) */}
-            <div ref={setAllRef}>
+            {/* 전체 페이지 탐색 */}
+            <div>
               <button
                 onClick={() => { setCurrentCategory(null); setSearchQuery(''); setSelectedDate(null) }}
-                className={isOverAll
-                  ? "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left bg-blue-100 text-blue-800"
-                  : currentCategoryId === null
+                className={currentCategoryId === null
                     ? "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left bg-gray-200 text-gray-900"
                     : "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-left text-gray-600 hover:bg-gray-100 transition-colors"}
               >
@@ -1086,11 +1126,23 @@ export default function CategorySidebar({
               {orderedTopFolders.map(cat => renderFolder(cat.id, 0))}
             </SortableContext>
 
-            {/* 미분류 페이지 (폴더에 속하지 않은 페이지) */}
-            {uncategorizedPages.length > 0 && (
-              <>
-                <div className="border-t border-gray-200 my-1 mt-2" />
-                <div className="px-2 py-0.5 text-[10px] text-gray-400 font-medium uppercase tracking-wide">{t.sidebar.uncategorized}</div>
+            {/* 미분류 드롭 대상 + 폴더에 속하지 않은 페이지 */}
+            <div className="mt-2">
+              <div className="border-t border-gray-200 my-1" />
+              <div
+                ref={setUncategorizedRef}
+                title={t.sidebar.dropToUncategorized}
+                className={isOverUncategorized
+                  ? "mx-1 mb-1 flex items-center gap-1.5 px-2 py-1.5 rounded-md border border-dashed border-blue-400 bg-blue-100 text-blue-800 transition-colors"
+                  : "mx-1 mb-1 flex items-center gap-1.5 px-2 py-1 rounded-md border border-dashed border-transparent text-gray-400 transition-colors"}
+              >
+                <span className="text-xs">📥</span>
+                <span className="text-[10px] font-medium uppercase tracking-wide">
+                  {isOverUncategorized ? t.sidebar.dropToUncategorized : t.sidebar.uncategorized}
+                </span>
+                <span className="ml-auto text-[10px] tabular-nums">{uncategorizedPages.length}</span>
+              </div>
+              <SortableContext items={uncategorizedPages.map(page => page.id)} strategy={verticalListSortingStrategy}>
                 {uncategorizedPages.map(page => (
                   <DraggablePageRow
                     key={page.id}
@@ -1109,8 +1161,8 @@ export default function CategorySidebar({
                     onBulkMoveComplete={handleBulkMoveComplete}
                   />
                 ))}
-              </>
-            )}
+              </SortableContext>
+            </div>
 
             {/* 최상위 폴더 추가 인풋 */}
             {isAddingTopFolder && (
@@ -1195,6 +1247,18 @@ export default function CategorySidebar({
               {pages.length} pages
             </div>
           </div>
+          {/* 계획 — 주 화면에서 제외하고 하단 보조 메뉴에 유지 */}
+          {plannerFeatures.planMenu && <button
+            type="button"
+            onClick={() => { setSidebarTab('plan'); setSelectedDate(null) }}
+            title={t.sidebar.tabPlan}
+            aria-label={t.sidebar.tabPlan}
+            aria-pressed={sidebarTab === 'plan'}
+            className="icon-btn shrink-0"
+            style={sidebarTab === 'plan' ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
+          >
+            📅
+          </button>}
           {/* 그래프 뷰 */}
           <button type="button" onClick={onOpenGraphView} title={`${t.sidebar.graphView} (Ctrl+G)`} className="icon-btn shrink-0">
             <GitFork size={13} />

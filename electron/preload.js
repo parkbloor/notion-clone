@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Python으로 치면: def get_version(): return pkg_version
   getVersion: () => ipcRenderer.invoke('get-version'),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+  // 검증은 메인 프로세스에서 다시 수행하고 렌더러에는 로컬 경로를 노출하지 않는다.
+  startImageDrag: (payload) => ipcRenderer.send('start-image-drag', payload),
 })

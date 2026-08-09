@@ -52,6 +52,7 @@ function estimateBlockHeight(block: { type: string; content: string }): number {
     case 'excalidraw': return 420
     case 'layout':     return 360
     case 'math':       return 80
+    case 'record':     return 72
     case 'heading1':   return 60
     case 'heading2':   return 52
     case 'heading3':   return 44
@@ -647,7 +648,7 @@ export default function CanvasPageEditor({ page, readMode, editMode = false }: C
       drawingBoxRef.current = updated
     }
 
-    const onMouseUp = (e: MouseEvent) => {
+    const onMouseUp = () => {
       const db = drawingBoxRef.current
       if (db) {
         const x = Math.min(db.startX, db.curX)

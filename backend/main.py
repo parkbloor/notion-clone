@@ -24,8 +24,9 @@ from backend.core import (
     get_vault_dir, get_vaults_root, mem_handler, assert_inside_vault,
     get_cat_dir, get_page_dir, get_trash_dir, load_index, load_trash_index,
     resolve_trash_name, save_index, save_trash_index, now_iso,
+    inspect_vault_integrity, recover_pending_moves,
 )
-from backend.routers import categories, cloud_sync, export_import, history, pages, planner, search, system, templates, ai, trash
+from backend.routers import categories, cloud_sync, export_import, history, pages, planner, search, system, templates, vault_preferences, ai, trash
 
 # ── 로깅 설정 ──────────────────────────────────
 # Python으로 치면: logging.basicConfig(); handler = MemoryLogHandler()
@@ -164,6 +165,10 @@ async def lifespan(app):
     # 앱 시작 시 실행
     _cleanup_tmp_files()
     _migrate_legacy_trash()
+    recover_pending_moves()
+    # 시작 시에는 페이지 경로만 가볍게 점검한다. 이미지 전체 검사는
+    # 설정의 수동 점검 API에서만 수행해 시작 시간을 늘리지 않는다.
+    inspect_vault_integrity(include_images=False, log_errors=True)
     yield
     # 앱 종료 시 실행 (필요 시 추가)
 
@@ -220,6 +225,7 @@ app.include_router(trash.router)
 app.include_router(history.router)
 app.include_router(cloud_sync.router)
 app.include_router(planner.router)
+app.include_router(vault_preferences.router)
 
 
 # ── PyInstaller 번들 진입점 ─────────────────────────

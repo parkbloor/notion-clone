@@ -10,7 +10,7 @@ import { Editor as TiptapEditor } from '@tiptap/react'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSettingsStore } from '@/store/settingsStore'
 import { toast } from 'sonner'
-import { FONT_PRESETS, FONT_SIZE_PRESETS, CATEGORY_LABELS, type FontCategory } from '@/lib/fonts'
+import { FONT_PRESETS, CATEGORY_LABELS, type FontCategory } from '@/lib/fonts'
 // 정렬 아이콘 — lucide-react 패키지에서 가져옴
 // Python으로 치면: from lucide import AlignLeft, AlignCenter, AlignRight, AlignJustify
 import { AlignLeft, AlignCenter, AlignRight, AlignJustify } from 'lucide-react'
@@ -119,7 +119,8 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
   // null        → 모두 닫힘
   // Python으로 치면: open_panel: Literal['text','highlight','font','size'] | None = None
   // -----------------------------------------------
-  const [openPanel, setOpenPanel] = useState<'text' | 'highlight' | 'font' | 'size' | 'ai' | null>(null)
+  const [openPanel, setOpenPanel] = useState<'text' | 'highlight' | 'font' | 'size' | 'link' | 'ai' | null>(null)
+  const [linkUrl, setLinkUrl] = useState('')
 
   // AI 요청 처리 중 여부
   // Python으로 치면: self.ai_loading = False
@@ -195,7 +196,7 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
         const selection = window.getSelection()
 
         if (!selection || selection.isCollapsed || selection.toString().trim() === '') {
-          if (menuRef.current?.matches(':hover')) return
+          if (menuRef.current?.matches(':hover') || menuRef.current?.contains(document.activeElement)) return
           setVisible(false)
           setOpenPanel(null)  // 메뉴 닫힐 때 패널도 함께 닫음
           return
@@ -257,7 +258,7 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
   // 클릭 직전에 selection을 재캡처 (포커스 유지)
   // Python으로 치면: def toggle_panel(name): self.open_panel = None if open == name else name
   // -----------------------------------------------
-  const togglePanel = (name: 'text' | 'highlight' | 'font' | 'size' | 'ai') => {
+  const togglePanel = (name: 'text' | 'highlight' | 'font' | 'size' | 'link' | 'ai') => {
     const { from, to } = editor.state.selection
     if (from !== to) savedSelection.current = { from, to }
     setOpenPanel(prev => prev === name ? null : name)
@@ -668,15 +669,11 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
           onPointerDown={(e) => {
             e.preventDefault()
             e.stopPropagation()
-            if (savedSelection.current) {
-              editor.commands.setTextSelection(savedSelection.current)
-            }
-            const url = window.prompt('링크 URL을 입력하세요')
-            if (url) {
-              editor.chain().focus().setLink({ href: url }).run()
-            }
+            const currentHref = editor.getAttributes('link').href
+            setLinkUrl(typeof currentHref === 'string' ? currentHref : '')
+            togglePanel('link')
           }}
-          className={editor.isActive('link') ? 'px-2 py-2 rounded text-sm transition-colors bg-white text-gray-900' : 'px-2 py-2 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white'}
+          className={editor.isActive('link') || openPanel === 'link' ? 'px-2 py-2 rounded text-sm transition-colors bg-white text-gray-900' : 'px-2 py-2 rounded text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white'}
         >
           🔗
         </button>
@@ -817,6 +814,48 @@ export default function BubbleMenuBar({ editor, readMode = false }: BubbleMenuBa
         )}
 
       </div>
+
+      {/* ── 링크 URL 입력 패널 ───────────────────── */}
+      {openPanel === 'link' && (
+        <form
+          className="flex items-center gap-2 border-t border-gray-700 px-2 py-2"
+          onPointerDown={(e) => e.stopPropagation()}
+          onSubmit={(e) => {
+            e.preventDefault()
+            const href = linkUrl.trim()
+            if (!href) return
+            restoreSelection()
+            editor.chain().focus().setLink({ href }).run()
+            setOpenPanel(null)
+            forceUpdate(n => n + 1)
+          }}
+        >
+          <input
+            autoFocus
+            type="text"
+            inputMode="url"
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Escape') return
+              e.preventDefault()
+              setOpenPanel(null)
+              restoreSelection()
+              editor.commands.focus()
+            }}
+            placeholder="https://example.com"
+            aria-label="링크 URL"
+            className="min-w-56 flex-1 rounded border border-gray-600 bg-gray-800 px-2 py-1 text-xs text-white outline-none placeholder:text-gray-500 focus:border-blue-500"
+          />
+          <button
+            type="submit"
+            disabled={!linkUrl.trim()}
+            className="rounded bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            적용
+          </button>
+        </form>
+      )}
 
       {/* ── AI 액션 드롭다운 패널 ───────────────────── */}
       {/* Python으로 치면: if open_panel == 'ai': render_ai_panel() */}

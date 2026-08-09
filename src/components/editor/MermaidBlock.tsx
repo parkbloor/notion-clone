@@ -108,7 +108,7 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
       cancelled = true
       cleanupMermaidDom(currentRenderId)
     }
-  }, [code, uid, cleanupMermaidDom])
+  }, [code, uid, cleanupMermaidDom, t.blocks.mermaid.renderError])
 
   // -----------------------------------------------
   // 편집 모드 진입 시 textarea 자동 포커스

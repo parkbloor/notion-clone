@@ -29,7 +29,13 @@ interface ImageBlockProps {
 // 개별 이미지 항목 타입
 // Python으로 치면: class ImageItem(TypedDict): src: str; caption: Optional[str]
 // -----------------------------------------------
-type ImageItem = { src: string; caption?: string }
+type ImageItem = {
+  src: string
+  caption?: string
+  name?: string
+  mime?: string
+  size?: number
+}
 
 // -----------------------------------------------
 // content 파싱 헬퍼 — 구/신 포맷 모두 지원
@@ -94,6 +100,7 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   useEffect(() => () => { resizeCleanupRef.current?.() }, [])
   const [localWidth, setLocalWidth] = useState<number | undefined>(undefined)
   const [isUploading, setIsUploading] = useState(false)
+  const [draggedImageIdx, setDraggedImageIdx] = useState<number | null>(null)
 
   // ── 라이트박스 상태 ──────────────────────────
   // null = 닫힘, 숫자 = 해당 인덱스 이미지를 전체화면으로 표시
@@ -384,8 +391,9 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   // Python으로 치면: def save_single(src, width=None, caption=None): ...
   // -----------------------------------------------
   function saveSingleContent(newSrc: string, newWidth?: number, newCaption?: string) {
-    const item: ImageItem = { src: newSrc }
+    const item: ImageItem = { ...(images[0] ?? {}), src: newSrc }
     if (newCaption) item.caption = newCaption
+    else delete item.caption
     saveMultiContent([item], newWidth)
   }
 
@@ -412,11 +420,32 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     if (imageFiles.length === 0) return
     setIsUploading(true)
     try {
-      const urls = await Promise.all(imageFiles.map(f => api.uploadImage(pageId, f)))
-      const newItems: ImageItem[] = urls.map(url => ({ src: url }))
+      // 한 파일의 실패가 같은 묶음의 정상 이미지까지 버리게 하면 안 된다.
+      // Promise.all은 하나라도 reject되면 이미 업로드된 파일 URL도 잃어버린다.
+      const results = await Promise.allSettled(imageFiles.map(f => api.uploadImage(pageId, f)))
+      const uploaded = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
+      const failedCount = results.length - uploaded.length
+      if (uploaded.length === 0) {
+        const failed = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected'
+        )
+        throw failed?.reason ?? new Error(t.blocks.image.uploadError)
+      }
+      const newItems: ImageItem[] = uploaded.map(result => ({
+        src: result.url,
+        name: result.name,
+        mime: result.mime,
+        size: result.size,
+      }))
       const merged = [...images, ...newItems]
       saveMultiContent(merged, savedWidth)
-      await savePageNow(pageId)
+      const saved = await savePageNow(pageId)
+      if (!saved) {
+        toast.error('이미지는 업로드됐지만 메모 저장에 실패했습니다. 저장 버튼으로 다시 시도하세요.')
+      }
+      if (failedCount > 0) {
+        toast.warning(`${uploaded.length}개 이미지를 추가했고 ${failedCount}개는 업로드하지 못했습니다.`)
+      }
     } catch (err) {
       // api.ts에서 서버 detail 메시지를 Error.message에 담아 throw — 그대로 표시
       const msg = err instanceof Error ? err.message : t.blocks.image.uploadError
@@ -447,10 +476,87 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
   }
 
   // -----------------------------------------------
+  // 원본 다운로드·드래그 파일명 헬퍼
+  // Python으로 치면: def image_name(item, idx): return item.name or f'image-{idx + 1}.ext'
+  // -----------------------------------------------
+  function imageDownloadName(item: ImageItem, idx: number): string {
+    if (item.name) return item.name
+    try {
+      const ext = new URL(item.src).pathname.match(/\.[a-zA-Z0-9]+$/)?.[0] ?? '.png'
+      return `image-${String(idx + 1).padStart(2, '0')}${ext.toLowerCase()}`
+    } catch {
+      return `image-${String(idx + 1).padStart(2, '0')}.png`
+    }
+  }
+
+  // 원본 바이트를 Blob으로 받은 뒤 브라우저 다운로드를 시작한다.
+  // Python으로 치면: def download_image(item): requests.post(...).save(item.name)
+  async function handleDownloadImage(item: ImageItem, idx: number, e?: React.SyntheticEvent) {
+    e?.preventDefault()
+    e?.stopPropagation()
+    const toastId = toast.loading(t.blocks.image.downloading)
+    try {
+      const blob = await api.downloadImage(pageId, item.src)
+      const objectUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = imageDownloadName(item, idx)
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
+      toast.success(t.blocks.image.downloadComplete, { id: toastId })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t.blocks.image.downloadError, { id: toastId })
+    }
+  }
+
+  // 이미지 자체를 앱 밖으로 끌면 Electron은 원본 파일 드래그를 시작하고,
+  // 일반 Chromium은 DownloadURL 형식으로 다운로드 드래그를 시도한다.
+  // Python으로 치면: def drag_original(event, image): native_drag(image.path)
+  function handleOriginalDragStart(e: React.DragEvent, item: ImageItem, idx: number) {
+    e.stopPropagation()
+    const name = imageDownloadName(item, idx)
+    if (window.electronAPI?.startImageDrag) {
+      e.preventDefault()
+      window.electronAPI.startImageDrag({ url: item.src, name })
+      return
+    }
+    const mime = item.mime || 'application/octet-stream'
+    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.setData('DownloadURL', `${mime}:${name}:${item.src}`)
+    e.dataTransfer.setData('text/uri-list', item.src)
+  }
+
+  // 다중 이미지의 순서 핸들 드래그 시작.
+  // Python으로 치면: self.dragged_index = idx
+  function handleReorderDragStart(e: React.DragEvent, idx: number) {
+    e.stopPropagation()
+    setDraggedImageIdx(idx)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('application/x-notion-image-index', String(idx))
+  }
+
+  function handleReorderDrop(e: React.DragEvent, targetIdx: number) {
+    const raw = e.dataTransfer.getData('application/x-notion-image-index')
+    if (!raw) return
+    e.preventDefault()
+    e.stopPropagation()
+    const sourceIdx = Number(raw)
+    setDraggedImageIdx(null)
+    if (!Number.isInteger(sourceIdx) || sourceIdx === targetIdx || !images[sourceIdx]) return
+    const reordered = [...images]
+    const [moved] = reordered.splice(sourceIdx, 1)
+    reordered.splice(targetIdx, 0, moved)
+    saveMultiContent(reordered, savedWidth)
+  }
+
+  // -----------------------------------------------
   // 개별 이미지 삭제 — 해당 인덱스 제거 후 저장
   // Python으로 치면: def delete_image(idx): images.pop(idx); save()
   // -----------------------------------------------
-  function handleDeleteImage(idx: number) {
+  async function handleDeleteImage(idx: number) {
+    const removedImage = images[idx]
     const newImages = images.filter((_, i) => i !== idx)
     if (newImages.length === 0) {
       // 전체 삭제 → 빈 상태로 초기화
@@ -460,6 +566,21 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
     }
     // 라이트박스가 열려있으면 닫기
     setLightboxIdx(null)
+
+    // 본문 저장이 확인된 뒤에만 미참조 파일 정리를 시도한다. 복제본·Undo·
+    // 버전 히스토리가 같은 URL을 참조하면 서버가 파일을 보존한다.
+    const saved = await savePageNow(pageId)
+    if (!saved) {
+      toast.error('이미지 삭제 내용 저장에 실패했습니다. 저장 버튼으로 다시 시도하세요.')
+      return
+    }
+    if (removedImage?.src) {
+      try {
+        await api.cleanupImage(pageId, removedImage.src)
+      } catch {
+        // 정리 실패는 표시 중인 본문이나 저장된 이미지를 손상시키지 않는다.
+      }
+    }
   }
 
   // 라이트박스에서 캡션 저장
@@ -578,14 +699,25 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
               // Python으로 치면: ImageThumbnail(img, on_click=open_lightbox)
               <div
                 key={idx}
-                className="relative group/cell aspect-4/3 overflow-hidden rounded-md bg-gray-100 cursor-pointer"
+                className={draggedImageIdx === idx
+                  ? "relative group/cell aspect-4/3 overflow-hidden rounded-md bg-gray-100 cursor-pointer opacity-50 ring-2 ring-blue-400"
+                  : "relative group/cell aspect-4/3 overflow-hidden rounded-md bg-gray-100 cursor-pointer"}
                 onClick={() => setLightboxIdx(idx)}
+                onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes('application/x-notion-image-index')) {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                  }
+                }}
+                onDrop={(e) => handleReorderDrop(e, idx)}
               >
+                {/* eslint-disable-next-line @next/next/no-img-element -- vault paths and data URLs are user-selected at runtime */}
                 <img
                   src={img.src}
                   alt={img.caption ?? t.blocks.image.alt}
                   className="w-full h-full object-cover transition-transform duration-200 group-hover/cell:scale-105"
-                  draggable={false}
+                  draggable
+                  onDragStart={(e) => handleOriginalDragStart(e, img, idx)}
                 />
 
                 {/* 호버 시 캡션 오버레이 — 캡션 있을 때만 표시 */}
@@ -595,16 +727,40 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
                   </div>
                 )}
 
-                {/* 편집 모드: 호버 시 삭제 버튼 */}
-                {!readMode && (
+                {/* 원본 다운로드·순서 변경·삭제 버튼 */}
+                <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover/cell:opacity-100 transition-opacity">
                   <button
+                    type="button"
+                    onClick={(e) => handleDownloadImage(img, idx, e)}
+                    className="h-6 px-1.5 bg-black/60 text-white rounded flex items-center justify-center hover:bg-blue-600 text-xs"
+                    title={t.blocks.image.downloadOriginal}
+                  >
+                    ↓
+                  </button>
+                  {!readMode && (
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={(e) => handleReorderDragStart(e, idx)}
+                      onDragEnd={() => setDraggedImageIdx(null)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-6 px-1.5 bg-black/60 text-white rounded flex items-center justify-center hover:bg-gray-700 text-xs cursor-grab active:cursor-grabbing"
+                      title={t.blocks.image.reorderTitle}
+                    >
+                      ⠿
+                    </button>
+                  )}
+                  {!readMode && (
+                  <button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); handleDeleteImage(idx) }}
-                    className="absolute top-1.5 right-1.5 w-6 h-6 bg-black/60 text-white rounded-full flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity hover:bg-red-500 text-xs"
+                    className="w-6 h-6 bg-black/60 text-white rounded flex items-center justify-center hover:bg-red-500 text-xs"
                     title={t.blocks.image.deleteImageTitle}
                   >
                     ✕
                   </button>
-                )}
+                  )}
+                </div>
 
                 {/* 업로드 진행 스피너 */}
                 {isUploading && idx === images.length - 1 && (
@@ -658,6 +814,7 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
               onClick={e => e.stopPropagation()}
             >
               {/* 현재 이미지 */}
+              {/* eslint-disable-next-line @next/next/no-img-element -- lightbox must display the runtime vault URL directly */}
               <img
                 src={images[lightboxIdx].src}
                 alt={images[lightboxIdx].caption ?? t.blocks.image.alt}
@@ -670,6 +827,14 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
                 <span className="text-white/60 text-sm tabular-nums">
                   {lightboxIdx + 1} / {images.length}
                 </span>
+                <button
+                  type="button"
+                  onClick={(e) => handleDownloadImage(images[lightboxIdx], lightboxIdx, e)}
+                  className="text-white/80 hover:text-white text-sm h-8 px-3 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+                  title={t.blocks.image.downloadOriginal}
+                >
+                  ↓ {t.blocks.image.download}
+                </button>
                 <button
                   onClick={() => setLightboxIdx(null)}
                   className="text-white/80 hover:text-white text-xl w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
@@ -751,11 +916,6 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
 
   const singleSrc = images[0].src
   const singleCaption = images[0].caption ?? ''
-  const [localCaption, setLocalCaption] = [singleCaption, (v: string) => {
-    // 캡션은 onBlur에서 saveContent로 저장하므로 여기선 단순 UI용
-    void v
-  }]
-
   // ── 단일 GIF 뷰어 ──────────────────────────────
   if (isGif) {
     const framesReady = gifFrames.length > 0
@@ -769,12 +929,14 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
           className="image-block-wrapper relative group/img my-1 inline-block"
           style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : 'auto' }}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element -- GIF frame fallback uses a runtime vault URL */}
           <img
             src={singleSrc}
             alt={t.blocks.image.alt}
             className={displayWidth ? "block w-full rounded-lg" : "block max-w-full rounded-lg"}
             style={{ display: framesReady ? 'none' : 'block' }}
-            draggable={false}
+            draggable
+            onDragStart={(e) => handleOriginalDragStart(e, images[0], 0)}
           />
           <canvas
             ref={canvasRef}
@@ -841,19 +1003,29 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
             </div>
           )}
 
-          {/* 편집 버튼 (교체/삭제) + 이미지 추가 버튼 */}
-          {!isResizing && !readMode && (
+          {/* 원본 다운로드/끌어내기 + 편집 버튼 */}
+          {!isResizing && (
             <div className="absolute top-2 right-8 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
               <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100"
-                title={t.blocks.image.addImage}
+                type="button"
+                draggable
+                onDragStart={(e) => handleOriginalDragStart(e, images[0], 0)}
+                onClick={(e) => handleDownloadImage(images[0], 0, e)}
+                className="px-2 py-1 text-xs bg-white rounded shadow text-blue-600 hover:bg-blue-50 cursor-grab active:cursor-grabbing"
+                title={t.blocks.image.dragOrDownload}
               >
-                + {t.blocks.image.addImage}
+                ↓ {t.blocks.image.download}
               </button>
-              <button onClick={() => updateBlock(pageId, block.id, '')} className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50" title={t.blocks.image.deleteTitle}>
-                {t.blocks.image.deleteBtn}
-              </button>
+              {!readMode && (
+                <>
+                  <button onClick={() => fileInputRef.current?.click()} className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100" title={t.blocks.image.addImage}>
+                    + {t.blocks.image.addImage}
+                  </button>
+                  <button onClick={() => handleDeleteImage(0)} className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50" title={t.blocks.image.deleteTitle}>
+                    {t.blocks.image.deleteBtn}
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -894,26 +1066,38 @@ export default function ImageBlock({ block, pageId, readMode = false }: ImageBlo
         className="image-block-wrapper relative group/img my-1 inline-block"
         style={{ width: displayWidth ? `min(${displayWidth}px, 100%)` : 'auto' }}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element -- memo image paths are resolved by the local vault server */}
         <img
           src={singleSrc}
           alt={t.blocks.image.alt}
           className={displayWidth ? "block w-full rounded-lg" : "block max-w-full rounded-lg"}
           style={{ contain: 'layout' }}
-          draggable={false}
+          draggable
+          onDragStart={(e) => handleOriginalDragStart(e, images[0], 0)}
         />
 
-        {!isResizing && !readMode && (
+        {!isResizing && (
           <div className="absolute top-2 right-8 flex gap-1 opacity-0 group-hover/img:opacity-100 transition-opacity">
             <button
-              onClick={() => fileInputRef.current?.click()}
-              className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100"
-              title={t.blocks.image.addImage}
+              type="button"
+              draggable
+              onDragStart={(e) => handleOriginalDragStart(e, images[0], 0)}
+              onClick={(e) => handleDownloadImage(images[0], 0, e)}
+              className="px-2 py-1 text-xs bg-white rounded shadow text-blue-600 hover:bg-blue-50 cursor-grab active:cursor-grabbing"
+              title={t.blocks.image.dragOrDownload}
             >
-              + {t.blocks.image.addImage}
+              ↓ {t.blocks.image.download}
             </button>
-            <button onClick={() => updateBlock(pageId, block.id, '')} className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50" title={t.blocks.image.deleteTitle}>
-              {t.blocks.image.deleteBtn}
-            </button>
+            {!readMode && (
+              <>
+                <button onClick={() => fileInputRef.current?.click()} className="px-2 py-1 text-xs bg-white rounded shadow text-gray-600 hover:bg-gray-100" title={t.blocks.image.addImage}>
+                  + {t.blocks.image.addImage}
+                </button>
+                <button onClick={() => handleDeleteImage(0)} className="px-2 py-1 text-xs bg-white rounded shadow text-red-500 hover:bg-red-50" title={t.blocks.image.deleteTitle}>
+                  {t.blocks.image.deleteBtn}
+                </button>
+              </>
+            )}
           </div>
         )}
 

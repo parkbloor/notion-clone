@@ -25,11 +25,6 @@ function timeToMin(t: string): number {
   const [h, m] = t.split(':').map(Number)
   return isNaN(h) ? -1 : h * 60 + m
 }
-function minToTime(min: number): string {
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
-}
 
 // ── 이벤트 px 계산 (WeekPlannerBlock 전용 HOUR_PX 기준) ──
 // Python으로 치면: def event_px(ev): return (start_min - START_HOUR*60) * PX_PER_MIN

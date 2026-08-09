@@ -34,7 +34,8 @@
 |------|------|
 | `isPortAvailable(port)` | 포트 가용 여부 확인 (`net.createServer()` 즉시 열고 닫음) |
 | `waitForServer(url, timeoutMs=40000)` | 500ms 간격 HTTP 폴링. 타임아웃 시 reject |
-| `killAllProcesses()` | 모든 자식 프로세스 종료. Windows는 `taskkill /f /t`로 강제 종료 |
+| `stopChildProcess()` | Windows에서 `taskkill /t /f` 완료를 동기 대기하고, 실패할 때만 직접 `kill()` |
+| `killAllProcesses()` | 백엔드 프로세스 트리와 Next.js 유틸리티 프로세스를 앱 종료 전에 정리 |
 | `createLoadingWindow()` | 로딩 스플래시 창 (380×260, frameless, alwaysOnTop) |
 | `createMainWindow()` | 메인 앱 창 (1400×900, min 800×600, menubar 제거) |
 | `normalizeWindowState(state)` | 분리된 모니터의 화면 밖 좌표를 기본 위치로 보정 |
@@ -63,6 +64,7 @@
 |------|------|
 | `get-version` | `app.getVersion()` 반환 |
 | `select-folder` | 네이티브 폴더 선택 다이얼로그 → 선택 경로 또는 `null` 반환 |
+| `open-external-url` | HTTP(S) URL을 검증한 뒤 OS 기본 브라우저로 열기 |
 
 ---
 
@@ -75,7 +77,9 @@
 ```javascript
 window.electronAPI = {
   getVersion: () => ipcRenderer.invoke('get-version'),
-  selectFolder: () => ipcRenderer.invoke('select-folder')
+  selectFolder: () => ipcRenderer.invoke('select-folder'),
+  openExternalUrl: (url) => ipcRenderer.invoke('open-external-url', url),
+  startImageDrag: (payload) => ipcRenderer.send('start-image-drag', payload)
 }
 ```
 
@@ -83,7 +87,7 @@ window.electronAPI = {
 
 ### 개발 실행
 
-`npm run electron:dev`는 Next 개발 서버만 외부에서 시작한다. Electron 메인 프로세스가 8000 포트가 비어 있는지 확인한 뒤 프로젝트 `.venv`로 FastAPI를 시작하므로, 별도로 `dev:api`를 함께 실행하면 안 된다.
+`개발모드 실행.bat`는 `scripts/run-electron-dev.js` 종료 감시자를 통해 `npm run electron:dev`를 시작한다. 감시자는 콘솔의 `Ctrl+C`/`SIGTERM`을 받으면 npm·Electron·FastAPI 프로세스 트리를 동기 종료한다. Electron 메인 프로세스가 8000 포트가 비어 있는지 확인한 뒤 프로젝트 `.venv`로 FastAPI를 시작하므로, 별도로 `dev:api`를 함께 실행하면 안 된다.
 
 ---
 

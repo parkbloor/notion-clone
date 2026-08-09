@@ -85,7 +85,7 @@ export default function LockModal({
     } finally {
       setLoading(false)
     }
-  }, [pin, pinConfirm, onLock])
+  }, [pin, pinConfirm, onLock, t.overlay.lock.errorMismatch, t.overlay.lock.errorTooShort])
 
   // ── 잠금 해제: 입력 PIN → SHA-256 → 저장된 해시와 비교 ─
   // Python으로 치면: def handle_unlock(): if sha256(pin) == stored_hash: on_unlock()
@@ -104,13 +104,14 @@ export default function LockModal({
     } finally {
       setLoading(false)
     }
-  }, [pin, storedPinHash, onUnlock])
+  }, [pin, storedPinHash, onUnlock, t.overlay.lock.errorEmpty, t.overlay.lock.errorWrong])
 
   // ── Enter 키 제출 ─────────────────────────────
   // Python으로 치면: def on_enter(e): if e.key == 'Enter': handle_submit()
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !loading) {
-      mode === 'lock' ? handleLock() : handleUnlock()
+      if (mode === 'lock') handleLock()
+      else handleUnlock()
     }
   }
 

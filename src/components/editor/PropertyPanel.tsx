@@ -23,6 +23,8 @@ interface PropertyPanelProps {
   onNavigate?: (targetPageId: string) => void
 }
 
+const EMPTY_TAGS: string[] = []
+
 
 // ── WMO 날씨 코드 → 이모지 (date 속성 날씨 표시용) ──
 // Python으로 치면: WMO_ICON: dict[int, str] = { 0: '☀️', ... }
@@ -78,7 +80,7 @@ export default function PropertyPanel({ pageId, onNavigate }: PropertyPanelProps
   const properties = page?.properties ?? []
   // 현재 페이지의 태그 목록
   // Python으로 치면: tags = page.tags or []
-  const tags = page?.tags ?? []
+  const tags = page?.tags ?? EMPTY_TAGS
 
   // ── 전체 페이지에서 태그 집합 수집 (자동완성용) ──
   // Python으로 치면: all_tags = sorted({t for p in pages for t in p.tags})

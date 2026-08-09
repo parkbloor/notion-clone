@@ -19,12 +19,13 @@ const _aiInsertTarget: { editor: TiptapEditor | null; pos: number } = {
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useEditorMention } from '@/hooks/useEditorMention'
 import { useEditorLatex } from '@/hooks/useEditorLatex'
-import { Block, BlockType, Page } from '@/types/block'
+import { Block, BlockType } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import SlashCommand from './SlashCommand'
 import BubbleMenuBar from './BubbleMenuBar'
 import ImageBlock from './ImageBlock'
 import TableToolbar from './TableToolbar'
+import TableStatusDropdown from './TableStatusDropdown'
 import BlockMenu from './BlockMenu'
 import ToggleBlock from './ToggleBlock'
 import MentionPopup, { MentionItem } from './MentionPopup'
@@ -49,6 +50,7 @@ import YearlyPlannerBlock from './YearlyPlannerBlock'
 import MindmapBlock from './MindmapBlock'
 import TocBlock from './TocBlock'
 import FileBlock from './FileBlock'
+import RecordHeaderBlock from './RecordHeaderBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
 import { ChevronRight, ChevronDown, Plus, Check } from 'lucide-react'
@@ -122,6 +124,7 @@ const NON_TIPTAP_BLOCK_TYPES = new Set<BlockType>([
   'chart',
   'gantt',
   'mindmap',
+  'record',
   'dayplanner',
   'weekplanner',
   'weeklyplanner',
@@ -135,6 +138,24 @@ function isNonTiptapBlock(type: BlockType): boolean {
   return NON_TIPTAP_BLOCK_TYPES.has(type)
 }
 
+function editorDocumentMatchesBlockType(editor: TiptapEditor, type: BlockType): boolean {
+  const firstNode = editor.state.doc.firstChild
+  if (!firstNode) return false
+  const level = blockTypeToLevel[type]
+  if (level) return firstNode.type.name === 'heading' && firstNode.attrs.level === level
+
+  const nodeTypeByBlock: Partial<Record<BlockType, string>> = {
+    paragraph: 'paragraph',
+    bulletList: 'bulletList',
+    orderedList: 'orderedList',
+    taskList: 'taskList',
+    code: 'codeBlock',
+    divider: 'horizontalRule',
+    table: 'table',
+  }
+  return nodeTypeByBlock[type] === firstNode.type.name
+}
+
 function trimTrailingEmptyParagraphs(html: string): string {
   return html.replace(/(?:<p(?:\s[^>]*)?>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)+$/gi, '')
 }
@@ -143,7 +164,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
   const t = useLocale()
 
-  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage, ungroupToggle, deleteToggleChild, updateToggleChild, pendingFocusBlockId, clearPendingFocus } = usePageStore()
+  const { updateBlock, addBlock, addBlockBefore, duplicateBlock, deleteBlock, updateBlockType, updateBlockBackground, pages, setCurrentPage, ungroupToggle, deleteToggleChild, pendingFocusBlockId, clearPendingFocus } = usePageStore()
 
   // ── 일괄 선택 UI 공통 변수 ─────────────────────
   // 블록 래퍼 클래스 — 선택 시 파란 하이라이트, 아닐 때 기본 hover 스타일
@@ -228,8 +249,13 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     const { from } = state.selection
     const textBefore = state.doc.textBetween(Math.max(0, from - 20), from, '\n')
     const slashMatch = textBefore.match(/\/(\w*)$/)
+    const slashFrom = slashMatch ? from - slashMatch[0].length : from
+    const charBeforeSlash = slashFrom > 0
+      ? state.doc.textBetween(slashFrom - 1, slashFrom, '\n')
+      : ''
+    const isSlashCommand = !!slashMatch && (!charBeforeSlash || /\s/.test(charBeforeSlash))
 
-    if (slashMatch) {
+    if (slashMatch && isSlashCommand) {
       const coords = editor.view.coordsAtPos(from)
       const MENU_W = 288      // w-72
 
@@ -251,7 +277,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         isOpen: true,
         position: { ...position, left },
         searchQuery: slashMatch[1],
-        from: from - slashMatch[0].length,  // /query 시작 위치 저장
+        from: slashFrom,  // /query 시작 위치 저장
       })
     } else {
       setSlashMenu(prev => ({ ...prev, isOpen: false }))
@@ -529,9 +555,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     immediatelyRender: false,
   })
 
+  const applyBlockTypeRef = useRef(applyBlockType)
+
   useEffect(() => {
     if (!editor) return
-    applyBlockType(editor, block.type)
+    applyBlockTypeRef.current(editor, block.type)
   }, [block.type, editor])
 
   // ── 새 블록 생성(엔터) 시 자동 포커스 ──────────────────────────────
@@ -567,7 +595,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       editor.off('selectionUpdate', handleSelectionUpdate)
       editor.off('blur', handleBlur)
     }
-  }, [editor])
+  }, [block.id, block.type, editor])
 
   // ── ArrowLayer 연결을 위한 에디터 참조 DOM에 저장 ──
   // ArrowLayer의 caretRangeFromPoint → posAtDOM 변환 시 에디터 인스턴스 필요
@@ -576,7 +604,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     if (!editor) return
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(editor.view.dom as any).__tiptapEditor = editor
-  }, [editor])
+  }, [block.id, block.type, editor])
 
   // ── 읽기 모드 변경 → Tiptap editable 업데이트 ──
   // Python으로 치면: if read_mode: editor.set_editable(False) else: editor.set_editable(True)
@@ -620,7 +648,7 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       // 이 인스턴스가 등록된 상태였으면 해제
       if (_aiInsertTarget.editor === editor) _aiInsertTarget.editor = null
     }
-  }, [editor])
+  }, [block.id, block.type, editor])
 
   // ── 플로팅 AI 패널 → 저장된 커서 위치에 삽입 ──
   // _aiInsertTarget.editor 와 일치하는 인스턴스만 처리 → 엉뚱한 블록 삽입 방지
@@ -924,6 +952,11 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         chatOpen: true,
       }))
     }
+    if (type === 'record') {
+      const today = new Date()
+      const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      updateBlock(pageId, block.id, JSON.stringify({ date, title: '', kind: '' }))
+    }
     setSlashMenu(prev => ({ ...prev, isOpen: false }))
     editor.commands.focus()
   }
@@ -1056,6 +1089,9 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // video, embed도 비-Tiptap 블록 — content를 JSON으로 직접 관리하므로 조기 반환
     // 빠트리면 setParagraph()가 호출돼 onUpdate → updateBlock('<p></p>') 로 content 덮어쓰기 위험
     if (isNonTiptapBlock(type)) return
+    // 저장된 문서가 이미 블록 타입과 일치하면 마운트 시 타입 명령을 다시 실행하지 않는다.
+    // 목록 toggle을 두 번 실행하며 동일 내용을 phantom save하는 것을 방지한다.
+    if (editorDocumentMatchesBlockType(editor, type)) return
     // .focus() 제거 — 마운트 시 포커스가 발생하면 해당 블록으로 페이지가 스크롤됨
     // 블록 타입 설정은 포커스 없이도 동작 (Tiptap 문서 조작은 focus 불필요)
     const level = blockTypeToLevel[type]
@@ -1601,6 +1637,38 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
   }
 
   // -----------------------------------------------
+  // 기록 헤더 블록: 날짜·선택 제목·선택 종류만 저장하고 본문은 중첩하지 않음
+  // -----------------------------------------------
+  if (block.type === 'record') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+        className={blockWrapperClass}
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <RecordHeaderBlock block={block} pageId={pageId} readOnly={readMode} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
   // Day Planner 블록: DayPlannerBlock 컴포넌트로 렌더링
   // content는 JSON 문자열: { date: 'YYYY-MM-DD', events: [{id,title,start,end,color,done}] }
   // Python으로 치면: if block.type == 'dayplanner': return render(DayPlannerBlock)
@@ -2070,9 +2138,10 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
       {/* Bubble Menu — editor가 준비됐을 때만 렌더링 */}
       {editor ? <BubbleMenuBar editor={editor} readMode={readMode} /> : null}
 
-      {/* 내부 링크 클릭 처리 */}
+      {/* 링크 클릭 처리 */}
       {/* #page-{id}  → 해당 페이지로 이동 */}
       {/* #block-{pageId}:{blockId} → 해당 페이지로 이동 후 블록으로 스크롤 */}
+      {/* Ctrl/Cmd + 외부 HTTP(S) 링크 → OS 기본 브라우저에서 열기 */}
       {/* Python으로 치면: if link.startswith('#page-'): go(link[6:]); elif '#block-': go_and_scroll(link) */}
       <div
         className="flex-1 min-w-0"
@@ -2099,11 +2168,22 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
                   document.getElementById(targetBlockId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
                 }, 150)
               }
+            } else if ((e.ctrlKey || e.metaKey) && /^https?:\/\//i.test(href)) {
+              e.preventDefault()
+              const electronOpenExternal = window.electronAPI?.openExternalUrl
+              if (electronOpenExternal) {
+                void electronOpenExternal(href).catch((error) => {
+                  console.error('외부 링크를 열지 못했습니다.', error)
+                })
+              } else {
+                window.open(href, '_blank', 'noopener,noreferrer')
+              }
             }
           }
         }}
       >
         <EditorContent editor={editor} className="outline-none" />
+        {editor && <TableStatusDropdown editor={editor} />}
 
         {/* ── 행 추가 버튼 (테이블 하단) ───────────────
             커서가 테이블 안에 있을 때 테이블 바로 아래에 표시

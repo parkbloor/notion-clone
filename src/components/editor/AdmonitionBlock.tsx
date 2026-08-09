@@ -96,7 +96,7 @@ interface AdmonitionBlockProps {
 }
 
 // Python으로 치면: def AdmonitionBlock(block_id, content, on_change): ...
-export default function AdmonitionBlock({ blockId: _blockId, content, onChange }: AdmonitionBlockProps) {
+export default function AdmonitionBlock({ content, onChange }: AdmonitionBlockProps) {
   const t = useLocale()
 
   // content JSON 파싱

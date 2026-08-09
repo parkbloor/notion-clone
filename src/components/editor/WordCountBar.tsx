@@ -17,7 +17,7 @@ interface WordCountBarProps {
 // JSON/미디어 전용 블록은 저장용 데이터가 글자 수에 포함되면 안 된다.
 const NON_TEXT_BLOCK_TYPES = new Set<Block['type']>([
   'image', 'divider', 'canvas', 'excalidraw', 'video', 'layout', 'math', 'embed',
-  'mermaid', 'chart', 'gantt', 'mindmap', 'file', 'dayplanner', 'weekplanner',
+  'mermaid', 'chart', 'gantt', 'mindmap', 'file', 'record', 'dayplanner', 'weekplanner',
   'weeklyplanner', 'routinematrix', 'monthlycalendar', 'quarterlyplanner', 'yearlyplanner',
 ])
 

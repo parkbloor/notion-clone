@@ -73,9 +73,11 @@
 | `mentionMenu` | `{ isOpen, query, from, trigger, position }` — `@` 또는 `[[` 입력 감지 |
 | `contextMenu` | `{ x, y } \| null` — 우클릭 메뉴 좌표 |
 | `latexCandidate` | `$$...$$` 붙여넣기 감지 시 변환 여부 묻는 UI |
-| `checkSlash(editor)` | cursor 앞 `/query` 패턴 감지 → 슬래시 메뉴 팝업 위치 계산 |
+| `checkSlash(editor)` | 문단 시작 또는 공백 뒤의 `/query` 패턴 감지 → 슬래시 메뉴 팝업 위치 계산. URL 내부 `/`는 제외 |
 | `checkMention(editor)` | `@단어` / `[[단어` 패턴 감지 → 멘션 팝업 오픈 |
 | `buildContextSections()` | 우클릭 메뉴 섹션 배열 생성. 섹션: 블록 추가(위/아래) / 블록 관리(복제·삭제) / 타입 변환(텍스트 블록만) / 배경색 팔레트 |
+
+본문의 외부 HTTP(S) 링크는 `Ctrl+왼쪽 클릭`(macOS에서는 `Cmd+클릭`)하면 OS 기본 브라우저에서 즉시 열린다. 내부 페이지·블록 링크는 기존 앱 내 탐색을 유지한다.
 
 ### 비텍스트 블록 렌더링
 
@@ -100,6 +102,7 @@
 | `toc` | `TocBlock` |
 | `file` | `FileBlock` |
 | `toggle` | `ToggleBlock` |
+| `record` | `RecordHeaderBlock` |
 | `dayplanner` | `DayPlannerBlock` |
 | `weekplanner` | `WeekPlannerBlock` |
 | `weeklyplanner` | `WeeklyPlannerBlock` |
@@ -265,7 +268,7 @@
 | 미디어 | 6 | image, video, canvas, excalidraw, embed, file |
 | 데이터 | 9 | table, kanban, code, math, mermaid, chart, gantt, mindmap, toc |
 | 고급 | 3 | admonition, divider, layout |
-| 플래너 | 7 | dayplanner, weekplanner, weeklyplanner, routinematrix, monthlycalendar, quarterlyplanner, yearlyplanner |
+| 플래너 | 8 | record, dayplanner, weekplanner, weeklyplanner, routinematrix, monthlycalendar, quarterlyplanner, yearlyplanner |
 | AI | 1 | AI 글쓰기 |
 
 ### 동작

@@ -611,7 +611,7 @@ interface CanvasBlockProps {
   readMode?: boolean
 }
 
-export default function CanvasBlock({ blockId: _blockId, content, onChange, readMode }: CanvasBlockProps) {
+export default function CanvasBlock({ content, onChange, readMode }: CanvasBlockProps) {
   const [data, setData] = useState<CanvasState>(() => parseData(content))
   const saveTimer    = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onChangeRef  = useRef(onChange)

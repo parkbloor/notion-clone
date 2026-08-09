@@ -188,6 +188,7 @@ export function parseTemplateContent(content: string): Block[] {
     // ── 특수 블록 (:::블록타입) ──────────────────────
     // 주기 노트 전용 위젯 삽입 문법:
     //   :::dayplanner        → Day Planner 타임라인 (일간)
+    //   :::record            → 오늘 날짜 기록 헤더
     //   :::weeklyplanner     → Weekly Planner 주간 캘린더 (주간)
     //   :::routinematrix     → 루틴 달성 매트릭스 (주간)
     //   :::monthlycalendar   → 월간 달력 그리드 (월간)
@@ -198,7 +199,6 @@ export function parseTemplateContent(content: string): Block[] {
       const blockType = line.trim().slice(3).trim().toLowerCase()
       const today = new Date()
       const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
-      const yearStr  = String(today.getFullYear())
       const monthNum = today.getMonth() + 1
 
       // 주간 노트 weekStart — 이번 주 월요일
@@ -210,7 +210,11 @@ export function parseTemplateContent(content: string): Block[] {
       // 분기 계산
       const quarter = Math.ceil(monthNum / 3) as 1|2|3|4
 
-      if (blockType === 'dayplanner') {
+      if (blockType === 'record') {
+        const b = createBlock('record')
+        b.content = JSON.stringify({ date: todayStr, title: '', kind: '' })
+        blocks.push(b)
+      } else if (blockType === 'dayplanner') {
         const b = createBlock('dayplanner')
         b.content = JSON.stringify({ date: todayStr, events: [], routines: [], autoApply: true })
         blocks.push(b)
@@ -279,6 +283,7 @@ export function blocksToMarkdown(blocks: Block[]): string {
   return blocks.map(block => {
     const text = stripHtml(block.content).trim()
     switch (block.type as BlockType) {
+      case 'record': return ':::record'
       case 'heading1':    return `# ${text}`
       case 'heading2':    return `## ${text}`
       case 'heading3':    return `### ${text}`

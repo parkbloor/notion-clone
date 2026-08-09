@@ -19,6 +19,8 @@ import { useLocale } from '@/locales'
 import { DEPTH_STYLES, FOLDER_COLOR_GROUPS } from './sidebarUtils'
 import ContextMenu from '@/components/editor/ContextMenu'
 
+export type CategoryDropPosition = 'before' | 'inside' | 'after'
+
 // -----------------------------------------------
 // CategoryRowUI props — dnd 훅 없이 순수 UI만 담당
 // setNodeRef, style, dragHandleProps는 부모 dnd 훅에서 주입
@@ -32,6 +34,7 @@ export interface CategoryRowUIProps {
   isSelected: boolean
   isOver: boolean
   isDragging?: boolean
+  dropPosition?: CategoryDropPosition | null
   collapsed: boolean
   pageCount: number       // 이 폴더에 직접 속한 메모 수 (배지 표시용)
   dragHandleProps?: object
@@ -52,7 +55,7 @@ export interface CategoryRowUIProps {
 // -----------------------------------------------
 export function CategoryRowUI({
   category, depth, hasChildren, isExpanded, isSelected, isOver, isDragging,
-  collapsed, pageCount, dragHandleProps, setNodeRef, style,
+  dropPosition, collapsed, pageCount, dragHandleProps, setNodeRef, style,
   onToggleExpand, onSelect, onRename, onDelete, onAddChild, onAddPage, onColorChange,
 }: CategoryRowUIProps) {
   const [isEditing, setIsEditing] = useState(false)
@@ -93,6 +96,8 @@ export function CategoryRowUI({
   const normalBtn = baseBtn + " " + ds.normal
   const selectedBtn = baseBtn + " " + ds.selected
   const overBtn = baseBtn + " " + ds.over
+  // 페이지를 폴더에 놓는 기존 동작은 별도 위치값이 없으므로 전체 행 강조를 유지한다.
+  const isInsideOver = isOver && (dropPosition == null || dropPosition === 'inside')
 
   // depth=0 최상위 폴더 하이라이트 배경색 계산
   // 커스텀 색상 있으면 해당 색 12% 투명, 없으면 회색 12% 투명
@@ -130,7 +135,7 @@ export function CategoryRowUI({
             e.stopPropagation()
             setCtxMenu({ x: e.clientX, y: e.clientY })
           }}
-          className={isOver ? overBtn : isSelected ? selectedBtn : normalBtn}
+          className={isInsideOver ? overBtn : isSelected ? selectedBtn : normalBtn}
           title={t.sidebar.renameFolderHint}
           style={{ opacity: isDragging ? 0.4 : 1 }}
         >
@@ -187,6 +192,18 @@ export function CategoryRowUI({
             </span>
           )}
         </button>
+      )}
+
+      {isOver && (dropPosition === 'before' || dropPosition === 'after') && (
+        <div
+          className="absolute left-1 right-1 z-20 h-0.5 rounded-full pointer-events-none"
+          style={{
+            top: dropPosition === 'before' ? '-1px' : undefined,
+            bottom: dropPosition === 'after' ? '-1px' : undefined,
+            background: 'var(--color-accent)',
+            boxShadow: '0 0 0 1px var(--color-surface)',
+          }}
+        />
       )}
 
       {/* 액션 버튼들 — hover 시만 표시 */}
@@ -291,6 +308,7 @@ export interface CategoryRowProps {
   isSelected: boolean
   collapsed: boolean
   pageCount: number
+  dropPosition?: CategoryDropPosition | null
   onToggleExpand: () => void
   onSelect: () => void
   onRename: (name: string) => void

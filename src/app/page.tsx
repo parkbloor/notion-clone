@@ -11,6 +11,7 @@ import { usePageStore } from '@/store/pageStore'
 import { saveTimers } from '@/store/pageStoreHelpers'
 import { useSettingsStore } from '@/store/settingsStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
+import VaultRail from '@/components/sidebar/VaultRail'
 import PageEditor from '@/components/editor/PageEditor'
 import DatabaseView from '@/components/editor/DatabaseView'
 import ShortcutModal from '@/components/editor/ShortcutModal'
@@ -26,11 +27,12 @@ import TrashPanel from '@/components/editor/TrashPanel'
 import GlobalAIChatButton from '@/components/ai/GlobalAIChatButton'
 import CalendarOverlay from '@/components/editor/CalendarOverlay'
 import DayPlannerPanel from '@/components/editor/DayPlannerPanel'
-import { X } from 'lucide-react'
+import { Folder, X } from 'lucide-react'
 import { useLocale } from '@/locales'
+import type { CategoryDropPosition } from '@/components/sidebar/CategoryRow'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
-// Python으로 치면: from dnd import DndContext, arrayMove
+// Python으로 치면: from dnd import DndContext
 import {
   DndContext,
   DragOverlay,
@@ -39,10 +41,42 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragOverEvent,
   DragStartEvent,
   closestCenter,
 } from '@dnd-kit/core'
-import { arrayMove } from '@dnd-kit/sortable'
+
+function getCategoryDropPosition(event: DragOverEvent | DragEndEvent): CategoryDropPosition {
+  const pointerEvent = event.activatorEvent as PointerEvent
+  let startY = typeof pointerEvent.clientY === 'number' ? pointerEvent.clientY : null
+
+  if (startY === null) {
+    const touchEvent = event.activatorEvent as TouchEvent
+    const touch = touchEvent.touches?.[0] ?? touchEvent.changedTouches?.[0]
+    startY = touch?.clientY ?? null
+  }
+
+  if (startY === null || !event.over || event.over.rect.height <= 0) return 'inside'
+
+  const pointerY = startY + event.delta.y
+  const ratio = (pointerY - event.over.rect.top) / event.over.rect.height
+  if (ratio < 0.25) return 'before'
+  if (ratio > 0.75) return 'after'
+  return 'inside'
+}
+
+function insertCategoryRelative(
+  order: string[],
+  activeId: string,
+  overId: string,
+  position: Exclude<CategoryDropPosition, 'inside'>,
+): string[] {
+  const nextOrder = order.filter(id => id !== activeId)
+  const overIndex = nextOrder.indexOf(overId)
+  if (overIndex === -1) return order
+  nextOrder.splice(overIndex + (position === 'after' ? 1 : 0), 0, activeId)
+  return nextOrder
+}
 
 export default function Home() {
 
@@ -127,6 +161,11 @@ export default function Home() {
   // Python으로 치면: active_drag_page_id: str | None = None
   const [activeDragPageId, setActiveDragPageId] = useState<string | null>(null)
   const [activeDragPageCount, setActiveDragPageCount] = useState(1)
+  const [activeDragCategoryId, setActiveDragCategoryId] = useState<string | null>(null)
+  const [categoryDropIndicator, setCategoryDropIndicator] = useState<{
+    categoryId: string
+    position: CategoryDropPosition
+  } | null>(null)
 
   // -----------------------------------------------
   // Ctrl+Alt+N 단축키 → 빠른 노트 팝업 열기
@@ -278,6 +317,7 @@ export default function Home() {
     currentPageId,
     pages,
     categories,
+    categoryMap,
     openTabs,
     categoryOrder,
     categoryChildOrder,
@@ -812,6 +852,9 @@ export default function Home() {
   const activeDragPage = activeDragPageId
     ? pages.find(page => page.id === activeDragPageId) ?? null
     : null
+  const activeDragCategory = activeDragCategoryId
+    ? categories.find(category => category.id === activeDragCategoryId) ?? null
+    : null
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const activeType = event.active.data.current?.type as string | undefined
@@ -822,7 +865,30 @@ export default function Home() {
         const bulkPageIds = event.active.data.current?.bulkPageIds
         setActiveDragPageCount(Array.isArray(bulkPageIds) && bulkPageIds.length > 0 ? bulkPageIds.length : 1)
       }
+    } else if (activeType === 'category') {
+      const categoryId = event.active.data.current?.categoryId
+      if (typeof categoryId === 'string') setActiveDragCategoryId(categoryId)
     }
+  }, [])
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const activeType = event.active.data.current?.type
+    const over = event.over
+    const overType = over?.data.current?.type
+    if (activeType !== 'category' || overType !== 'category' || !over || event.active.id === over.id) {
+      setCategoryDropIndicator(null)
+      return
+    }
+
+    const nextIndicator = {
+      categoryId: over.id as string,
+      position: getCategoryDropPosition(event),
+    }
+    setCategoryDropIndicator(current => (
+      current?.categoryId === nextIndicator.categoryId && current.position === nextIndicator.position
+        ? current
+        : nextIndicator
+    ))
   }, [])
 
   // -----------------------------------------------
@@ -849,13 +915,15 @@ export default function Home() {
     const { active, over } = event
     setActiveDragPageId(null)
     setActiveDragPageCount(1)
+    setActiveDragCategoryId(null)
+    setCategoryDropIndicator(null)
     if (!over) return
 
     const activeType = active.data.current?.type as string | undefined
     const overType = over.data.current?.type as string | undefined
 
     if (activeType === 'page' && overType === 'category') {
-      // 페이지를 카테고리(또는 전체보기=null)로 이동
+      // 페이지를 카테고리(또는 미분류=null)로 이동
       const targetCategoryId = over.data.current?.categoryId as string | null
       // pageId가 실제로 존재하는지 확인 (타입 단언 대신 런타임 검사)
       // Python으로 치면: if page_id := active.data.get('pageId'): move(page_id, target)
@@ -865,7 +933,12 @@ export default function Home() {
         const bulkPageIds = Array.isArray(rawBulkPageIds)
           ? rawBulkPageIds.filter((id): id is string => typeof id === 'string')
           : []
-        const pageIdsToMove = bulkPageIds.length > 0 ? bulkPageIds : [pageId as string]
+        const selectedPageIds = bulkPageIds.length > 0 ? bulkPageIds : [pageId as string]
+        // 이미 대상 카테고리에 있는 메모는 실제 이동·성공/실패 집계에서 제외한다.
+        // 특히 미분류(null) 묶음 이동에서 no-op 응답을 이동 성공으로 세지 않게 한다.
+        const pageIdsToMove = selectedPageIds.filter(
+          pageIdToMove => (categoryMap[pageIdToMove] ?? null) !== targetCategoryId
+        )
         const onBulkMoveComplete = active.data.current?.onBulkMoveComplete
         let successCount = 0
         // 실제 폴더와 index를 함께 바꾸므로 다중 이동은 순차 처리한다.
@@ -877,33 +950,29 @@ export default function Home() {
         }
       }
     } else if (activeType === 'category' && overType === 'category' && active.id !== over.id) {
-      // 드래그한 폴더와 드롭 대상 폴더의 parentId 비교
+      // 가운데는 대상 폴더의 하위 이동, 위·아래 가장자리는 형제 순서 이동
       const activeParentId = (active.data.current?.parentId ?? null) as string | null
       const overParentId   = (over.data.current?.parentId   ?? null) as string | null
+      const activeId = active.id as string
+      const overId = over.id as string
+      const dropPosition = getCategoryDropPosition(event)
 
-      if (activeParentId === overParentId) {
-        // 같은 부모 → 순서 변경
-        if (activeParentId === null) {
-          // 최상위 레벨 순서 변경
-          const oldIndex = categoryOrder.indexOf(active.id as string)
-          const newIndex = categoryOrder.indexOf(over.id as string)
-          if (oldIndex !== -1 && newIndex !== -1) {
-            reorderCategories(arrayMove(categoryOrder, oldIndex, newIndex))
-          }
-        } else {
-          // 하위 레벨 순서 변경 (같은 부모 내)
-          // Python으로 치면: siblings = child_order[parent_id]; arrayMove(siblings, old, new)
-          const siblings = categoryChildOrder[activeParentId] ?? []
-          const oldIndex = siblings.indexOf(active.id as string)
-          const newIndex = siblings.indexOf(over.id as string)
-          if (oldIndex !== -1 && newIndex !== -1) {
-            reorderChildCategories(activeParentId, arrayMove(siblings, oldIndex, newIndex))
-          }
-        }
+      if (dropPosition === 'inside') {
+        if (activeParentId !== overId) await moveCategoryToParent(activeId, overId)
       } else {
-        // 다른 부모 → over 폴더의 자식으로 이동 (over.id = 새 부모)
-        // Python으로 치면: move_category(active.id, new_parent_id=over.id)
-        moveCategoryToParent(active.id as string, over.id as string)
+        const targetOrder = overParentId === null
+          ? categoryOrder
+          : (categoryChildOrder[overParentId] ?? [])
+        const nextOrder = insertCategoryRelative(targetOrder, activeId, overId, dropPosition)
+
+        if (activeParentId !== overParentId) {
+          await moveCategoryToParent(activeId, overParentId)
+        }
+        if (overParentId === null) {
+          reorderCategories(nextOrder)
+        } else {
+          reorderChildCategories(overParentId, nextOrder)
+        }
       }
     } else if (
       activeType === 'page'
@@ -914,11 +983,13 @@ export default function Home() {
       // 메모 목록 내 순서 변경
       reorderPages(active.id as string, over.id as string)
     }
-  }, [categoryOrder, categoryChildOrder, movePageToCategory, reorderCategories, reorderChildCategories, moveCategoryToParent, reorderPages])
+  }, [categoryMap, categoryOrder, categoryChildOrder, movePageToCategory, reorderCategories, reorderChildCategories, moveCategoryToParent, reorderPages])
 
   const handleDragCancel = useCallback(() => {
     setActiveDragPageId(null)
     setActiveDragPageCount(1)
+    setActiveDragCategoryId(null)
+    setCategoryDropIndicator(null)
   }, [])
 
   return (
@@ -932,6 +1003,7 @@ export default function Home() {
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
@@ -957,6 +1029,7 @@ export default function Home() {
         {!isFocusMode && (
           <div className={sidebarOpen ? "flex fixed inset-y-0 left-0 z-40 shadow-2xl md:relative md:z-auto md:shadow-none" : "hidden md:flex"}>
             {/* 통합 파일 사이드바: 폴더 트리 + 페이지 인라인 + 검색 + 캘린더 + 최근파일 */}
+            <VaultRail />
             <CategorySidebar
               onOpenSettings={() => setSettingsOpen(true)}
               onCloseMobile={closeMobileSidebar}
@@ -965,6 +1038,8 @@ export default function Home() {
               onSplitPage={(id) => setSplitPageId(prev => prev === id ? null : id)}
               onOpenGraphView={() => setGraphViewOpen(true)}
               onOpenTrash={() => setTrashOpen(true)}
+              onOpenDayPlanner={() => setDayPlannerOpen(true)}
+              categoryDropIndicator={categoryDropIndicator}
             />
           </div>
         )}
@@ -1187,6 +1262,27 @@ export default function Home() {
                 {activeDragPageCount}
               </span>
             )}
+          </div>
+        )}
+        {activeDragCategory && (
+          <div
+            className="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm shadow-lg pointer-events-none cursor-grabbing"
+            style={{
+              width: 220,
+              background: "var(--color-surface)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+              opacity: 0.9,
+            }}
+          >
+            <Folder
+              size={15}
+              className="shrink-0"
+              style={{ color: activeDragCategory.color ?? "var(--color-text-muted)" }}
+              fill={activeDragCategory.color ?? "none"}
+              strokeWidth={activeDragCategory.color ? 1.5 : 2}
+            />
+            <span className="truncate flex-1 font-medium">{activeDragCategory.name}</span>
           </div>
         )}
       </DragOverlay>

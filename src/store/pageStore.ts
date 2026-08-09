@@ -7,12 +7,12 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { toast } from 'sonner'
-import { Block, BlockType, Category, Page, PageProperty, createBlock, createPage } from '@/types/block'
+import { Block, Page, createBlock, createPage } from '@/types/block'
 import { api } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
 import { useSettingsStore } from '@/store/settingsStore'
 import type { PageStore } from '@/types/pageStore'
-import { scheduleSave, saveNow, pageHistoryMap, getHistory, pushBlockHistory, parseBlocksFromJson } from '@/store/pageStoreHelpers'
+import { scheduleSave, saveNow, pageHistoryMap, getHistory, pushBlockHistory, parseBlocksFromJson, clearAllPageSaveConflicts } from '@/store/pageStoreHelpers'
 
 // 블록을 재귀적으로 복제 (children 다단계 중첩 보존)
 // Python으로 치면: def clone_block(b): return {**b, id: uuid(), children: [clone_block(c) for c in b.children]}
@@ -95,6 +95,7 @@ export const usePageStore = create<PageStore>()(
     // Python으로 치면: def reset_store(self): self.pages = []; self.categories = []; ...
     // -----------------------------------------------
     resetStore: () => {
+      clearAllPageSaveConflicts()
       set((state) => {
         state.pages = []
         state.currentPageId = null
@@ -130,6 +131,7 @@ export const usePageStore = create<PageStore>()(
     loadFromServer: async () => {
       try {
         const data = await api.getPages()
+        clearAllPageSaveConflicts()
 
         // 서버에 페이지가 없으면 (첫 실행 또는 빈 볼트) 새 페이지를 생성해 저장
         // pages[] 초기값이 []이므로 항상 createPage('새 페이지') 사용
@@ -690,6 +692,14 @@ export const usePageStore = create<PageStore>()(
     // 최상위 blocks에서 먼저 탐색, 없으면 토글 children도 탐색 (토글 자식 블록 저장 지원)
     // Python으로 치면: def update_block(page_id, block_id, content): find_and_update(block_id)
     updateBlock: (pageId, blockId, content) => {
+      // Tiptap은 블록 마운트 시 타입 명령을 실행하면서 내용이 바뀌지 않아도
+      // onUpdate를 발생시킬 수 있다. 동일 content는 저장 대상으로 만들지 않아
+      // 페이지를 열기만 했을 때 revision이 올라가는 phantom save를 막는다.
+      const snapshotPage = get().pages.find(p => p.id === pageId)
+      const snapshotBlock = snapshotPage?.blocks.find(b => b.id === blockId)
+        ?? snapshotPage?.blocks.flatMap(b => b.children ?? []).find(b => b.id === blockId)
+      if (!snapshotBlock || snapshotBlock.content === content) return
+
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
@@ -1229,15 +1239,10 @@ export const usePageStore = create<PageStore>()(
         })
         return true
       } catch {
-        // 서버 실패해도 로컬 categoryMap은 업데이트 + 사용자 알림
-        set((state) => {
-          if (categoryId) {
-            state.categoryMap[pageId] = categoryId
-          } else {
-            delete state.categoryMap[pageId]
-          }
-        })
-        toast.warning('서버 이동에 실패했습니다. 새로고침 시 되돌아갈 수 있습니다.')
+        // 실제 폴더 이동·index 저장이 실패한 항목은 화면에서도 원래
+        // 카테고리에 남겨야 한다. 여기서 categoryMap만 바꾸면 다중 이동
+        // 중 실패한 메모가 목록에서 사라진 것처럼 보인다.
+        toast.warning('메모 이동에 실패했습니다. 원래 폴더에 유지했습니다.')
         return false
       }
     },
@@ -1246,14 +1251,20 @@ export const usePageStore = create<PageStore>()(
     // Python으로 치면: def reorder_categories(self, new_order): ...
     reorderCategories: (newOrder) => {
       set((state) => { state.categoryOrder = newOrder })
-      api.reorderCategories(newOrder).catch(() => {})
+      api.reorderCategories(newOrder).catch(() => {
+        void get().loadFromServer()
+        toast.warning('폴더 정렬 저장에 실패했습니다. 실제 저장 상태로 되돌렸습니다.')
+      })
     },
 
     // 하위 카테고리 순서 변경 → 서버에도 저장
     // Python으로 치면: def reorder_child_categories(self, parent_id, new_order): ...
     reorderChildCategories: (parentId, newOrder) => {
       set((state) => { state.categoryChildOrder[parentId] = newOrder })
-      api.reorderChildCategories(parentId, newOrder).catch(() => {})
+      api.reorderChildCategories(parentId, newOrder).catch(() => {
+        void get().loadFromServer()
+        toast.warning('하위 폴더 정렬 저장에 실패했습니다. 실제 저장 상태로 되돌렸습니다.')
+      })
     },
 
     // 폴더를 다른 부모 폴더로 이동 (newParentId=null이면 최상위로)
@@ -1293,7 +1304,10 @@ export const usePageStore = create<PageStore>()(
       try {
         await api.moveCategoryToParent(categoryId, newParentId)
       } catch {
-        toast.warning('폴더 이동에 실패했습니다. 새로고침 시 되돌아갈 수 있습니다.')
+        // 낙관적 변경을 그대로 두면 폴더가 화면에서만 이동한 상태가 된다.
+        // 서버의 실제 인덱스를 다시 읽어 즉시 복구한다.
+        await get().loadFromServer()
+        toast.warning('폴더 이동에 실패했습니다. 실제 저장 상태로 되돌렸습니다.')
       }
     },
 
@@ -1326,7 +1340,10 @@ export const usePageStore = create<PageStore>()(
       })
       // set 완료 후 get()으로 새 순서 읽어서 서버에 저장
       const newOrder = get().pages.map(p => p.id)
-      api.reorderPages(newOrder).catch(() => {})
+      api.reorderPages(newOrder).catch(() => {
+        void get().loadFromServer()
+        toast.warning('메모 정렬 저장에 실패했습니다. 실제 저장 상태로 되돌렸습니다.')
+      })
     },
 
     // ── 휴지통 액션 ──────────────────────────────

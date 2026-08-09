@@ -27,7 +27,7 @@ import { TaskItem } from '@tiptap/extension-task-item'
 import { Table } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableHeader } from '@tiptap/extension-table-header'
-import { TableCell } from '@tiptap/extension-table-cell'
+import { StatusTableCell } from '@/extensions/StatusTableCell'
 // 코드 하이라이트 — lowlight common 번들 (~40개 언어)
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { createLowlight, common } from 'lowlight'
@@ -88,7 +88,7 @@ export function buildEditorExtensions(headingPlaceholder: string) {
     Table.configure({ resizable: true }),
     TableRow,
     TableHeader,
-    TableCell,
+    StatusTableCell,
     CustomCodeBlock,
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     SearchHighlight,

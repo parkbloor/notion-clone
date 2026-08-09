@@ -158,6 +158,8 @@ function cellToBlock(cell: TemplateCell): Block {
 // 혼자 전체 너비 → 일반 Block
 // Python으로 치면: def grid_cells_to_blocks(cells, grid_cols=12) -> list[Block]: ...
 export function gridCellsToBlocks(cells: TemplateCell[], gridCols = 12): Block[] {
+  // Kept for callers that pass the template grid width; current grouping uses explicit cell spans.
+  void gridCols
   if (cells.length === 0) return [createBlock('paragraph')]
 
   const rowGroups = groupByRows(cells)

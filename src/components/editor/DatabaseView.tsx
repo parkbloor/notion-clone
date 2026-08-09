@@ -11,7 +11,7 @@
 
 import { useState, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
-import { Page, PageProperty, PropertyType, STATUS_OPTIONS } from '@/types/block'
+import { Page, PropertyType, STATUS_OPTIONS } from '@/types/block'
 import { X, Plus, ChevronUp, ChevronDown, Filter, Table2, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useLocale } from '@/locales'
 
