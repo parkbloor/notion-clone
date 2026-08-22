@@ -70,6 +70,32 @@ def _save_routines(routines: list[Any]) -> None:
         raise HTTPException(status_code=500, detail=f"루틴 저장 실패: {e}") from e
 
 
+def _is_valid_time(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) != 5 or value[2] != ":":
+        return False
+    try:
+        hours = int(value[:2])
+        minutes = int(value[3:])
+    except ValueError:
+        return False
+    return 0 <= hours <= 23 and 0 <= minutes <= 59
+
+
+def _validate_routines(routines: list[Any]) -> None:
+    for routine in routines:
+        if not isinstance(routine, dict):
+            raise HTTPException(status_code=422, detail="Each routine must be an object")
+        if not all(isinstance(routine.get(key), str) and routine[key].strip() for key in ("id", "title")):
+            raise HTTPException(status_code=422, detail="Routine id and title are required")
+        if not _is_valid_time(routine.get("start")) or not _is_valid_time(routine.get("end")):
+            raise HTTPException(status_code=422, detail="Routine times must use HH:MM (00:00 to 23:59)")
+        if not isinstance(routine.get("color"), str) or not routine["color"]:
+            raise HTTPException(status_code=422, detail="Routine color is required")
+        days = routine.get("days")
+        if not isinstance(days, list) or any(not isinstance(day, int) or isinstance(day, bool) or day < 0 or day > 6 for day in days):
+            raise HTTPException(status_code=422, detail="Routine days must be weekday numbers from 0 to 6")
+
+
 def _archive_path() -> Path:
     """아카이브 파일의 절대 경로를 반환. vault 하위 여부 검증 포함."""
     path = get_vault_dir() / ARCHIVE_FILE
@@ -171,6 +197,7 @@ async def get_routines() -> list[Any]:
 @router.put("/routines")
 async def save_routines(body: list[Any]) -> dict[str, str]:
     """루틴 목록 전체를 파일에 저장. 기존 파일 전체 교체."""
+    _validate_routines(body)
     _save_routines(body)
     log.info("루틴 %d개 저장됨", len(body))
     return {"status": "ok", "count": str(len(body))}

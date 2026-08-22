@@ -11,8 +11,16 @@ import { Block, Page, createBlock, createPage } from '@/types/block'
 import { api } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import type { PageStore } from '@/types/pageStore'
 import { scheduleSave, saveNow, pageHistoryMap, getHistory, pushBlockHistory, parseBlocksFromJson, clearAllPageSaveConflicts } from '@/store/pageStoreHelpers'
+import { findBlockById } from '@/lib/blockTree'
+
+function dailyCaptureActionBlockedMessage(): string {
+  return useSettingsStore.getState().locale === 'en'
+    ? 'Daily capture blocks cannot be duplicated, nested, moved, or copied. Move individual lines instead.'
+    : '하루 기록 블록은 복제·중첩·이동·복사할 수 없습니다. 필요한 줄만 옮겨주세요.'
+}
 
 // 블록을 재귀적으로 복제 (children 다단계 중첩 보존)
 // Python으로 치면: def clone_block(b): return {**b, id: uuid(), children: [clone_block(c) for c in b.children]}
@@ -96,6 +104,11 @@ export const usePageStore = create<PageStore>()(
     // -----------------------------------------------
     resetStore: () => {
       clearAllPageSaveConflicts()
+      // Planner routines are scoped to the vault.  Clear them before the
+      // next vault becomes visible and invalidate any in-flight routine load.
+      useSettingsStore.getState().clearPlannerRoutines()
+      // 이전 볼트의 플래너 역할/홈 메모가 새 볼트에 섞이지 않도록 즉시 초기화한다.
+      useVaultPreferencesStore.getState().clearForVault()
       set((state) => {
         state.pages = []
         state.currentPageId = null
@@ -146,6 +159,9 @@ export const usePageStore = create<PageStore>()(
             }
             state.currentPageId = initialPage.id
             state.openTabs = [initialPage.id]
+            // 빈 볼트도 현재 볼트 이름을 먼저 저장해야 볼트별 기능 스위치를 사용할 수 있다.
+            // Python으로 치면: self.current_vault_name = data.vault_name or ''
+            state.currentVaultName = data.vault_name ?? ''
           })
           return
         }
@@ -167,27 +183,9 @@ export const usePageStore = create<PageStore>()(
           if (data.vault_name) state.currentVaultName = data.vault_name
         })
 
-        // ── 주기적 노트 전용 카테고리 자동 생성 ──────────────────
-        // periodicNotes 플러그인이 활성화된 경우에만 생성
-        // 비활성 시 또는 사용자가 삭제한 경우 재생성하지 않음
-        // Python으로 치면: if settings.plugins.periodic_notes: create_if_not_exists(...)
-        const isPeriodicEnabled = useSettingsStore.getState().plugins.periodicNotes
-        if (isPeriodicEnabled) {
-          const periodicCatNames = ['📅 일간 노트', '📆 주간 노트', '🗓️ 월간 노트']
-          for (const catName of periodicCatNames) {
-            if (!get().categories.find(c => c.name === catName)) {
-              try {
-                const newCat = await api.createCategory(catName)
-                set((state) => {
-                  state.categories.push(newCat)
-                  state.categoryOrder.push(newCat.id)
-                })
-              } catch {
-                // 카테고리 생성 실패는 조용히 무시 (서버 오프라인 등)
-              }
-            }
-          }
-        }
+        // 주기적 노트 카테고리는 로드 시 자동 생성하지 않는다.
+        // 사용자가 플래너 볼트에서 직접 노트를 만들 때만 기존 카테고리를 선택할 수 있다.
+        // Python으로 치면: pass  # no background category creation
       } catch {
         // 서버가 꺼져있으면 로컬 초기 상태 유지 + 사용자에게 알림
         toast.warning('서버에 연결할 수 없습니다. 로컬 상태로 동작합니다.', {
@@ -224,6 +222,7 @@ export const usePageStore = create<PageStore>()(
           }
         })
         await api.setCurrentPage(serverPage.id).catch(() => {})
+        return serverPage.id
       } catch {
         // 서버가 꺼져있으면 로컬에만 생성 — categoryId는 categoryMap에 보존
         // 이후 scheduleSave 호출 시 categoryId를 쿼리파라미터로 전달 → 서버 복구 시 올바른 폴더에 저장
@@ -241,6 +240,7 @@ export const usePageStore = create<PageStore>()(
           }
         })
         toast.warning('서버 연결 실패로 로컬에만 메모가 생성됐습니다.', { duration: 3000 })
+        return newPage.id
       }
     },
 
@@ -346,6 +346,17 @@ export const usePageStore = create<PageStore>()(
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (page) { page.icon = icon; page.updatedAt = new Date().toISOString() }
+      })
+      scheduleSave(pageId, get, set)
+    },
+
+    setPageRole: (pageId, role, periodKey) => {
+      set((state) => {
+        const page = state.pages.find(p => p.id === pageId)
+        if (!page) return
+        page.pageRole = role
+        page.periodKey = periodKey
+        page.updatedAt = new Date().toISOString()
       })
       scheduleSave(pageId, get, set)
     },
@@ -691,29 +702,23 @@ export const usePageStore = create<PageStore>()(
     // 타이핑마다 호출 → 반드시 디바운스
     // 최상위 blocks에서 먼저 탐색, 없으면 토글 children도 탐색 (토글 자식 블록 저장 지원)
     // Python으로 치면: def update_block(page_id, block_id, content): find_and_update(block_id)
-    updateBlock: (pageId, blockId, content) => {
+    updateBlock: (pageId, blockId, content, recordHistory = false) => {
       // Tiptap은 블록 마운트 시 타입 명령을 실행하면서 내용이 바뀌지 않아도
       // onUpdate를 발생시킬 수 있다. 동일 content는 저장 대상으로 만들지 않아
       // 페이지를 열기만 했을 때 revision이 올라가는 phantom save를 막는다.
       const snapshotPage = get().pages.find(p => p.id === pageId)
-      const snapshotBlock = snapshotPage?.blocks.find(b => b.id === blockId)
-        ?? snapshotPage?.blocks.flatMap(b => b.children ?? []).find(b => b.id === blockId)
+      const snapshotBlock = findBlockById(snapshotPage?.blocks, blockId)
       if (!snapshotBlock || snapshotBlock.content === content) return
+      if (recordHistory && snapshotPage) pushBlockHistory(pageId, snapshotPage.blocks)
 
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return
-        // 최상위 블록에서 탐색
-        const block = page.blocks.find(b => b.id === blockId)
-        if (block) { block.content = content; block.updatedAt = new Date().toISOString(); return }
-        // 토글 children에서 탐색 (토글 자식 블록인 경우)
-        // Python으로 치면: for toggle in toggles: if block_id in toggle.children: update
-        const now = new Date().toISOString()
-        for (const toggle of page.blocks) {
-          if (!toggle.children) continue
-          const child = toggle.children.find(c => c.id === blockId)
-          if (child) { child.content = content; child.updatedAt = now; return }
-        }
+        const block = findBlockById(page.blocks, blockId)
+        if (!block) return
+        block.content = content
+        block.updatedAt = new Date().toISOString()
+        if (recordHistory) state.historyVersion++
       })
       scheduleSave(pageId, get, set)
     },
@@ -723,6 +728,24 @@ export const usePageStore = create<PageStore>()(
     savePageNow: (pageId) => saveNow(pageId, get, set),
 
     updateBlockType: (pageId, blockId, type) => {
+      const typePage = get().pages.find(p => p.id === pageId)
+      if (type === 'dailycapture' && typePage?.pageRole === 'postit-month') {
+        const today = new Date()
+        const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+        const duplicateToday = typePage.blocks.some(block =>
+          block.id !== blockId
+          && block.type === 'dailycapture'
+          && (() => {
+            try { return JSON.parse(block.content)?.date === todayKey } catch { return false }
+          })()
+        )
+        if (duplicateToday) {
+          toast.warning(useSettingsStore.getState().locale === 'en'
+            ? 'A daily capture for today already exists in this monthly note.'
+            : '이 월간 노트에는 오늘의 하루 기록이 이미 있습니다.')
+          return
+        }
+      }
       const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
       if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
@@ -834,6 +857,10 @@ export const usePageStore = create<PageStore>()(
       const { selectedBlockIds } = get()
       if (selectedBlockIds.length < 1) return
       const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks?.some(block => selectedBlockIds.includes(block.id) && block.type === 'dailycapture')) {
+        toast.warning(dailyCaptureActionBlockedMessage())
+        return
+      }
       if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
@@ -949,6 +976,10 @@ export const usePageStore = create<PageStore>()(
 
     duplicateBlock: (pageId, blockId) => {
       const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
+      if (snapBlocks?.find(block => block.id === blockId)?.type === 'dailycapture') {
+        toast.warning(dailyCaptureActionBlockedMessage())
+        return
+      }
       if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
@@ -971,6 +1002,11 @@ export const usePageStore = create<PageStore>()(
     // Python으로 치면: def move_block_to_page(self, from_id, to_id, block_id): ...
     // -----------------------------------------------
     moveBlockToPage: (fromPageId, toPageId, blockId) => {
+      const sourceBlock = get().pages.find(p => p.id === fromPageId)?.blocks.find(block => block.id === blockId)
+      if (sourceBlock?.type === 'dailycapture') {
+        toast.warning(dailyCaptureActionBlockedMessage())
+        return
+      }
       // 두 페이지 모두 undo 스냅샷 저장
       const snapFrom = get().pages.find(p => p.id === fromPageId)?.blocks
       const snapTo = get().pages.find(p => p.id === toPageId)?.blocks
@@ -1001,6 +1037,11 @@ export const usePageStore = create<PageStore>()(
     // Python으로 치면: def copy_block_to_page(self, from_id, to_id, block_id): ...
     // -----------------------------------------------
     copyBlockToPage: (fromPageId, toPageId, blockId) => {
+      const sourceBlock = get().pages.find(p => p.id === fromPageId)?.blocks.find(block => block.id === blockId)
+      if (sourceBlock?.type === 'dailycapture') {
+        toast.warning(dailyCaptureActionBlockedMessage())
+        return
+      }
       // 대상 페이지만 undo 스냅샷 저장 (원본 변경 없음)
       const snapTo = get().pages.find(p => p.id === toPageId)?.blocks
       if (snapTo) pushBlockHistory(toPageId, snapTo)
@@ -1045,9 +1086,9 @@ export const usePageStore = create<PageStore>()(
     // 그리드 템플릿 적용 시 사용
     // Python으로 치면: def set_page_blocks(self, page_id, blocks): page.blocks = blocks
     // -----------------------------------------------
-    setPageBlocks: (pageId, blocks) => {
+    setPageBlocks: (pageId, blocks, recordHistory = true) => {
       const snapBlocks = get().pages.find(p => p.id === pageId)?.blocks
-      if (snapBlocks) pushBlockHistory(pageId, snapBlocks)
+      if (recordHistory && snapBlocks) pushBlockHistory(pageId, snapBlocks)
       set((state) => {
         const page = state.pages.find(p => p.id === pageId)
         if (!page) return

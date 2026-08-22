@@ -10,6 +10,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { saveTimers } from '@/store/pageStoreHelpers'
 import { useSettingsStore } from '@/store/settingsStore'
+import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import CategorySidebar from '@/components/editor/CategorySidebar'
 import VaultRail from '@/components/sidebar/VaultRail'
 import PageEditor from '@/components/editor/PageEditor'
@@ -29,6 +30,7 @@ import CalendarOverlay from '@/components/editor/CalendarOverlay'
 import DayPlannerPanel from '@/components/editor/DayPlannerPanel'
 import { Folder, X } from 'lucide-react'
 import { useLocale } from '@/locales'
+import { openOrCreateDailyNote } from '@/lib/dailyNotes'
 import type { CategoryDropPosition } from '@/components/sidebar/CategoryRow'
 
 // dnd-kit: 카테고리 정렬 + 페이지→카테고리 드래그를 하나의 DndContext로 관리
@@ -307,13 +309,13 @@ export default function Home() {
     // vault 파일에서 루틴 로드 (localStorage보다 파일 우선)
     // 백엔드 미실행 시 기존 localStorage 값 유지 (내부에서 catch 처리됨)
     // Python으로 치면: self.settings.load_routines_from_file()
-    loadRoutinesFromFile()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])
 
   // -----------------------------------------------
   // 스토어에서 필요한 상태와 액션 가져오기
   // -----------------------------------------------
   const {
+    currentVaultName,
     currentPageId,
     pages,
     categories,
@@ -335,6 +337,18 @@ export default function Home() {
     undoPage,
     redoPage,
   } = usePageStore()
+  const isDailyPlannerVault = useVaultPreferencesStore(
+    state => state.preferences.planner.mode === 'daily',
+  )
+  const isPostitRecordVault = useVaultPreferencesStore(
+    state => state.preferences.planner.mode === 'daily'
+      && state.preferences.planner.dailyNoteTemplate === 'postit',
+  )
+
+  // Routines are stored per vault, so reload them after the active vault is known.
+  useEffect(() => {
+    if (currentVaultName) void loadRoutinesFromFile()
+  }, [currentVaultName, loadRoutinesFromFile])
 
   // 페이지 전환 시: 이전 페이지 스크롤 위치 저장 → 새 페이지 스크롤 위치 복원
   // 처음 방문하는 페이지는 0(맨 위), 이전에 읽던 페이지는 저장된 위치로 복원
@@ -455,9 +469,7 @@ export default function Home() {
   }
 
   // -----------------------------------------------
-  // 오늘의 일간 노트를 열거나 없으면 템플릿으로 생성
-  // 제목 형식: "일간 노트 YYYY-MM-DD" / 아이콘: 📅
-  // useCallback: categories/pages가 바뀔 때 핸들러 갱신 (스테일 클로저 방지)
+  // 공통 생성 경로로 오늘의 일간 노트를 열거나 생성한다.
   // Python으로 치면: async def open_daily_note(self): ...
   // -----------------------------------------------
   const openDailyNote = useCallback(async () => {
@@ -465,37 +477,8 @@ export default function Home() {
     const yy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, '0')
     const dd = String(today.getDate()).padStart(2, '0')
-    const title = `일간 노트 ${yy}-${mm}-${dd}`
-
-    // 기존 페이지 중 동일 제목 검색
-    const existing = pages.find(p => p.title === title)
-    if (existing) {
-      setCurrentPage(existing.id)
-      return
-    }
-
-    // 전용 카테고리 찾기 (loadFromServer에서 자동 생성됨)
-    const cat = categories.find(c => c.name === '📅 일간 노트')
-
-    // 새 페이지 생성 (addPage가 currentPageId를 새 페이지로 설정)
-    await addPage(title, cat?.id ?? null)
-
-    // 생성 직후 store에서 새 페이지 ID 가져오기
-    // Python으로 치면: new_page_id = page_store.current_page_id
-    const newId = usePageStore.getState().currentPageId
-    if (!newId) return
-
-    // 아이콘 변경 + 템플릿 블록 적용
-    updatePageIcon(newId, '📅')
-    setPageBlocks(newId, [
-      { id: crypto.randomUUID(), type: 'heading1', content: title, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'divider', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.dailyTodo, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'taskList', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'heading2', content: t.overlay.periodic.dailyMemo, children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-      { id: crypto.randomUUID(), type: 'paragraph', content: '', children: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    ])
-  }, [pages, categories, addPage, updatePageIcon, setPageBlocks, setCurrentPage, t])
+    await openOrCreateDailyNote(`${yy}-${mm}-${dd}`)
+  }, [])
 
   // -----------------------------------------------
   // 이번 주 주간 노트를 열거나 없으면 템플릿으로 생성
@@ -540,14 +523,14 @@ export default function Home() {
   // -----------------------------------------------
   useEffect(() => {
     function handleDailyKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'd' && plugins.periodicNotes) {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'd' && plugins.periodicNotes && isDailyPlannerVault) {
         e.preventDefault()
         openDailyNote()
       }
     }
     window.addEventListener('keydown', handleDailyKey)
     return () => window.removeEventListener('keydown', handleDailyKey)
-  }, [plugins.periodicNotes, openDailyNote])
+  }, [plugins.periodicNotes, isDailyPlannerVault, openDailyNote])
 
   // -----------------------------------------------
   // Ctrl+Alt+W 단축키 → 이번 주 주간 노트 열기/생성
@@ -558,14 +541,14 @@ export default function Home() {
   // -----------------------------------------------
   useEffect(() => {
     function handleWeeklyKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'w' && plugins.periodicNotes) {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'w' && plugins.periodicNotes && isDailyPlannerVault && !isPostitRecordVault) {
         e.preventDefault()
         openWeeklyNote()
       }
     }
     window.addEventListener('keydown', handleWeeklyKey)
     return () => window.removeEventListener('keydown', handleWeeklyKey)
-  }, [plugins.periodicNotes, openWeeklyNote])
+  }, [plugins.periodicNotes, isDailyPlannerVault, isPostitRecordVault, openWeeklyNote])
 
   // -----------------------------------------------
   // 이번 달 월간 노트를 열거나 없으면 템플릿으로 생성
@@ -612,14 +595,15 @@ export default function Home() {
   // -----------------------------------------------
   useEffect(() => {
     function handleMonthlyKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'm' && plugins.periodicNotes) {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'm' && plugins.periodicNotes && isDailyPlannerVault) {
         e.preventDefault()
-        openMonthlyNote()
+        if (isPostitRecordVault) openDailyNote()
+        else openMonthlyNote()
       }
     }
     window.addEventListener('keydown', handleMonthlyKey)
     return () => window.removeEventListener('keydown', handleMonthlyKey)
-  }, [plugins.periodicNotes, openMonthlyNote])
+  }, [plugins.periodicNotes, isDailyPlannerVault, isPostitRecordVault, openDailyNote, openMonthlyNote])
 
   // -----------------------------------------------
   // Ctrl+Shift+R → 읽기 모드 토글 (PageEditor에 CustomEvent 발행)
@@ -650,6 +634,17 @@ export default function Home() {
       if (!currentPageId) return
       // contenteditable 안에서는 Tiptap이 담당 → 여기서 처리 안 함
       if ((e.target as HTMLElement).isContentEditable) return
+
+      // Inputs own their undo history. Do not let their Ctrl+Z reach the
+      // page-level structural undo handler.
+      if (
+        e.target instanceof HTMLElement && (
+          e.target.isContentEditable ||
+          e.target instanceof HTMLInputElement ||
+          e.target instanceof HTMLTextAreaElement ||
+          e.target instanceof HTMLSelectElement
+        )
+      ) return
 
       const isUndo = e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'
       const isRedo = e.ctrlKey && (
@@ -807,14 +802,20 @@ export default function Home() {
   // -----------------------------------------------
   useEffect(() => {
     function handleDayPlannerKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd' && isDailyPlannerVault) {
         e.preventDefault()
         setDayPlannerOpen(prev => !prev)
       }
     }
     window.addEventListener('keydown', handleDayPlannerKey)
     return () => window.removeEventListener('keydown', handleDayPlannerKey)
-  }, [])
+  }, [isDailyPlannerVault])
+
+  // 플래너 역할이 해제되면 열려 있던 전용 패널도 즉시 닫는다.
+  // Python으로 치면: if not is_daily_planner_vault: self.day_planner_open = False
+  useEffect(() => {
+    if (!isDailyPlannerVault) setDayPlannerOpen(false)
+  }, [isDailyPlannerVault])
 
   // -----------------------------------------------
   // Ctrl+\ 단축키 → 스플릿 뷰 토글
@@ -1157,7 +1158,7 @@ export default function Home() {
             에디터 오른쪽에 나란히 붙는 인라인 패널
             본문 작성하면서 오늘 일정을 항상 확인 가능
             Python으로 치면: if day_planner_open: render(DayPlannerPanel) */}
-        {dayPlannerOpen && !isFocusMode && (
+        {isDailyPlannerVault && dayPlannerOpen && !isFocusMode && (
           <DayPlannerPanel onClose={() => setDayPlannerOpen(false)} />
         )}
 

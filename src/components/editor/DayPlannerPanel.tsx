@@ -2,10 +2,10 @@
 // src/components/editor/DayPlannerPanel.tsx
 // 역할: Day Planner 우측 플로팅 패널 (B안)
 //   - 에디터 옆에 항상 열어두고 본문 작성하면서 일정 확인
-//   - 전체 페이지의 dayplanner 블록에서 해당 날짜 이벤트를 수집
+//   - 지정된 일정 홈의 dayplanner 블록에서 해당 날짜 이벤트를 수집
 //   - 이벤트 클릭 → 해당 페이지로 이동
-//   - 빠른 이벤트 추가 → 현재 열린 페이지의 dayplanner 블록에 저장
-//     (없으면 자동 생성)
+//   - 빠른 이벤트 추가 → 지정된 일정 홈 메모의 dayplanner 블록에 저장
+//     (없으면 사용자가 빠른 추가를 누른 시점에만 생성)
 // Python으로 치면: class DayPlannerPanel(QDockWidget): ...
 // =============================================
 
@@ -13,10 +13,13 @@
 
 import { useState, useMemo, useCallback } from 'react'
 import { usePageStore } from '@/store/pageStore'
+import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import { X, ChevronLeft, ChevronRight, Plus, Check, Clock } from 'lucide-react'
 import { PlanEvent } from '@/types/block'
 import { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
+import { findBlockById, findBlocksByType } from '@/lib/blockTree'
+import { revealBlockAncestors } from '@/lib/blockReveal'
 
 // ── 오늘 날짜 문자열 ─────────────────────────
 function todayStr(): string {
@@ -79,7 +82,12 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
   // Python으로 치면: t = use_locale()
   const t = useLocale()
 
-  const { pages, currentPageId, setCurrentPage, pushRecentPage, updateBlock, updateBlockType, addBlock } = usePageStore()
+  const { pages, setCurrentPage, pushRecentPage, updateBlock, updateBlockType, addBlock, savePageNow } = usePageStore()
+  const plannerHomePageId = useVaultPreferencesStore(state => state.preferences.planner.homePageId)
+  const plannerHomePage = useMemo(
+    () => pages.find(page => page.id === plannerHomePageId) ?? null,
+    [pages, plannerHomePageId],
+  )
 
   // ── 현재 날짜 ────────────────────────────────
   const [date, setDate] = useState(todayStr())
@@ -91,14 +99,14 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
   const [formEnd,   setFormEnd]   = useState('10:00')
   const [formColor, setFormColor] = useState('blue')
 
-  // ── 전체 페이지에서 해당 날짜의 dayplanner 이벤트 수집 ──
-  // Python으로 치면: events = [e for page in pages for block in page.blocks if block.type=='dayplanner'
+  // ── 일정 홈 메모에서 해당 날짜의 dayplanner 이벤트 수집 ──
+  // Python으로 치면: events = [e for page in [planner_home] for block in page.blocks if block.type=='dayplanner'
   //                              for e in json.loads(block.content).events if data.date == target_date]
   const eventsForDate = useMemo(() => {
     const result: { event: PlanEvent; pageId: string; blockId: string; pageTitle: string; pageIcon: string }[] = []
-    for (const page of pages) {
-      for (const block of page.blocks ?? []) {
-        if (block.type !== 'dayplanner') continue
+    if (!plannerHomePage) return result
+    for (const page of [plannerHomePage]) {
+      for (const block of findBlocksByType(page.blocks, 'dayplanner')) {
         try {
           const data: PlannerData = JSON.parse(block.content || '{}')
           // 새 구조(eventsByDate)와 구버전(date+events) 모두 대응
@@ -117,13 +125,13 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
     }
     // start 시간순 정렬
     return result.sort((a, b) => a.event.start.localeCompare(b.event.start))
-  }, [pages, date])
+  }, [plannerHomePage, date])
 
   // ── 완료 토글 ────────────────────────────────
   // Python으로 치면: def toggle_done(page_id, block_id, event_id): ...
   const toggleDone = useCallback((pageId: string, blockId: string, eventId: string) => {
-    const page  = pages.find(p => p.id === pageId)
-    const block = page?.blocks?.find(b => b.id === blockId)
+    const page  = usePageStore.getState().pages.find(p => p.id === pageId)
+    const block = findBlockById(page?.blocks, blockId)
     if (!block) return
     try {
       const data: PlannerData = JSON.parse(block.content || '{}')
@@ -133,15 +141,25 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       updateBlock(pageId, blockId, JSON.stringify({
         eventsByDate: { ...(data.eventsByDate ?? {}), [date]: dayEvents },
         reviewByDate: data.reviewByDate ?? {},
-      }))
+      }), true)
+      void savePageNow(pageId)
     } catch { /* 무시 */ }
-  }, [pages, date, updateBlock])
+  }, [date, updateBlock, savePageNow])
 
-  // ── 빠른 추가: 현재 페이지의 dayplanner 블록에 이벤트 추가 ──
-  // 현재 페이지에 dayplanner 블록이 없으면 자동 생성
+  const revealPlanner = useCallback((pageId: string, blockId: string) => {
+    const page = usePageStore.getState().pages.find(p => p.id === pageId)
+    revealBlockAncestors(page, blockId)
+    setCurrentPage(pageId)
+    window.setTimeout(() => {
+      document.getElementById(blockId)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 50)
+  }, [setCurrentPage])
+
+  // ── 빠른 추가: 일정 홈 메모의 dayplanner 블록에 이벤트 추가 ──
+  // 일정 홈 안에 블록이 없으면 사용자가 빠른 추가를 누른 시점에만 생성한다.
   // Python으로 치면: def quick_add(title, start, end, color): ...
   const handleQuickAdd = useCallback(() => {
-    if (!formTitle.trim()) return
+    if (!formTitle.trim() || !plannerHomePage) return
     const newEvent: PlanEvent = {
       id:    crypto.randomUUID(),
       title: formTitle.trim(),
@@ -152,34 +170,37 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       source: 'manual',
     }
 
-    // 현재 페이지에서 dayplanner 블록 찾기 (날짜 무관 — 블록 타입으로 검색)
-    const page = pages.find(p => p.id === currentPageId)
-    const existingBlock = page?.blocks?.find(b => b.type === 'dayplanner')
+    // 일정 홈에서 dayplanner 블록 찾기 (날짜 무관 — 블록 타입으로 검색)
+    const targetPageId = plannerHomePage.id
+    const page = usePageStore.getState().pages.find(p => p.id === targetPageId)
+    const existingBlock = findBlocksByType(page?.blocks, 'dayplanner')[0]
 
-    if (existingBlock && currentPageId) {
+    if (existingBlock) {
       // 기존 블록에 이벤트 추가 (새 eventsByDate 구조)
       try {
         const data: PlannerData = JSON.parse(existingBlock.content || '{}')
         const dayEvs = data.eventsByDate?.[date] ?? []
-        updateBlock(currentPageId, existingBlock.id, JSON.stringify({
+        updateBlock(targetPageId, existingBlock.id, JSON.stringify({
           eventsByDate: { ...(data.eventsByDate ?? {}), [date]: [...dayEvs, newEvent] },
           reviewByDate: data.reviewByDate ?? {},
-        }))
+        }), true)
+        void savePageNow(targetPageId)
       } catch { /* 무시 */ }
-    } else if (currentPageId) {
+    } else {
       // 새 dayplanner 블록 추가
-      addBlock(currentPageId)
-      const newBlocks = usePageStore.getState().pages.find(p => p.id === currentPageId)?.blocks ?? []
+      addBlock(targetPageId)
+      const newBlocks = usePageStore.getState().pages.find(p => p.id === targetPageId)?.blocks ?? []
       const newBlockId = newBlocks[newBlocks.length - 1]?.id
       if (newBlockId) {
-        updateBlockType(currentPageId, newBlockId, 'dayplanner')
-        updateBlock(currentPageId, newBlockId, JSON.stringify({ eventsByDate: { [date]: [newEvent] } }))
+        updateBlockType(targetPageId, newBlockId, 'dayplanner')
+        updateBlock(targetPageId, newBlockId, JSON.stringify({ eventsByDate: { [date]: [newEvent] } }), true)
+        void savePageNow(targetPageId)
       }
     }
 
     setFormTitle('')
     setShowForm(false)
-  }, [formTitle, formStart, formEnd, formColor, date, pages, currentPageId, updateBlock, updateBlockType, addBlock])
+  }, [formTitle, formStart, formEnd, formColor, date, plannerHomePage, updateBlock, updateBlockType, addBlock, savePageNow])
 
   // ── 현재 시각 기준 진행 중 이벤트 판별 ──────
   // Python으로 치면: def is_ongoing(event): return start <= now <= end
@@ -207,6 +228,12 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
           <X size={14} />
         </button>
       </div>
+
+      {!plannerHomePage && (
+        <div className="px-3 py-2 border-b border-amber-100 bg-amber-50 text-[10px] leading-4 text-amber-700">
+          {t.settings.vaultFeatures.homePageNotSet}
+        </div>
+      )}
 
       {/* ── 날짜 네비게이션 ───────────────────── */}
       <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-1 shrink-0">
@@ -246,7 +273,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
             <p className="text-xs text-gray-400 mb-3">
               {isToday ? t.planner.day.noEventsToday : t.planner.day.noEventsDay}
             </p>
-            <button type="button" onClick={() => setShowForm(true)}
+            <button type="button" onClick={() => setShowForm(true)} disabled={!plannerHomePage}
               className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1 mx-auto transition-colors">
               <Plus size={12} /> {t.planner.day.addEvent}
             </button>
@@ -266,7 +293,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
                     barCls,
                     ongoing ? 'ring-2 ring-blue-300 ring-offset-1' : '',
                   ].join(' ')}
-                  onClick={() => { setCurrentPage(pageId); pushRecentPage(pageId) }}
+                  onClick={() => { revealPlanner(pageId, blockId); pushRecentPage(pageId) }}
                 >
                   <div className="flex items-start gap-2">
                     {/* 완료 토글 */}
@@ -335,7 +362,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
               ))}
             </div>
             <div className="flex gap-1.5">
-              <button type="button" onClick={handleQuickAdd}
+              <button type="button" onClick={handleQuickAdd} disabled={!plannerHomePage}
                 className="flex-1 text-[11px] bg-blue-500 hover:bg-blue-600 text-white px-2 py-1.5 rounded transition-colors">
                 {t.planner.day.addBtn}
               </button>
@@ -344,8 +371,8 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
                 {t.planner.day.cancelBtn}
               </button>
             </div>
-            {!currentPageId && (
-              <p className="text-[10px] text-amber-500">{t.planner.day.openPageFirst}</p>
+            {!plannerHomePage && (
+              <p className="text-[10px] text-amber-500">{t.settings.vaultFeatures.homePageNotSet}</p>
             )}
           </div>
         )}
@@ -354,7 +381,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       {/* ── 하단 빠른 추가 버튼 ─────────────── */}
       {!showForm && eventsForDate.length > 0 && (
         <div className="px-3 py-2.5 border-t border-gray-100 shrink-0">
-          <button type="button" onClick={() => setShowForm(true)}
+          <button type="button" onClick={() => setShowForm(true)} disabled={!plannerHomePage}
             className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 py-1.5 rounded-lg hover:bg-blue-50 border border-gray-200 hover:border-blue-300 transition-colors">
             <Plus size={13} /> {t.planner.day.addEvent}
           </button>

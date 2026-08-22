@@ -47,7 +47,12 @@ function countText(blocks: Block[]): { words: number; chars: number } {
 
     // kanban / toggle / admonition은 JSON 구조 → 파싱 후 텍스트 추출
     let raw = ''
-    if (block.type === 'kanban') {
+    if (block.type === 'dailycapture') {
+      try {
+        const parsed = JSON.parse(block.content) as { body?: string }
+        raw = parsed.body ?? ''
+      } catch { raw = block.content }
+    } else if (block.type === 'kanban') {
       try {
         const parsed = JSON.parse(block.content) as {
           columns: Array<{ title: string; cards: Array<{ text: string }> }>

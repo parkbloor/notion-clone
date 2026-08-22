@@ -99,6 +99,12 @@ export function stripHtml(html: string): string {
 export function getPageSearchText(page: Page): string {
   return page.blocks.map(b => {
     if (b.type === 'image') return ''
+    if (b.type === 'dailycapture') {
+      try {
+        const p = JSON.parse(b.content) as { date?: string; body?: string }
+        return `${p.date ?? ''} ${p.body ?? ''}`
+      } catch { return b.content }
+    }
     if (b.type === 'toggle') {
       try {
         const p = JSON.parse(b.content)
@@ -114,6 +120,16 @@ export function getPageSearchText(page: Page): string {
 export function blocksToMarkdown(page: Page): string {
   const lines: string[] = []
   for (const block of page.blocks) {
+    if (block.type === 'dailycapture') {
+      try {
+        const parsed = JSON.parse(block.content) as { date?: string; body?: string }
+        lines.push(`## 📌 ${parsed.date ?? ''}`.trim())
+        if (parsed.body) lines.push(parsed.body)
+      } catch {
+        if (block.content) lines.push(block.content)
+      }
+      continue
+    }
     // toggle 블록은 content가 JSON {"header":"...","body":"..."} 형식
     // Python으로 치면: if block.type == 'toggle': parse_json(block.content)
     if (block.type === 'toggle') {

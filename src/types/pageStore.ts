@@ -51,11 +51,12 @@ export interface PageStore {
   resetStore: () => void
 
   // ── 페이지 액션 ───────────────────────────────
-  addPage: (title?: string, categoryId?: string | null) => Promise<void>
+  addPage: (title?: string, categoryId?: string | null) => Promise<string>
   setCurrentPage: (id: string) => void
   updatePageTitle: (pageId: string, title: string) => void
   deletePage: (pageId: string) => void
   updatePageIcon: (pageId: string, icon: string) => void
+  setPageRole: (pageId: string, role: Page['pageRole'], periodKey?: string) => void
   // 사이드바 메모 리스트 색상 변경 (null이면 기본 색상)
   // Python으로 치면: def update_page_color(self, page_id, color): ...
   updatePageColor: (pageId: string, color: string | null) => void
@@ -117,9 +118,9 @@ export interface PageStore {
   applyTemplate: (pageId: string, markdownContent: string) => void
   // Block 배열을 직접 받아서 페이지 블록을 교체 (그리드 템플릿 적용용)
   // Python으로 치면: def set_page_blocks(self, page_id, blocks): page.blocks = blocks
-  setPageBlocks: (pageId: string, blocks: Block[]) => void
+  setPageBlocks: (pageId: string, blocks: Block[], recordHistory?: boolean) => void
   addBlock: (pageId: string, afterBlockId?: string) => void
-  updateBlock: (pageId: string, blockId: string, content: string) => void
+  updateBlock: (pageId: string, blockId: string, content: string, recordHistory?: boolean) => void
   // 이미지/비디오 업로드 직후 디바운스 없이 즉시 저장
   // Python으로 치면: def save_page_now(page_id): api.save(page_id)
   savePageNow: (pageId: string) => Promise<boolean>

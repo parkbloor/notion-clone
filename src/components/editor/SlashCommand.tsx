@@ -72,7 +72,12 @@ export default function SlashCommand({
   // 플러그인 설정
   const { plugins } = useSettingsStore()
   const showPlannerBlocks = useVaultPreferencesStore(
-    state => state.preferences.planner.slashPlannerBlocks,
+    state => state.preferences.planner.mode === 'daily'
+      && state.preferences.planner.slashPlannerBlocks,
+  )
+  const postitMode = useVaultPreferencesStore(
+    state => state.preferences.planner.mode === 'daily'
+      && state.preferences.planner.dailyNoteTemplate === 'postit',
   )
 
   // ── 7개 카테고리 커맨드 목록 ──────────────────────────────────────
@@ -142,6 +147,7 @@ export default function SlashCommand({
       group: t.slash.groupPlanner,
       items: [
         { icon: '📌', name: t.slash.record.label,        description: t.slash.record.desc,        type: 'record'           as BlockType },
+        { icon: '🗒️', name: t.slash.dailyCapture.label,  description: t.slash.dailyCapture.desc,  type: 'dailycapture'     as BlockType },
         { icon: '🗓️', name: t.slash.dayPlanner.label,    description: t.slash.dayPlanner.desc,    type: 'dayplanner'       as BlockType },
         { icon: '🗃️', name: t.slash.weekPlanner.label,   description: t.slash.weekPlanner.desc,   type: 'weekplanner'      as BlockType },
         { icon: '📆', name: t.slash.weeklyPlanner.label, description: t.slash.weeklyPlanner.desc, type: 'weeklyplanner'    as BlockType },
@@ -182,12 +188,13 @@ export default function SlashCommand({
       .map(cat => ({
         ...cat,
         items: cat.items.filter(item =>
-          !(item.type in pluginBlockMap) || !!pluginBlockMap[item.type as BlockType]
+          (!(item.type in pluginBlockMap) || !!pluginBlockMap[item.type as BlockType])
+          && (!postitMode || cat.key !== 'planner' || item.type === 'dailycapture' || item.type === 'record')
         ),
       }))
       .filter(cat => cat.items.length > 0)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  ), [COMMANDS, plugins, showPlannerBlocks])
+  ), [COMMANDS, plugins, postitMode, showPlannerBlocks])
 
   // 현재 활성 카테고리의 항목 목록
   // Python으로 치면: active_items = get_items(active_category)

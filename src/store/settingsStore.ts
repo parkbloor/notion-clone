@@ -8,10 +8,55 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { toast } from 'sonner'
 import { getFontPreset, DEFAULT_FONT_ID } from '@/lib/fonts'
 import { PRESET_VARS, DEFAULT_VARS } from '@/lib/themeVars'
 import type { Routine } from '@/types/block'
 import { plannerApi } from '@/lib/api'
+
+// The active vault can change while a routine request is still in flight.
+// Keep a module-level generation so an older response never repopulates the
+// store after the caller has cleared it or started a newer load.
+let routineLoadGeneration = 0
+let routineDataIsInvalid = false
+
+function isInvalidRoutineDataError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  return error.message.startsWith('루틴 응답') || /^루틴 \d+번/.test(error.message)
+}
+
+function isPlannerTime(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{2}:\d{2}$/.test(value)) return false
+  const [hours, minutes] = value.split(':').map(Number)
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59
+}
+
+function normalizePlannerRoutines(value: unknown): Routine[] {
+  if (!Array.isArray(value)) throw new Error('루틴 목록 형식이 올바르지 않습니다.')
+  return value.map((raw, index) => {
+    if (!raw || typeof raw !== 'object') throw new Error(`루틴 ${index + 1}번의 형식이 올바르지 않습니다.`)
+    const routine = raw as Partial<Routine>
+    if (
+      typeof routine.id !== 'string' || !routine.id ||
+      typeof routine.title !== 'string' || !routine.title.trim() ||
+      !isPlannerTime(routine.start) || !isPlannerTime(routine.end)
+    ) throw new Error(`루틴 ${index + 1}번의 필수 값이 올바르지 않습니다.`)
+    if (typeof routine.color !== 'string' || !routine.color) {
+      throw new Error(`루틴 ${index + 1}번의 색상이 올바르지 않습니다.`)
+    }
+    if (!Array.isArray(routine.days) || routine.days.some(day => !Number.isInteger(day) || day < 0 || day > 6)) {
+      throw new Error(`루틴 ${index + 1}번의 요일이 올바르지 않습니다.`)
+    }
+    return {
+      id: routine.id,
+      title: routine.title.trim(),
+      start: routine.start,
+      end: routine.end,
+      color: routine.color,
+      days: routine.days,
+    }
+  })
+}
 
 // -----------------------------------------------
 // 커스텀 레이아웃 템플릿 저장 포맷
@@ -127,7 +172,8 @@ export interface SettingsStore {
   setPlannerZoom:        (z: number) => void
   setWeekStartDay:       (d: number) => void
   setPlannerNotifyBefore:(m: number) => void
-  setPlannerRoutines:    (r: Routine[]) => void
+  setPlannerRoutines:    (r: Routine[]) => boolean
+  clearPlannerRoutines:  () => void
   setPlannerAutoApply:   (v: boolean) => void
   loadRoutinesFromFile:  () => Promise<void>
 
@@ -564,18 +610,51 @@ export const useSettingsStore = create<SettingsStore>()(
       // 루틴 프리셋 전체 교체 + vault 파일에 영속 저장
       // Python으로 치면: def set_planner_routines(self, r): self.planner_routines = r; save_to_file(r)
       setPlannerRoutines: (r) => {
-        set((state) => { state.plannerRoutines = r })
-        // vault/_planner_routines.json에 비동기 저장 (백엔드가 꺼져있으면 조용히 무시)
-        plannerApi.saveRoutines(r).catch(() => {})
+        if (routineDataIsInvalid) {
+          toast.error('현재 볼트의 루틴 파일 형식이 올바르지 않아 덮어쓰지 않았습니다. 파일을 백업·수정한 뒤 다시 시도해 주세요.')
+          return false
+        }
+        let routines: Routine[]
+        try {
+          routines = normalizePlannerRoutines(r)
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : '루틴 형식이 올바르지 않습니다.')
+          return false
+        }
+        set((state) => { state.plannerRoutines = routines })
+        // vault/_planner_routines.json에 비동기 저장
+        plannerApi.saveRoutines(routines).catch(() => {
+          toast.error('루틴 저장에 실패했습니다. 서버 연결을 확인해 주세요.')
+        })
+        return true
+      },
+      // A vault switch must not leave another vault's routines visible.  It
+      // also invalidates any GET /routines request that has not returned yet.
+      clearPlannerRoutines: () => {
+        routineLoadGeneration++
+        routineDataIsInvalid = false
+        set((state) => { state.plannerRoutines = [] })
       },
       // vault 파일에서 루틴 로드 (앱 시작 시 호출) — localStorage보다 파일 우선
       // Python으로 치면: def load_routines_from_file(self): self.planner_routines = json.load(file)
       loadRoutinesFromFile: async () => {
+        const generation = ++routineLoadGeneration
+        routineDataIsInvalid = false
+        // Do not expose the previous vault's routines while the new vault is loading.
+        set((state) => { state.plannerRoutines = [] })
         try {
-          const routines = await plannerApi.getRoutines()
+          const routines = normalizePlannerRoutines(await plannerApi.getRoutines())
+          if (generation !== routineLoadGeneration) return
           set((state) => { state.plannerRoutines = routines })
-        } catch {
-          // 백엔드 미실행 시 기존 localStorage 값 유지
+        } catch (error) {
+          // Leave the list empty.  A stale localStorage value can belong to a
+          // different vault and must never be written into the active one.
+          if (generation !== routineLoadGeneration) return
+          routineDataIsInvalid = isInvalidRoutineDataError(error)
+          set((state) => { state.plannerRoutines = [] })
+          if (routineDataIsInvalid) {
+            toast.error('현재 볼트의 루틴 파일 형식이 올바르지 않습니다. 원본은 보존했으며 자동 저장을 막았습니다.')
+          }
         }
       },
       setPlannerAutoApply:   (v) => { set((state) => { state.plannerAutoApply   = v }) },
@@ -613,7 +692,10 @@ export const useSettingsStore = create<SettingsStore>()(
 
       // isFocusMode는 휘발성 — 앱 재시작 시 항상 false로 시작 (false로 고정 직렬화)
       // Python으로 치면: serialized['is_focus_mode'] = False  # 세션 상태는 저장하지 않음
-      partialize: (state) => ({ ...state, isFocusMode: false }),
+      // Routines are backed by the active vault, not app-wide localStorage.
+      // Persisting them here can leak one vault's routines into another while
+      // the backend is unavailable.
+      partialize: (state) => ({ ...state, isFocusMode: false, plannerRoutines: [] }),
 
       // SSR 환경에서 localStorage 접근 방지 — 클라이언트에서 명시적으로 rehydrate() 호출
       // Python으로 치면: if not is_server: load_from_storage()

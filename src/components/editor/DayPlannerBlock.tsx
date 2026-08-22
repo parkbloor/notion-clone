@@ -16,6 +16,7 @@ import { Block, PlanEvent, SubTask, Routine } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { plannerApi } from '@/lib/api'
+import { findBlockById } from '@/lib/blockTree'
 import PlannerTimeline, {
   END_HOUR,
   EVENT_COLORS,
@@ -23,7 +24,6 @@ import PlannerTimeline, {
   eventPx,
   getColor,
   isScheduledEvent,
-  isUnscheduledEvent,
   minToTime,
   timeToMin,
   yToTime,
@@ -776,9 +776,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // Python으로 치면: def update_planner(mutator): latest = load(); save(mutator(latest))
   const readLatestPlannerData = useCallback((): PlannerData => {
     try {
-      const content = usePageStore.getState().pages
-        .find(p => p.id === pageId)?.blocks
-        .find(b => b.id === block.id)?.content ?? '{}'
+      const page = usePageStore.getState().pages.find(p => p.id === pageId)
+      const content = findBlockById(page?.blocks, block.id)?.content ?? '{}'
       const parsed = JSON.parse(content) as Partial<PlannerData>
       return {
         eventsByDate: parsed.eventsByDate ?? {},
@@ -813,7 +812,9 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     }
 
     const committed = { eventsByDate, reviewByDate: next.reviewByDate ?? {} }
-    updateBlock(pageId, block.id, JSON.stringify(committed))
+    // Keep schedule changes in page undo history so Ctrl+Z restores the
+    // previous schedule instead of undoing the creation of this block.
+    updateBlock(pageId, block.id, JSON.stringify(committed), true)
     return committed
   }, [readLatestPlannerData, updateBlock, pageId, block.id])
 
@@ -822,11 +823,20 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // 2) 90일 초과 날짜 분리 → 백엔드 아카이브 API에 fire-and-forget
   // 3) block.content는 90일 이내 데이터만 저장
   // Python으로 치면: def save_events(date, evs): archive_old(); block.content = json.dumps(recent)
-  const save = useCallback((date: string, evs: PlanEvent[]) => {
-    commitPlannerData(latest => ({
-      eventsByDate: { ...latest.eventsByDate, [date]: evs },
-      reviewByDate: latest.reviewByDate ?? {},
-    }), true)
+  const save = useCallback((
+    date: string,
+    update: PlanEvent[] | ((latestEvents: PlanEvent[]) => PlanEvent[]),
+  ) => {
+    commitPlannerData(latest => {
+      const latestEvents = latest.eventsByDate[date] ?? []
+      return {
+        eventsByDate: {
+          ...latest.eventsByDate,
+          [date]: typeof update === 'function' ? update(latestEvents) : update,
+        },
+        reviewByDate: latest.reviewByDate ?? {},
+      }
+    }, true)
     // 이벤트 변경은 즉시 서버에 flush — 500ms 디바운스 대기 중 HMR/탭닫기로 유실 방지
     // Python으로 치면: await save_page_now(page_id)  # fire-and-forget
     savePageNow(pageId).catch(() => {})
@@ -842,22 +852,22 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // upsertEvent: 저장 후 항상 start 오름차순 정렬
   // Python으로 치면: def upsert_event(ev): evs = sort_events(upsert(evs, ev)); save()
   const upsertEvent = useCallback((ev: PlanEvent) => {
-    const evs = sortEvents(
-      events.some(e => e.id === ev.id)
-        ? events.map(e => e.id === ev.id ? ev : e)
-        : [...events, ev]
-    )
-    save(currentDate, evs)
-  }, [events, currentDate, save])
+    save(currentDate, latestEvents => sortEvents(
+      latestEvents.some(e => e.id === ev.id)
+        ? latestEvents.map(e => e.id === ev.id ? ev : e)
+        : [...latestEvents, ev]
+    ))
+  }, [currentDate, save])
 
   const deleteEvent = useCallback((id: string) => {
-    save(currentDate, events.filter(e => e.id !== id))
-  }, [events, currentDate, save])
+    save(currentDate, latestEvents => latestEvents.filter(e => e.id !== id))
+  }, [currentDate, save])
 
   const toggleDone = useCallback((id: string) => {
-    const evs = events.map(e => e.id === id ? { ...e, done: !e.done } : e)
-    save(currentDate, evs)
-  }, [events, currentDate, save])
+    save(currentDate, latestEvents => latestEvents.map(
+      e => e.id === id ? { ...e, done: !e.done } : e
+    ))
+  }, [currentDate, save])
 
   // ── Clock in/out 헬퍼 ─────────────────────────
   // 현재 시각 'HH:MM:SS' 반환
@@ -870,27 +880,25 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // Clock In: 이미 clockIn 중이면 무시
   // Python으로 치면: def clock_in(id): event.clockIn = now; event.clockOut = None
   const handleClockIn = useCallback((id: string) => {
-    const evs = events.map(e => {
+    save(currentDate, latestEvents => latestEvents.map(e => {
       if (e.id !== id) return e
       if (e.clockIn && !e.clockOut) return e  // 이미 활성 클럭
       return { ...e, clockIn: nowTimeStr(), clockOut: undefined }
-    })
-    save(currentDate, evs)
-  }, [events, currentDate, save])
+    }))
+  }, [currentDate, save])
 
   // Clock Out: clockIn → clockOut 기록, elapsed 누적
   // Python으로 치면: def clock_out(id): event.clockOut = now; event.elapsed += duration
   const handleClockOut = useCallback((id: string) => {
-    const evs = events.map(e => {
+    save(currentDate, latestEvents => latestEvents.map(e => {
       if (e.id !== id || !e.clockIn || e.clockOut) return e
       const outStr = nowTimeStr()
       const [ih, im, is_] = e.clockIn.split(':').map(Number)
       const [oh, om, os]  = outStr.split(':').map(Number)
       const diffMin = Math.round(((oh*3600+om*60+os) - (ih*3600+im*60+is_)) / 60)
       return { ...e, clockOut: outStr, elapsed: (e.elapsed ?? 0) + Math.max(0, diffMin) }
-    })
-    save(currentDate, evs)
-  }, [events, currentDate, save])
+    }))
+  }, [currentDate, save])
 
   // 활성 클럭(clockIn 있고 clockOut 없는) 이벤트 목록
   // Python으로 치면: active_clocks = [e for e in events if e.clock_in and not e.clock_out]
@@ -1210,16 +1218,15 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // ── 이 날에 루틴 수동 적용 ────────────────────
   // Python으로 치면: def apply_routines_today(): events += routines_for_date(current_date)
   function applyRoutinesToday() {
-    const latestData = readLatestPlannerData()
-    const latestEvents = latestData.eventsByDate?.[currentDate] ?? []
     const latestRoutines = useSettingsStore.getState().plannerRoutines
     const toAdd = routineEventsForDate(currentDate, latestRoutines)
     if (!toAdd.length) return
     // 중복 제목+시간 건너뜀
-    const existing = new Set(latestEvents.map(e => `${e.title}|${e.start}`))
-    const filtered = toAdd.filter(e => !existing.has(`${e.title}|${e.start}`))
-    if (!filtered.length) return
-    save(currentDate, sortEvents([...latestEvents, ...filtered]))
+    save(currentDate, latestEvents => {
+      const existing = new Set(latestEvents.map(e => `${e.title}|${e.start}`))
+      const filtered = toAdd.filter(e => !existing.has(`${e.title}|${e.start}`))
+      return filtered.length > 0 ? sortEvents([...latestEvents, ...filtered]) : latestEvents
+    })
   }
 
   // ── 날짜 변경 — autoApply 시 루틴 자동 삽입 ──
@@ -1233,7 +1240,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     setCurrentDate(ds)
 
     // 이동 날짜에 autoApply=true 이면 누락된 루틴만 보충 적용
-    const destEvents = data.eventsByDate[ds] ?? []
+    const latestData = readLatestPlannerData()
+    const destEvents = latestData.eventsByDate[ds] ?? []
     if (plannerAutoApply) {
       const routineEvs = routineEventsForDate(ds)
       const existing = new Set(destEvents.map(e => `${e.title}|${e.start}`))
@@ -1278,10 +1286,9 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       patchTimerRef.current = null
       // 최신 events를 스토어에서 직접 읽어 stale 클로저 방지
       // Python으로 치면: events = store.get_events(page_id, block_id, date)
-      const latestData = readLatestPlannerData()
-      const latestEvents: PlanEvent[] = latestData.eventsByDate?.[currentDate] ?? []
-      const evs = latestEvents.map(e => e.id === id ? { ...e, ...patch } : e)
-      save(currentDate, evs)
+      save(currentDate, latestEvents => latestEvents.map(
+        e => e.id === id ? { ...e, ...patch } : e
+      ))
     }
     if (immediate) {
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current)
@@ -1290,7 +1297,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       if (patchTimerRef.current) clearTimeout(patchTimerRef.current)
       patchTimerRef.current = setTimeout(doSave, 300)
     }
-  }, [currentDate, readLatestPlannerData, save])
+  }, [currentDate, save])
 
   // ── 루틴 모달 상태 ───────────────────────────
   // Python으로 치면: self.routine_modal_open: bool = False
@@ -1328,6 +1335,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       try {
         const json = JSON.parse(ev.target?.result as string)
         if (json.version !== 1) { alert('지원하지 않는 백업 형식입니다.'); return }
+        let routinesImported = true
         // 루틴: 기존 루틴과 병합 (id 기준, 중복 시 가져온 것 우선)
         if (Array.isArray(json.routines)) {
           const merged = [...plannerRoutines]
@@ -1348,20 +1356,20 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
             if (idx >= 0) merged[idx] = normalized
             else merged.push(normalized)
           }
-          setPlannerRoutines(merged)
+          const saved = setPlannerRoutines(merged)
+          routinesImported = saved
         }
         // 이벤트: 기존 eventsByDate와 병합 (날짜 기준, 중복 시 가져온 것 우선)
         if (json.eventsByDate && typeof json.eventsByDate === 'object') {
-          const latest = (() => {
-            try { return JSON.parse(block.content || '{}') } catch { return {} }
-          })()
-          const mergedEvents = { ...(latest.eventsByDate ?? {}), ...json.eventsByDate }
-          updateBlock(pageId, block.id, JSON.stringify({
-            eventsByDate:  mergedEvents,
-            reviewByDate:  latest.reviewByDate ?? {},
+          commitPlannerData(latest => ({
+            eventsByDate: { ...latest.eventsByDate, ...json.eventsByDate },
+            reviewByDate: latest.reviewByDate ?? {},
           }))
+          savePageNow(pageId).catch(() => {})
         }
-        alert('가져오기 완료! 루틴과 이벤트가 복원됐습니다.')
+        alert(routinesImported
+          ? '가져오기 완료! 루틴과 이벤트가 복원됐습니다.'
+          : '일정 데이터는 복원됐지만, 현재 볼트의 루틴 파일을 보호하기 위해 루틴은 가져오지 않았습니다.')
       } catch {
         alert('파일을 읽는 중 오류가 발생했습니다. 올바른 백업 파일인지 확인하세요.')
       }
@@ -1388,7 +1396,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     const updated = plannerRoutines.some(x => x.id === r.id)
       ? plannerRoutines.map(x => x.id === r.id ? r : x)
       : [...plannerRoutines, { ...r, id: crypto.randomUUID() }]
-    setPlannerRoutines(updated)
+    if (!setPlannerRoutines(updated)) return
     setRoutineForm(null)
   }
   function deleteRoutine(id: string) {
@@ -1446,7 +1454,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
       if (action === 'replace') {
         save(currentDate, sortEvents(newEvents))
       } else {
-        save(currentDate, sortEvents([...events, ...newEvents]))
+        save(currentDate, latestEvents => sortEvents([...latestEvents, ...newEvents]))
       }
       return `✅ ${newEvents.length}개 일정이 적용되었습니다.`
     } catch (err) {
@@ -1940,16 +1948,46 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
                 )
               })()}
 
-              {/* 이벤트 목록 */}
+              {/* 하루 흐름 요약 — 시간표만 나열하지 않고 계획·실행·마감 상태를 한눈에 보여준다. */}
+              {/* Python으로 치면: stages = {plan: pending, executed: done, closeout: has_review} */}
+              <div className="grid grid-cols-3 border-b border-gray-100 shrink-0 text-center">
+                <div className="border-r border-gray-100 px-1 py-2">
+                  <div className="text-[9px] text-blue-500">{t.planner.day.planStage}</div>
+                  <div className="mt-0.5 text-[11px] font-semibold text-gray-700">{events.filter(event => !event.done).length}</div>
+                </div>
+                <div className="border-r border-gray-100 px-1 py-2">
+                  <div className="text-[9px] text-emerald-500">{t.planner.day.executedStage}</div>
+                  <div className="mt-0.5 text-[11px] font-semibold text-gray-700">{doneCount}</div>
+                </div>
+                <div className="px-1 py-2">
+                  <div className="text-[9px] text-violet-500">{t.planner.day.closeoutStage}</div>
+                  <div className="mt-0.5 truncate text-[10px] font-medium text-gray-600">
+                    {data.reviewByDate?.[currentDate]?.trim()
+                      ? t.planner.day.closeoutRecorded
+                      : t.planner.day.closeoutPending}
+                  </div>
+                </div>
+              </div>
+
+              {/* 이벤트 목록 — 예정과 실행 완료를 분리해 다음 행동과 결과를 함께 읽는다. */}
               <div className="flex-1 overflow-auto">
                 {events.length === 0 ? (
                   <p className="text-[11px] text-gray-400 text-center mt-6 px-3 whitespace-pre-line">
                     {t.planner.day.noEventsHint}
                   </p>
                 ) : (() => {
-                  // 예약 / 미예약 분리
-                  const scheduled   = visibleEvents.filter(isScheduledEvent)
-                  const unscheduled = visibleEvents.filter(isUnscheduledEvent)
+                  // 계획(미완료) / 실행 완료를 먼저 분리한 뒤, 같은 단계 안에서는 시간순으로 정렬한다.
+                  // Python으로 치면: planned, executed = partition(visible_events, lambda event: not event.done)
+                  const sortStageEvents = (stageEvents: PlanEvent[]) => [...stageEvents].sort((a, b) => {
+                    const aScheduled = isScheduledEvent(a)
+                    const bScheduled = isScheduledEvent(b)
+                    if (aScheduled && bScheduled) return a.start.localeCompare(b.start)
+                    if (aScheduled) return -1
+                    if (bScheduled) return 1
+                    return a.title.localeCompare(b.title)
+                  })
+                  const plannedEvents = sortStageEvents(visibleEvents.filter(event => !event.done))
+                  const executedEvents = sortStageEvents(visibleEvents.filter(event => event.done))
 
                   // 이벤트 행 렌더 — 클릭 시 detail 패널로 전환
                   // Python으로 치면: def render_event_row(ev): ...
@@ -2026,27 +2064,35 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
                     )
                   }
 
-                  return (
-                    <>
-                      {[...scheduled].sort((a, b) => a.start.localeCompare(b.start)).map(renderRow)}
-                      {unscheduled.length > 0 && (
-                        <div className="border-t border-dashed border-gray-200 mt-1">
-                          <div className="px-3 py-1.5 flex items-center gap-1">
-                            <span className="text-[10px] text-gray-400 font-medium">{t.planner.day.unscheduled}</span>
-                            <span className="text-[9px] bg-gray-100 text-gray-400 px-1 rounded-full">{unscheduled.length}</span>
-                          </div>
-                          {unscheduled.map(renderRow)}
-                        </div>
-                      )}
-                    </>
+                  const renderStage = (
+                    title: string,
+                    accentClass: string,
+                    stageEvents: PlanEvent[],
+                    emptyText: string,
+                  ) => (
+                    <section className="border-b border-gray-100 last:border-b-0">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50/70">
+                        <span className={`h-1.5 w-1.5 rounded-full ${accentClass}`} />
+                        <span className="text-[10px] font-semibold text-gray-500">{title}</span>
+                        <span className="text-[9px] text-gray-400">{stageEvents.length}</span>
+                      </div>
+                      {stageEvents.length > 0
+                        ? stageEvents.map(renderRow)
+                        : <p className="px-3 py-3 text-[10px] text-gray-400">{emptyText}</p>}
+                    </section>
                   )
+
+                  return <>
+                    {renderStage(t.planner.day.planStage, 'bg-blue-400', plannedEvents, t.planner.day.noPlannedEvents)}
+                    {!hideDone && renderStage(t.planner.day.executedStage, 'bg-emerald-400', executedEvents, t.planner.day.noExecutedEvents)}
+                  </>
                 })()}
               </div>
 
-              {/* 일일 회고 섹션 (하단 고정) */}
+              {/* 마감 기록 섹션 (하단 고정) */}
               <div className="border-t border-gray-100 px-3 py-2 shrink-0">
                 <div className="flex items-center gap-1 mb-1">
-                  <span className="text-[10px] font-medium text-gray-500">🌙 {t.planner.day.dailyReview}</span>
+                  <span className="text-[10px] font-medium text-gray-500">🌙 {t.planner.day.closeoutStage}</span>
                 </div>
                 <textarea
                   value={data.reviewByDate?.[currentDate] ?? ''}

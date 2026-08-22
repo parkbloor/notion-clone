@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
@@ -15,8 +15,19 @@ import type { Block } from '@/types/block'
 import { useLocale } from '@/locales'
 import { BASE_URL, templateApi } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
+import { getDailyNoteDate, openOrCreateDailyNote } from '@/lib/dailyNotes'
 import type { RecordCalendarEntry } from '@/lib/recordCalendar'
 import MonthlyRecordSummary from './MonthlyRecordSummary'
+import { revealBlockAncestors } from '@/lib/blockReveal'
+import {
+  auditPostitPages,
+  auditPostitPage,
+  extractDailyCaptureToRoot,
+  getPostitPagePeriod,
+  isPostitMonthPage,
+  mergeDailyCapturesForDate,
+  type DailyCaptureAuditEntry,
+} from '@/lib/dailyCaptureAudit'
 
 // -----------------------------------------------
 // ISO 8601 주차 계산 (1월 첫째 목요일이 속한 주 = 1주)
@@ -32,106 +43,6 @@ function getISOWeek(date: Date): number {
 
 function localDateString(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-// -----------------------------------------------
-// 일간 노트 기본 템플릿 블록 생성
-// 구조: 미래 실행 계획 (목표·Deep Work·타임라인·변경점) → 회고 (실행결과·흐름·그림·문제·효율·상태·깨달음)
-// Python으로 치면: def make_daily_template(title, date_str) -> list[Block]: ...
-// -----------------------------------------------
-export function makeDailyTemplate(_title: string, dateStr: string): Block[] {
-  // 요일 레이블
-  const dow = new Date(dateStr + 'T00:00:00').getDay()
-  const dayLabel = ['일','월','화','수','목','금','토'][dow]
-
-  // DayPlannerBlock 초기 콘텐츠 — 오늘 날짜, 빈 이벤트, 루틴 자동 적용 ON
-  const plannerContent = JSON.stringify({
-    date: dateStr, events: [], routines: [], autoApply: true,
-  })
-
-  return [
-    // ── 제목 ────────────────────────────────────
-    { ...createBlock('heading1'), content: `📅 ${dateStr} (${dayLabel}) 일간 노트` },
-
-    // ══════════════════════════════════════════
-    // 🌅 미래 실행 계획 섹션 (계획 수립 후 실행)
-    // ══════════════════════════════════════════
-    { ...createBlock('paragraph'), content: '━━━ 🌅 미래 실행 계획 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━' },
-
-    // ── 목표 (MIT 3개) ───────────────────────────
-    // MIT = Most Important Tasks — 반드시 완료할 핵심 3개
-    { ...createBlock('heading2'), content: '🎯 목표 (MIT 3개)' },
-    createBlock('taskList'),
-    createBlock('taskList'),
-    createBlock('taskList'),
-
-    // ── Deep Work ────────────────────────────────
-    // 하루 중 가장 집중해야 할 핵심 작업 1개 — 수량으로 완료 기준 명시
-    { ...createBlock('heading2'), content: '🔥 Deep Work' },
-    { ...createBlock('bulletList'), content: '작업명:' },
-    { ...createBlock('bulletList'), content: '완료 기준: (수량으로 적기 — 예: 스케치 3컷 / 기능 X 구현)' },
-    { ...createBlock('taskList'), content: '완료 여부' },
-
-    // ── Daily Timeline ───────────────────────────
-    // 📌 특수 블록: :::dayplanner — 오늘 날짜로 초기화, 루틴 자동 적용
-    { ...createBlock('heading2'), content: '⏰ Daily Timeline' },
-    { ...createBlock('dayplanner'), content: plannerContent },
-
-    // ── 변경점 ───────────────────────────────────
-    // 전 계획 대비 달라진 것 + 이유 — 계획 실행 후 피드백을 보며 조금씩 조정
-    { ...createBlock('heading2'), content: '🔄 변경점' },
-    { ...createBlock('bulletList'), content: '무엇이 바뀌는지:' },
-    { ...createBlock('bulletList'), content: '이유:' },
-
-    // ══════════════════════════════════════════
-    // 📝 회고 섹션 (하루 끝에 작성)
-    // ══════════════════════════════════════════
-    { ...createBlock('paragraph'), content: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━' },
-
-    // ── 오늘 실제 한 것 ──────────────────────────
-    // 이모지 ✅ — 🔥와 중복 회피
-    { ...createBlock('heading2'), content: '✅ 오늘 실제 한 것 (핵심 1~3개)' },
-    createBlock('taskList'),
-    createBlock('taskList'),
-    createBlock('taskList'),
-
-    // ── Deep Work 회고 ───────────────────────────
-    // 이모지 🎯 — ⏰와 중복 회피 (하루 흐름에 🕐 사용)
-    { ...createBlock('heading2'), content: '🎯 Deep Work 회고' },
-    { ...createBlock('bulletList'), content: '무엇을 했는지:' },
-    { ...createBlock('bulletList'), content: '왜 잘됐는지:' },
-
-    // ── 하루 흐름 ────────────────────────────────
-    // 이모지 🕐 — ⏰와 중복 회피
-    { ...createBlock('heading2'), content: '🕐 하루 흐름 (간단)' },
-    { ...createBlock('bulletList'), content: '기억나는 흐름만, 시간 강박 X' },
-
-    // ── 그림 연습 ────────────────────────────────
-    { ...createBlock('heading2'), content: '🎨 그림 연습 (핵심만)' },
-    { ...createBlock('bulletList'), content: '연습 항목:' },
-    { ...createBlock('bulletList'), content: '이론 (강의 / 시간):' },
-    { ...createBlock('bulletList'), content: '오늘의 집중 포인트:' },
-    { ...createBlock('bulletList'), content: '이전 대비 달라진 점:' },
-
-    // ── 문제 → 원인 → 해결 ───────────────────────
-    { ...createBlock('heading2'), content: '❓ 문제 → 원인 → 해결' },
-    { ...createBlock('bulletList'), content: '문제:' },
-    { ...createBlock('bulletList'), content: '원인:' },
-    { ...createBlock('bulletList'), content: '해결 시도:' },
-
-    // ── 효율 ─────────────────────────────────────
-    { ...createBlock('heading2'), content: '📊 효율 (체감 기준)' },
-    { ...createBlock('bulletList'), content: '좋음 / 보통 / 망함 + 이유:' },
-
-    // ── 상태 체크 ─────────────────────────────────
-    { ...createBlock('heading2'), content: '🧠 상태 체크' },
-    { ...createBlock('bulletList'), content: '몸 상태:' },
-    { ...createBlock('bulletList'), content: '집중도:' },
-    { ...createBlock('bulletList'), content: '감정:' },
-
-    // ── 깨달음 & 생각 ─────────────────────────────
-    { ...createBlock('heading2'), content: '🌿 깨달음 & 생각' },
-  ]
 }
 
 // -----------------------------------------------
@@ -286,6 +197,7 @@ export function makeYearlyTemplate(title: string, year: number): Block[] {
 // -----------------------------------------------
 interface PeriodicNotesPanelProps {
   onOpenDayPlanner?: () => void
+  postitMode?: boolean
   calendar?: ReactNode
   showReviews?: boolean
   showTimeline?: boolean
@@ -295,6 +207,7 @@ interface PeriodicNotesPanelProps {
 
 export default function PeriodicNotesPanel({
   onOpenDayPlanner,
+  postitMode = false,
   calendar,
   showReviews = true,
   showTimeline = true,
@@ -318,6 +231,9 @@ export default function PeriodicNotesPanel({
 
   // 사용 빈도가 낮은 주기 보기는 기본 접힘으로 보존한다.
   const [reviewOpen, setReviewOpen] = useState(false)
+  const [captureAuditOpen, setCaptureAuditOpen] = useState(false)
+  const [repairingPageIds, setRepairingPageIds] = useState<Set<string>>(() => new Set())
+  const repairingPageIdsRef = useRef(new Set<string>())
   const [exportingPeriod, setExportingPeriod] = useState<'today' | 'week' | null>(null)
 
   // 장기 뷰 연도 (분기/연간 공통)
@@ -392,8 +308,8 @@ export default function PeriodicNotesPanel({
   // ── 일간 노트 목록 (뷰 기준 월, 날짜 역순) ─────
   // Python으로 치면: [p for p in pages if p.title.startswith(f'일간 노트 {viewMonthStr}')]
   const dailyNotes = pages
-    .filter(p => p.title.startsWith(`일간 노트 ${viewMonthStr}`))
-    .sort((a, b) => b.title.localeCompare(a.title))
+    .filter(p => getDailyNoteDate(p.title)?.startsWith(viewMonthStr))
+    .sort((a, b) => (getDailyNoteDate(b.title) ?? '').localeCompare(getDailyNoteDate(a.title) ?? ''))
 
   // ── 주간 노트 목록 (뷰 기준 연도, 주차 역순) ───
   // Python으로 치면: [p for p in pages if p.title.startswith(f'주간 노트 {viewYear}-W')]
@@ -406,6 +322,114 @@ export default function PeriodicNotesPanel({
   const monthlyNotes = pages
     .filter(p => p.title.startsWith(`월간 노트 ${viewYear}-`))
     .sort((a, b) => b.title.localeCompare(a.title))
+  const postitMonthlyNotes = pages
+    .filter(isPostitMonthPage)
+    .sort((a, b) => (getPostitPagePeriod(b) ?? '').localeCompare(getPostitPagePeriod(a) ?? ''))
+  const postitAudits = postitMonthlyNotes.map(page => ({ page, audit: auditPostitPage(page) }))
+  const postitPagesAudit = auditPostitPages(postitMonthlyNotes)
+  const postitIssueCount = postitAudits.reduce((count, item) =>
+    count + item.audit.nested.length + item.audit.wrongMonth.length
+      + item.audit.invalidDate.length + item.audit.duplicates.length, 0)
+    + postitPagesAudit.duplicatePeriods.length
+    + postitPagesAudit.crossPageDuplicates.length
+
+  function cloneBlocks(blocks: Block[]): Block[] {
+    return JSON.parse(JSON.stringify(blocks)) as Block[]
+  }
+
+  function blocksMatch(left: Block[], right: Block[]): boolean {
+    return JSON.stringify(left) === JSON.stringify(right)
+  }
+
+  function setRepairing(pageId: string, repairing: boolean) {
+    if (repairing) repairingPageIdsRef.current.add(pageId)
+    else repairingPageIdsRef.current.delete(pageId)
+    setRepairingPageIds(new Set(repairingPageIdsRef.current))
+  }
+
+  function replaceRepairIfUnchanged(pageId: string, expected: Block[], replacement: Block[]): boolean {
+    const latestPage = usePageStore.getState().pages.find(page => page.id === pageId)
+    if (!latestPage || latestPage.isLocked || !blocksMatch(latestPage.blocks, expected)) return false
+    // 일반 Ctrl+Z는 이후 텍스트 편집까지 덮을 수 있으므로 점검 복구는 전용 안전 되돌리기만 사용한다.
+    usePageStore.getState().setPageBlocks(pageId, cloneBlocks(replacement), false)
+    return true
+  }
+
+  async function runRepair(
+    pageId: string,
+    transform: (blocks: Block[]) => Block[],
+    successMessage: string,
+  ) {
+    if (repairingPageIdsRef.current.has(pageId)) return
+    const page = usePageStore.getState().pages.find(item => item.id === pageId)
+    if (!page) return
+    if (page.isLocked) {
+      toast.error(t.planner.dailyCapture.lockedError)
+      return
+    }
+
+    const before = cloneBlocks(page.blocks)
+    const after = transform(cloneBlocks(page.blocks))
+    if (blocksMatch(before, after)) return
+
+    setRepairing(pageId, true)
+    try {
+      usePageStore.getState().setPageBlocks(pageId, after, false)
+      const saved = await usePageStore.getState().savePageNow(pageId)
+      if (!saved) {
+        const rolledBack = replaceRepairIfUnchanged(pageId, after, before)
+        toast.error(rolledBack
+          ? t.planner.dailyCapture.repairSaveError
+          : t.planner.dailyCapture.repairSaveErrorChanged)
+        return
+      }
+
+      toast.success(successMessage, {
+        action: {
+          label: t.planner.dailyCapture.undo,
+          onClick: () => {
+            void (async () => {
+              if (repairingPageIdsRef.current.has(pageId)) return
+              setRepairing(pageId, true)
+              try {
+                const restored = replaceRepairIfUnchanged(pageId, after, before)
+                if (!restored) {
+                  toast.error(t.planner.dailyCapture.repairUndoUnavailable)
+                  return
+                }
+                const undoSaved = await usePageStore.getState().savePageNow(pageId)
+                if (!undoSaved) {
+                  replaceRepairIfUnchanged(pageId, before, after)
+                  toast.error(t.planner.dailyCapture.repairUndoUnavailable)
+                }
+              } finally {
+                setRepairing(pageId, false)
+              }
+            })()
+          },
+        },
+      })
+    } finally {
+      setRepairing(pageId, false)
+    }
+  }
+
+  function focusAuditEntry(pageId: string, entry: DailyCaptureAuditEntry) {
+    const page = usePageStore.getState().pages.find(item => item.id === pageId)
+    revealBlockAncestors(page, entry.blockId)
+    setCurrentPage(pageId)
+    const focus = (remaining: number) => {
+      const wrapper = document.getElementById(entry.blockId)
+      const input = wrapper?.querySelector<HTMLInputElement>('input[type="date"]')
+      if (input) {
+        input.focus()
+        wrapper?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        return
+      }
+      if (remaining > 0) window.setTimeout(() => focus(remaining - 1), 50)
+    }
+    window.setTimeout(() => focus(8), 0)
+  }
 
   // -----------------------------------------------
   // 오늘 일간 노트 열기/생성
@@ -413,23 +437,7 @@ export default function PeriodicNotesPanel({
   // -----------------------------------------------
   async function handleOpenDaily() {
     setViewMonthStr(todayMonthStr)  // 뷰를 오늘 달로 이동
-    const title = `일간 노트 ${todayDateStr}`
-    const existing = pages.find(p => p.title === title)
-    if (existing) { setCurrentPage(existing.id); return }
-
-    const cat = categories.find(c => c.name === '📅 일간 노트')
-    await addPage(title, cat?.id ?? null)
-
-    const { currentPageId: newId } = usePageStore.getState()
-    if (!newId) return
-    updatePageIcon(newId, '📅')
-    // 사용자 지정 템플릿 우선, 없으면 하드코딩 기본값 사용
-    // Python으로 치면: blocks = await build_blocks_from_template(...) or make_daily_template(...)
-    const customBlocks  = await buildBlocksFromTemplate(periodicNoteTemplates.daily)
-    const builtinBlocks = periodicBuiltinOverrides.daily
-      ? buildBlocksFromBuiltinOverride(periodicBuiltinOverrides.daily, title)
-      : null
-    setPageBlocks(newId, customBlocks ?? builtinBlocks ?? makeDailyTemplate(title, todayDateStr))
+    await openOrCreateDailyNote(todayDateStr)
   }
 
   // -----------------------------------------------
@@ -470,6 +478,10 @@ export default function PeriodicNotesPanel({
   // -----------------------------------------------
   async function handleOpenMonthly() {
     setViewYear(todayYear)  // 뷰를 올해로 이동
+    if (postitMode) {
+      await openOrCreateDailyNote(todayDateStr)
+      return
+    }
     const title = `월간 노트 ${todayMonthStr}`
     const existing = pages.find(p => p.title === title)
     if (existing) { setCurrentPage(existing.id); return }
@@ -582,10 +594,10 @@ export default function PeriodicNotesPanel({
       {/* 오늘 — 가장 자주 쓰는 일정·루틴과 일간 노트 */}
       <section className="border-b hairline px-2 py-2">
         <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
-          {t.overlay.periodic.sectionToday}
+          {postitMode ? t.overlay.periodic.sectionCapture : t.overlay.periodic.sectionToday}
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
+        <div className={postitMode ? 'grid grid-cols-1 gap-1.5' : 'grid grid-cols-2 gap-1.5'}>
+          {!postitMode && <button
             type="button"
             onClick={onOpenDayPlanner}
             disabled={!onOpenDayPlanner}
@@ -594,18 +606,20 @@ export default function PeriodicNotesPanel({
             <span className="text-base">🗓️</span>
             <span className="mt-0.5 text-[11px] font-semibold">{t.overlay.periodic.openDayPlanner}</span>
             <span className="text-[9px] opacity-70">{t.overlay.periodic.scheduleAndRoutines}</span>
-          </button>
+          </button>}
           <button
             type="button"
             onClick={handleOpenDaily}
             className="flex min-h-14 flex-col items-start justify-center rounded-lg bg-amber-50 px-2.5 py-2 text-left text-amber-700 transition-colors hover:bg-amber-100"
           >
-            <span className="text-base">📅</span>
-            <span className="mt-0.5 text-[11px] font-semibold">{t.overlay.periodic.openTodayNote}</span>
+            <span className="text-base">{postitMode ? '📌' : '📅'}</span>
+            <span className="mt-0.5 text-[11px] font-semibold">
+              {postitMode ? t.overlay.periodic.openTodayRecord : t.overlay.periodic.openTodayNote}
+            </span>
             <span className="text-[9px] opacity-70">{todayDateStr}</span>
           </button>
         </div>
-        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        {!postitMode && <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           <button type="button" onClick={() => void handleExportPeriod('today')} disabled={exportingPeriod !== null}
             className="rounded-md border border-gray-200 px-2 py-1.5 text-[10px] font-medium text-gray-500 transition-colors hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">
             {exportingPeriod === 'today' ? t.overlay.periodic.exportingHtml : t.overlay.periodic.exportTodayHtml}
@@ -614,11 +628,11 @@ export default function PeriodicNotesPanel({
             className="rounded-md border border-gray-200 px-2 py-1.5 text-[10px] font-medium text-gray-500 transition-colors hover:bg-gray-50 disabled:cursor-wait disabled:opacity-50">
             {exportingPeriod === 'week' ? t.overlay.periodic.exportingHtml : t.overlay.periodic.exportWeekHtml}
           </button>
-        </div>
+        </div>}
       </section>
 
       {/* 계획하기 — 기존 주간 타임라인과 루틴 관리 진입점 */}
-      {(showTimeline || showRoutines) && <section className="border-b hairline px-2 py-2">
+      {!postitMode && (showTimeline || showRoutines) && <section className="border-b hairline px-2 py-2">
         <div className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
           {t.overlay.periodic.sectionPlan}
         </div>
@@ -648,10 +662,10 @@ export default function PeriodicNotesPanel({
       {/* 살펴보기 — 월간 날짜 탐색과 이번 달 노트 */}
       <section className="border-b hairline py-2">
         <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
-          {t.overlay.periodic.sectionExplore}
+          {postitMode ? t.overlay.periodic.sectionRecordExplore : t.overlay.periodic.sectionExplore}
         </div>
-        {calendar}
-        <MonthlyRecordSummary pages={pages} onOpenRecord={onOpenRecord} />
+        {!postitMode && calendar}
+        {!postitMode && <MonthlyRecordSummary pages={pages} onOpenRecord={onOpenRecord} />}
         <div className="px-2 pt-1">
           <button
             type="button"
@@ -659,14 +673,177 @@ export default function PeriodicNotesPanel({
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700"
           >
             <span>🗓️</span>
-            <span className="flex-1 font-medium">{t.overlay.periodic.openMonthlyView}</span>
+            <span className="flex-1 font-medium">
+              {postitMode ? t.overlay.periodic.openMonthlyRecord : t.overlay.periodic.openMonthlyView}
+            </span>
             <span className="text-gray-300">›</span>
           </button>
         </div>
       </section>
 
-      {/* 돌아보기 — 기존 단기/장기 주기 노트를 기본 접힘으로 보존 */}
-      {showReviews && <section>
+      {/* 포스트잇 기록 보관함 — 날짜별 페이지가 아니라 월간 컨테이너를 보여준다. */}
+      {postitMode && <section className="border-b hairline py-2">
+        <div className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-gray-400">
+          {t.overlay.periodic.recordArchive}
+        </div>
+        <div className="max-h-40 overflow-y-auto px-2">
+          {postitMonthlyNotes.length === 0 ? (
+            <p className="px-1 py-1 text-xs text-gray-400">{t.overlay.periodic.noRecordMonths}</p>
+          ) : postitMonthlyNotes.map(note => (
+            <button
+              key={note.id}
+              type="button"
+              onClick={() => setCurrentPage(note.id)}
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors ${currentPageId === note.id ? 'bg-amber-50 text-amber-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <span>🗓️</span>
+              <span className="flex-1 truncate">{getPostitPagePeriod(note) ?? note.title}</span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 border-t hairline px-2 pt-2">
+          <button
+            type="button"
+            onClick={() => setCaptureAuditOpen(open => !open)}
+            aria-expanded={captureAuditOpen}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-gray-600 hover:bg-amber-50"
+          >
+            <span>{captureAuditOpen ? '▼' : '▶'}</span>
+            <span className="flex-1 font-medium">{t.planner.dailyCapture.auditTitle}</span>
+            <span className={postitIssueCount > 0 ? 'text-red-500' : 'text-emerald-600'}>
+              {postitIssueCount > 0
+                ? t.planner.dailyCapture.auditIssueCount.replace('{count}', String(postitIssueCount))
+                : t.planner.dailyCapture.auditClean}
+            </span>
+          </button>
+
+          {captureAuditOpen && postitIssueCount > 0 && (
+            <div className="mt-1 max-h-72 space-y-2 overflow-y-auto pb-1">
+              {postitPagesAudit.duplicatePeriods.map(group => (
+                <div key={`period-${group.periodKey}`} className="rounded-md border border-red-200 bg-red-50/60 p-2 text-[10px] text-red-700">
+                  <div className="mb-1 font-semibold">
+                    {group.periodKey} · {t.planner.dailyCapture.duplicatePeriodIssue.replace('{count}', String(group.pageIds.length))}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {group.pageIds.map((pageId, index) => (
+                      <button
+                        key={pageId}
+                        type="button"
+                        onClick={() => setCurrentPage(pageId)}
+                        className="rounded bg-white px-1.5 py-0.5 hover:bg-red-100"
+                      >
+                        {t.planner.dailyCapture.openDuplicatePage.replace('{index}', String(index + 1))}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {postitPagesAudit.crossPageDuplicates.map(group => (
+                <div key={`cross-${group.date}`} className="rounded-md border border-red-200 bg-red-50/60 p-2 text-[10px] text-red-700">
+                  <div className="mb-1 font-semibold">
+                    {group.date} · {t.planner.dailyCapture.crossPageDuplicateIssue.replace('{count}', String(group.entries.length))}
+                  </div>
+                  {group.entries.map((entry, index) => (
+                    <button
+                      key={`${entry.pageId}-${entry.blockId}`}
+                      type="button"
+                      onClick={() => focusAuditEntry(entry.pageId, entry)}
+                      className="block w-full truncate rounded px-1 py-0.5 text-left text-red-600 hover:bg-red-100"
+                    >
+                      {index + 1}. {entry.pageTitle} · {entry.body.split('\n').find(line => line.trim()) || '—'}
+                    </button>
+                  ))}
+                </div>
+              ))}
+
+              {postitAudits.map(({ page, audit }) => {
+                const hasIssues = audit.nested.length > 0 || audit.duplicates.length > 0
+                  || audit.wrongMonth.length > 0 || audit.invalidDate.length > 0
+                if (!hasIssues) return null
+                return (
+                  <div key={page.id} className="rounded-md border border-amber-200 bg-amber-50/50 p-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(page.id)}
+                      className="mb-1 w-full truncate text-left text-[11px] font-semibold text-amber-800"
+                    >
+                      {getPostitPagePeriod(page) ?? page.title}
+                    </button>
+
+                    {audit.nested.map(entry => (
+                      <div key={`nested-${entry.blockId}`} className="mb-1 rounded bg-white/80 p-1.5 text-[10px] text-gray-600">
+                        <div className="flex items-center gap-1">
+                          <span className="min-w-0 flex-1 truncate">
+                            {t.planner.dailyCapture.nestedIssue} · {entry.date || '—'} · {entry.body.split('\n').find(line => line.trim()) || '—'}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={repairingPageIds.has(page.id)}
+                            onClick={() => void runRepair(
+                              page.id,
+                              blocks => extractDailyCaptureToRoot(blocks, entry.blockId),
+                              t.planner.dailyCapture.extractedSuccess,
+                            )}
+                            className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-800 hover:bg-amber-200 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            {t.planner.dailyCapture.extractToRoot}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                    {audit.duplicates.map(group => (
+                      <div key={`duplicate-${group.date}`} className="mb-1 rounded bg-white/80 p-1.5 text-[10px] text-gray-600">
+                        <div className="mb-1 flex items-center gap-1">
+                          <span className="flex-1 font-medium text-red-600">
+                            {group.date} · {t.planner.dailyCapture.duplicateIssue.replace('{count}', String(group.entries.length))}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={repairingPageIds.has(page.id)}
+                            onClick={() => void runRepair(
+                              page.id,
+                              blocks => mergeDailyCapturesForDate(blocks, group.date),
+                              t.planner.dailyCapture.mergedSuccess,
+                            )}
+                            className="shrink-0 rounded bg-red-50 px-1.5 py-0.5 font-medium text-red-600 hover:bg-red-100 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            {t.planner.dailyCapture.mergeContents}
+                          </button>
+                        </div>
+                        {group.entries.map((entry, index) => (
+                          <div key={entry.blockId} className="truncate text-gray-400">
+                            {index + 1}. {entry.body.split('\n').find(line => line.trim()) || '—'}
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+
+                    {[...audit.wrongMonth.map(entry => ({ entry, label: t.planner.dailyCapture.wrongMonthIssue })),
+                      ...audit.invalidDate.map(entry => ({ entry, label: t.planner.dailyCapture.invalidDateIssue }))]
+                      .map(({ entry, label }) => (
+                        <div key={`date-${label}-${entry.blockId}`} className="mb-1 flex items-center gap-1 rounded bg-white/80 p-1.5 text-[10px] text-gray-600">
+                          <span className="min-w-0 flex-1 truncate">{label} · {entry.date || '—'}</span>
+                          <button
+                            type="button"
+                            onClick={() => focusAuditEntry(page.id, entry)}
+                            className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-600 hover:bg-gray-200"
+                          >
+                            {t.planner.dailyCapture.editDate}
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </section>}
+
+      {/* 돌아보기 — 계획형 볼트의 기존 단기/장기 주기 노트 */}
+      {showReviews && !postitMode && <section>
         <button
           type="button"
           onClick={() => setReviewOpen(open => !open)}
@@ -766,8 +943,9 @@ export default function PeriodicNotesPanel({
                   <p className="px-3 py-1 text-xs text-gray-400">{t.overlay.periodic.noDailyNotes.replace('{month}', viewMonthStr)}</p>
                 ) : (
                   dailyNotes.map(note => {
-                    const datePart = note.title.replace('일간 노트 ', '').slice(5)
-                    const isToday = note.title === `일간 노트 ${todayDateStr}`
+                    const noteDate = getDailyNoteDate(note.title)
+                    const datePart = noteDate?.slice(5) ?? note.title
+                    const isToday = noteDate === todayDateStr
                     return (
                       <div key={note.id} className="group flex items-center">
                         <button type="button" onClick={() => setCurrentPage(note.id)}

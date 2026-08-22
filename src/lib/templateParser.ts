@@ -5,7 +5,7 @@
 // Python으로 치면: def parse_template(md: str) -> list[Block]: ...
 // ==============================================
 
-import { Block, BlockType, createBlock } from '@/types/block'
+import { Block, BlockType, createBlock, createDailyCaptureContent, parseDailyCaptureContent } from '@/types/block'
 
 
 // -----------------------------------------------
@@ -214,6 +214,10 @@ export function parseTemplateContent(content: string): Block[] {
         const b = createBlock('record')
         b.content = JSON.stringify({ date: todayStr, title: '', kind: '' })
         blocks.push(b)
+      } else if (blockType === 'dailycapture') {
+        const b = createBlock('dailycapture')
+        b.content = createDailyCaptureContent(todayStr)
+        blocks.push(b)
       } else if (blockType === 'dayplanner') {
         const b = createBlock('dayplanner')
         b.content = JSON.stringify({ date: todayStr, events: [], routines: [], autoApply: true })
@@ -284,6 +288,11 @@ export function blocksToMarkdown(blocks: Block[]): string {
     const text = stripHtml(block.content).trim()
     switch (block.type as BlockType) {
       case 'record': return ':::record'
+      case 'dailycapture': {
+        const capture = parseDailyCaptureContent(block.content)
+        const heading = capture.date ? `### 📌 ${capture.date}` : '### 📌 Daily Capture'
+        return `${heading}\n\n${capture.body}`.trim()
+      }
       case 'heading1':    return `# ${text}`
       case 'heading2':    return `## ${text}`
       case 'heading3':    return `### ${text}`

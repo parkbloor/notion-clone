@@ -121,6 +121,9 @@ export default function CategorySidebar({
   const t = useLocale()
   const plannerFeatures = useVaultPreferencesStore(state => state.preferences.planner)
   const loadVaultPreferences = useVaultPreferencesStore(state => state.loadForVault)
+  const isDailyPlannerVault = plannerFeatures.mode === 'daily'
+  const isPostitRecordVault = isDailyPlannerVault && plannerFeatures.dailyNoteTemplate === 'postit'
+  const hubLabel = isPostitRecordVault ? t.sidebar.tabRecord : t.sidebar.tabPlan
 
   useEffect(() => {
     if (currentVaultName) void loadVaultPreferences(currentVaultName)
@@ -194,8 +197,8 @@ export default function CategorySidebar({
   const [sidebarTab, setSidebarTab] = useState<'notes' | 'plan'>('notes')
 
   useEffect(() => {
-    if (!plannerFeatures.planMenu && sidebarTab === 'plan') setSidebarTab('notes')
-  }, [plannerFeatures.planMenu, sidebarTab])
+    if ((!isDailyPlannerVault || !plannerFeatures.planMenu) && sidebarTab === 'plan') setSidebarTab('notes')
+  }, [isDailyPlannerVault, plannerFeatures.planMenu, sidebarTab])
 
   // SSR hydration 안전 마운트 플래그 (최근 파일 섹션용)
   // Python으로 치면: self.mounted = False; def on_mount(self): self.mounted = True
@@ -757,7 +760,7 @@ export default function CategorySidebar({
         {/* 계획 탭 — 캘린더 + PeriodicNotesPanel                   */}
         {/* Python으로 치면: if sidebar_tab == 'plan': render_plan() */}
         {/* ===================================================== */}
-        {sidebarTab === 'plan' && (
+        {isDailyPlannerVault && sidebarTab === 'plan' && (
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="flex items-center gap-2 border-b hairline px-2 py-1.5 shrink-0">
               <button
@@ -769,13 +772,14 @@ export default function CategorySidebar({
                 ‹
               </button>
               <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
-                📅 {t.sidebar.tabPlan}
+                {isPostitRecordVault ? '📌' : '📅'} {hubLabel}
               </span>
             </div>
             <div className="flex-1 overflow-y-auto">
             {/* 계획 허브 — 기존 기능을 오늘 사용 흐름에 맞춰 재배치 */}
             <PeriodicNotesPanel
               onOpenDayPlanner={onOpenDayPlanner}
+              postitMode={isPostitRecordVault}
               showReviews={plannerFeatures.reviews}
               showTimeline={plannerFeatures.timeline}
               showRoutines={plannerFeatures.routines}
@@ -800,7 +804,7 @@ export default function CategorySidebar({
         {sidebarTab === 'notes' && (
           <>
         {/* 오늘 일정 빠른 진입점 — 메모 흐름을 벗어나지 않고 Day Planner 열기 */}
-        {plannerFeatures.todayShortcut && <div className="px-3 pt-2 shrink-0">
+        {isDailyPlannerVault && !isPostitRecordVault && plannerFeatures.todayShortcut && <div className="px-3 pt-2 shrink-0">
           <button
             type="button"
             onClick={onOpenDayPlanner}
@@ -1248,16 +1252,16 @@ export default function CategorySidebar({
             </div>
           </div>
           {/* 계획 — 주 화면에서 제외하고 하단 보조 메뉴에 유지 */}
-          {plannerFeatures.planMenu && <button
+          {isDailyPlannerVault && plannerFeatures.planMenu && <button
             type="button"
             onClick={() => { setSidebarTab('plan'); setSelectedDate(null) }}
-            title={t.sidebar.tabPlan}
-            aria-label={t.sidebar.tabPlan}
+            title={hubLabel}
+            aria-label={hubLabel}
             aria-pressed={sidebarTab === 'plan'}
             className="icon-btn shrink-0"
             style={sidebarTab === 'plan' ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
           >
-            📅
+            {isPostitRecordVault ? '📌' : '📅'}
           </button>}
           {/* 그래프 뷰 */}
           <button type="button" onClick={onOpenGraphView} title={`${t.sidebar.graphView} (Ctrl+G)`} className="icon-btn shrink-0">

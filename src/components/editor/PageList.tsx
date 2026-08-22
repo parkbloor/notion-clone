@@ -44,6 +44,12 @@ function stripHtml(html: string): string {
 function getPageSearchText(page: Page): string {
   const texts = page.blocks.map(block => {
     if (block.type === 'image') return ''
+    if (block.type === 'dailycapture') {
+      try {
+        const parsed = JSON.parse(block.content) as { date?: string; body?: string }
+        return `${parsed.date ?? ''} ${parsed.body ?? ''}`
+      } catch { return block.content }
+    }
     if (block.type === 'toggle') {
       try {
         const parsed = JSON.parse(block.content)
@@ -64,7 +70,12 @@ function getSnippet(page: Page, query: string): string {
   for (const block of page.blocks) {
     if (block.type === 'image') continue
     let text = ''
-    if (block.type === 'toggle') {
+    if (block.type === 'dailycapture') {
+      try {
+        const parsed = JSON.parse(block.content) as { date?: string; body?: string }
+        text = `${parsed.date ?? ''} ${parsed.body ?? ''}`
+      } catch { text = block.content }
+    } else if (block.type === 'toggle') {
       try {
         const parsed = JSON.parse(block.content)
         text = stripHtml(parsed.header || '') + ' ' + stripHtml(parsed.body || '')

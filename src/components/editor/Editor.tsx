@@ -19,7 +19,7 @@ const _aiInsertTarget: { editor: TiptapEditor | null; pos: number } = {
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useEditorMention } from '@/hooks/useEditorMention'
 import { useEditorLatex } from '@/hooks/useEditorLatex'
-import { Block, BlockType } from '@/types/block'
+import { Block, BlockType, createBlock } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import SlashCommand from './SlashCommand'
 import BubbleMenuBar from './BubbleMenuBar'
@@ -51,6 +51,7 @@ import MindmapBlock from './MindmapBlock'
 import TocBlock from './TocBlock'
 import FileBlock from './FileBlock'
 import RecordHeaderBlock from './RecordHeaderBlock'
+import DailyCaptureBlock from './DailyCaptureBlock'
 import ContextMenu from './ContextMenu'
 import type { ContextMenuSection } from './ContextMenu'
 import { ChevronRight, ChevronDown, Plus, Check } from 'lucide-react'
@@ -125,6 +126,7 @@ const NON_TIPTAP_BLOCK_TYPES = new Set<BlockType>([
   'gantt',
   'mindmap',
   'record',
+  'dailycapture',
   'dayplanner',
   'weekplanner',
   'weeklyplanner',
@@ -888,6 +890,9 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
     // Python으로 치면: if type == 'toggle': block.content = json.dumps({...})
     if (type === 'toggle') {
       updateBlock(pageId, block.id, JSON.stringify({ header: '', body: '' }))
+    }
+    if (type === 'dailycapture') {
+      updateBlock(pageId, block.id, createBlock('dailycapture').content)
     }
     // 칸반 타입으로 전환 시 기본 3열 JSON으로 초기화
     // Python으로 치면: if type == 'kanban': block.content = json.dumps({'columns': [...]})
@@ -1660,6 +1665,44 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
         </div>
         <div className="flex-1 min-w-0">
           <RecordHeaderBlock block={block} pageId={pageId} readOnly={readMode} />
+        </div>
+        {contextMenu && (
+          <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />
+        )}
+      </div>
+    )
+  }
+
+  // -----------------------------------------------
+  // 하루 기록 블록: 날짜 + 단일 마크다운 본문. 내부 Block은 만들지 않는다.
+  // -----------------------------------------------
+  if (block.type === 'dailycapture') {
+    return (
+      <div
+        id={block.id}
+        ref={setNodeRef}
+        style={{
+          transform: CSS.Transform.toString(transform),
+          transition,
+          opacity: isDragging ? 0.4 : 1,
+          backgroundColor: block.backgroundColor || undefined,
+          borderRadius: block.backgroundColor ? '4px' : undefined,
+        }}
+        className={blockWrapperClass}
+        onContextMenu={handleContextMenu}
+      >
+        <BlockMenu pageId={pageId} blockId={block.id} />
+        {selectionCheckbox}
+        <div
+          {...attributes}
+          {...listeners}
+          className="opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none mt-1 mr-1 transition-opacity shrink-0"
+          title={t.editor.dragHandle}
+        >
+          ⠿
+        </div>
+        <div className="flex-1 min-w-0">
+          <DailyCaptureBlock block={block} pageId={pageId} readMode={readMode} />
         </div>
         {contextMenu && (
           <ContextMenu x={contextMenu.x} y={contextMenu.y} sections={buildContextSections()} onClose={() => setContextMenu(null)} />

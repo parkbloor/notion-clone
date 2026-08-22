@@ -52,6 +52,11 @@ function countText(blocks: Block[]): { words: number; chars: number } {
           .flatMap(col => [col.title, ...col.cards.map(c => c.text)])
           .join(' ')
       } catch { continue }
+    } else if (block.type === 'dailycapture') {
+      try {
+        const parsed = JSON.parse(block.content) as { body?: string }
+        raw = parsed.body ?? ''
+      } catch { raw = block.content }
     } else if (block.type === 'toggle') {
       try {
         const parsed = JSON.parse(block.content) as { header?: string; body?: string }

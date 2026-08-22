@@ -64,6 +64,7 @@ const BLOCK_LABELS: Record<string, string> = {
   bulletList: '• 목록', orderedList: '1. 목록', taskList: '☐ 할일',
   code: '코드', image: '이미지', table: '표', divider: '구분선',
   toggle: '토글', kanban: '칸반', admonition: '콜아웃',
+  dailycapture: '하루 기록',
   canvas: '캔버스', excalidraw: '손그림', video: '비디오',
   math: '수식', embed: '임베드', mermaid: 'Mermaid',
 }

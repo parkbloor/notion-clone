@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
+import { notifyVaultListChanged } from '@/lib/vaultGroups'
 
 // Windows에서 localhost가 IPv6(::1)로 해석되는 문제 방지 — api.ts와 동일하게 127.0.0.1 사용
 const BASE_URL = 'http://127.0.0.1:8000'
@@ -159,6 +160,7 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
 
       setNewVaultName('')
       await loadInfo()
+      notifyVaultListChanged()
       setCreateVaultMsg({ type: 'ok', text: s.createVaultSuccess })
     } catch {
       setCreateVaultMsg({ type: 'error', text: s.errorServer })

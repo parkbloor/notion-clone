@@ -431,6 +431,8 @@ class PageModel(BaseModel):
     starred: Optional[bool] = False
     blocks: list[BlockModel]
     properties: Optional[list[dict]] = []
+    pageRole: Optional[str] = None
+    periodKey: Optional[str] = None
     createdAt: str
     updatedAt: str
 

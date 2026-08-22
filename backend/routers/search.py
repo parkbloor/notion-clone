@@ -9,6 +9,7 @@ import re
 from fastapi import APIRouter
 
 from backend.core import load_index, load_page
+from backend.daily_capture import daily_capture_to_plain_text
 
 # Python으로 치면: blueprint = Blueprint('search', __name__, url_prefix='/api')
 router = APIRouter(prefix="/api", tags=["search"])
@@ -53,6 +54,19 @@ def make_snippet(text: str, keyword: str, radius: int = 60) -> str:
     return snippet
 
 
+def block_plain_text(block: dict) -> str:
+    if block.get("type") == "dailycapture":
+        return daily_capture_to_plain_text(block.get("content", ""))
+    return strip_html(block.get("content", ""))
+
+
+def iter_blocks(blocks: list):
+    """Yield every block in document order, including arbitrarily nested children."""
+    for block in blocks:
+        yield block
+        yield from iter_blocks(block.get("children", []))
+
+
 @router.get("/search")
 def search_pages(q: str = ""):
     """
@@ -89,9 +103,8 @@ def search_pages(q: str = ""):
             })
 
         # ── 블록 내용 검색 ──
-        for block in page_data.get("blocks", []):
-            raw_content = block.get("content", "")
-            plain_text = strip_html(raw_content)
+        for block in iter_blocks(page_data.get("blocks", [])):
+            plain_text = block_plain_text(block)
             if q_lower in plain_text.lower():
                 results.append({
                     "pageId":    page_id,
@@ -102,20 +115,6 @@ def search_pages(q: str = ""):
                     "snippet":   make_snippet(plain_text, q_stripped),
                     "matchType": "content",
                 })
-
-            # 토글/콜아웃 등 자식 블록도 검색
-            for child in block.get("children", []):
-                child_text = strip_html(child.get("content", ""))
-                if q_lower in child_text.lower():
-                    results.append({
-                        "pageId":    page_id,
-                        "pageTitle": title,
-                        "pageIcon":  icon,
-                        "blockId":   child.get("id"),
-                        "blockType": child.get("type"),
-                        "snippet":   make_snippet(child_text, q_stripped),
-                        "matchType": "content",
-                    })
 
     # 결과는 최대 20개로 제한
     return {"results": results[:20]}

@@ -31,9 +31,81 @@ from backend.core import (
     save_page_to_disk,
     validate_uuid,
 )
+from backend.daily_capture import daily_capture_to_html, daily_capture_to_markdown
 
 # Python으로 치면: blueprint = Blueprint('export_import', __name__, url_prefix='/api')
 router = APIRouter(prefix="/api", tags=["export_import"])
+
+
+def _blocks_to_markdown(blocks: list) -> str:
+    """블록 배열과 모든 자식 블록을 문서 순서대로 Markdown으로 변환한다."""
+    lines = []
+    for block in blocks:
+        btype = block.get("type", "paragraph")
+        content = block.get("content", "")
+        children = block.get("children", [])
+
+        if btype == "heading1":
+            lines.append(f"# {content}")
+        elif btype == "heading2":
+            lines.append(f"## {content}")
+        elif btype == "heading3":
+            lines.append(f"### {content}")
+        elif btype == "bulletList":
+            lines.append(f"- {content}")
+        elif btype == "orderedList":
+            lines.append(f"1. {content}")
+        elif btype == "taskList":
+            checked = "x" if block.get("checked") else " "
+            lines.append(f"- [{checked}] {content}")
+        elif btype == "dailycapture":
+            lines.append(daily_capture_to_markdown(content))
+        elif btype == "toggle":
+            try:
+                parsed = json.loads(content) if isinstance(content, str) and content.startswith("{") else {}
+                header = parsed.get("header", content)
+                stored_children = parsed.get("children")
+                if not children and isinstance(stored_children, list):
+                    children = stored_children
+            except Exception:
+                header = content
+            header_text = _html_mod.unescape(re.sub(r"<[^>]+>", "", str(header))).strip()
+            if header_text:
+                lines.append(f"#### {header_text}")
+        elif btype == "quote":
+            lines.append(f"> {content}")
+        elif btype == "code":
+            lines.append(f"```\n{content}\n```")
+        elif btype == "divider":
+            lines.append("---")
+        elif btype == "kanban":
+            lines.append("[칸반 보드]")
+        elif btype == "layout":
+            try:
+                layout_data = json.loads(content) if isinstance(content, str) else {}
+                slot_parts = []
+                for slot_id in ["a", "b", "c"]:
+                    slot_blocks = layout_data.get("slots", {}).get(slot_id, [])
+                    if slot_blocks:
+                        slot_md = _blocks_to_markdown(slot_blocks).strip()
+                        if slot_md:
+                            slot_parts.append(slot_md)
+                if slot_parts:
+                    lines.append("\n\n---\n\n".join(slot_parts))
+                else:
+                    lines.append("[레이아웃 블록]")
+            except Exception:
+                lines.append("[레이아웃 블록]")
+        else:
+            lines.append(content)
+
+        if children:
+            child_markdown = _blocks_to_markdown(children).strip()
+            if child_markdown:
+                lines.append(child_markdown)
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 # -----------------------------------------------
@@ -97,57 +169,6 @@ def export_markdown():
     index = load_index()
     zip_buffer = io.BytesIO()
 
-    def blocks_to_markdown(blocks: list) -> str:
-        """블록 배열 → 마크다운 텍스트 변환"""
-        lines = []
-        for block in blocks:
-            btype = block.get("type", "paragraph")
-            content = block.get("content", "")
-
-            if btype == "heading1":
-                lines.append(f"# {content}")
-            elif btype == "heading2":
-                lines.append(f"## {content}")
-            elif btype == "heading3":
-                lines.append(f"### {content}")
-            elif btype == "bulletList":
-                lines.append(f"- {content}")
-            elif btype == "orderedList":
-                lines.append(f"1. {content}")
-            elif btype == "taskList":
-                checked = "x" if block.get("checked") else " "
-                lines.append(f"- [{checked}] {content}")
-            elif btype == "quote":
-                lines.append(f"> {content}")
-            elif btype == "code":
-                lines.append(f"```\n{content}\n```")
-            elif btype == "divider":
-                lines.append("---")
-            elif btype == "kanban":
-                lines.append("[칸반 보드]")
-            elif btype == "layout":
-                # 레이아웃 블록: 슬롯 A→B→C 순서로 선형화 (--- 구분선 삽입)
-                # Python으로 치면: for slot in ['a','b','c']: lines += blocks_to_md(slot_blocks)
-                try:
-                    layout_data = json.loads(content) if isinstance(content, str) else {}
-                    slot_parts = []
-                    for slot_id in ["a", "b", "c"]:
-                        slot_blocks = layout_data.get("slots", {}).get(slot_id, [])
-                        if slot_blocks:
-                            slot_md = blocks_to_markdown(slot_blocks).strip()
-                            if slot_md:
-                                slot_parts.append(slot_md)
-                    if slot_parts:
-                        lines.append("\n\n---\n\n".join(slot_parts))
-                    else:
-                        lines.append("[레이아웃 블록]")
-                except Exception:
-                    lines.append("[레이아웃 블록]")
-            else:
-                lines.append(content)
-            lines.append("")  # 빈 줄 구분
-        return "\n".join(lines)
-
     folder_map = index.get("folderMap", {})
     category_map = index.get("categoryMap", {})
     categories = {c["id"]: c["folderName"] for c in index.get("categories", [])}
@@ -176,7 +197,7 @@ def export_markdown():
             blocks = page_data.get("blocks", [])
 
             md_lines = [f"# {title}", ""]
-            md_lines.append(blocks_to_markdown(blocks))
+            md_lines.append(_blocks_to_markdown(blocks))
             md_content = "\n".join(md_lines)
             zf.writestr(zip_path, md_content.encode("utf-8"))
 
@@ -569,6 +590,9 @@ def _blocks_to_html(blocks: list, page_date: str = '') -> str:
 
         if btype == "paragraph":
             parts.append(f'<p>{content}</p>')
+
+        elif btype == "dailycapture":
+            parts.append(daily_capture_to_html(content))
 
         elif btype in ("heading1", "heading2", "heading3", "heading4", "heading5", "heading6"):
             # heading1 → h1, heading2 → h2 등

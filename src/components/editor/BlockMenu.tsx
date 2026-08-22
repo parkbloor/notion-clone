@@ -11,6 +11,7 @@ import { useRef, useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { usePageStore } from '@/store/pageStore'
 import { Page } from '@/types/block'
+import { findBlockById } from '@/lib/blockTree'
 
 interface BlockMenuProps {
   pageId: string
@@ -193,6 +194,8 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
     addBlock, addBlockBefore, duplicateBlock, deleteBlock,
     moveBlockToPage, copyBlockToPage,
   } = usePageStore()
+  const menuBlock = findBlockById(pages.find(page => page.id === pageId)?.blocks, blockId)
+  const isDailyCapture = menuBlock?.type === 'dailycapture'
 
   // -----------------------------------------------
   // 메뉴가 열렸을 때 외부 클릭 또는 Escape 키로 닫기
@@ -336,29 +339,29 @@ export default function BlockMenu({ pageId, blockId }: BlockMenuProps) {
           <Divider />
 
           {/* ── 복제 ──────────────────────────────────── */}
-          <MenuItem
+          {!isDailyCapture && <MenuItem
             icon="📋"
             label="복제"
             onClick={() => {
               duplicateBlock(pageId, blockId)
               setIsOpen(false)
             }}
-          />
+          />}
 
           <Divider />
 
           {/* ── 페이지 간 이동 / 복사 ─────────────────── */}
           {/* Python으로 치면: MoveToPageBtn, CopyToPageBtn = open_picker('move'/'copy') */}
-          <MenuItem
+          {!isDailyCapture && <MenuItem
             icon="↗️"
             label="다른 페이지로 이동"
             onClick={() => openPicker('move')}
-          />
-          <MenuItem
+          />}
+          {!isDailyCapture && <MenuItem
             icon="🔗"
             label="다른 페이지로 복사"
             onClick={() => openPicker('copy')}
-          />
+          />}
 
           <Divider />
 

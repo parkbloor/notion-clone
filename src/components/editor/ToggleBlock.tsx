@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, memo } from 'react'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
+import { OPEN_TOGGLE_BLOCKS_EVENT } from '@/lib/blockReveal'
 
 interface ToggleBlockProps {
   block: Block
@@ -93,6 +94,17 @@ const ToggleBlock = memo(function ToggleBlock({ block, pageId, isLast, readMode,
       localStorage.setItem(storageKey(block.id), JSON.stringify(isOpen))
     } catch {}
   }, [isOpen, block.id])
+
+  // The planner panel can target a nested block.  React to its reveal request
+  // when this toggle is already mounted; localStorage covers a page switch.
+  useEffect(() => {
+    const openRequestedToggles = (event: Event) => {
+      const ids = (event as CustomEvent<string[]>).detail
+      if (Array.isArray(ids) && ids.includes(block.id)) setIsOpen(true)
+    }
+    window.addEventListener(OPEN_TOGGLE_BLOCKS_EVENT, openRequestedToggles)
+    return () => window.removeEventListener(OPEN_TOGGLE_BLOCKS_EVENT, openRequestedToggles)
+  }, [block.id])
 
   // -----------------------------------------------
   // header/body 변경 시 block.content에 JSON으로 저장

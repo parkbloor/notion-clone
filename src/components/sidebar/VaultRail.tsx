@@ -24,6 +24,7 @@ import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import {
   loadVaultGroups,
+  VAULT_LIST_CHANGED_EVENT,
   saveVaultGroups,
   switchVault,
   type VaultEntry,
@@ -64,10 +65,18 @@ export default function VaultRail() {
 
   useEffect(() => {
     let cancelled = false
-    loadVaultGroups()
-      .then(data => { if (!cancelled) setState(data) })
-      .catch(() => { if (!cancelled) toast.error(s.vaultGroupLoadError) })
-    return () => { cancelled = true }
+    const refreshVaultGroups = () => {
+      loadVaultGroups()
+        .then(data => { if (!cancelled) setState(data) })
+        .catch(() => { if (!cancelled) toast.error(s.vaultGroupLoadError) })
+    }
+
+    refreshVaultGroups()
+    window.addEventListener(VAULT_LIST_CHANGED_EVENT, refreshVaultGroups)
+    return () => {
+      cancelled = true
+      window.removeEventListener(VAULT_LIST_CHANGED_EVENT, refreshVaultGroups)
+    }
   }, [s.vaultGroupLoadError])
 
   useEffect(() => {

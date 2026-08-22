@@ -173,6 +173,7 @@ export default function GlobalSearch({ onClose }: GlobalSearchProps) {
       bulletList:  '글머리',
       orderedList: '번호 목록',
       taskList:    '체크리스트',
+      dailycapture:'하루 기록',
       toggle:      '토글',
       code:        '코드',
       image:       '이미지',

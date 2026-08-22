@@ -15,9 +15,10 @@ import TemplateEditorModal from '@/components/editor/TemplateEditorModal'
 import { useLocale } from '@/locales'
 import { useSettingsStore } from '@/store/settingsStore'
 import { usePageStore } from '@/store/pageStore'
+import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import { blocksToMarkdown } from '@/lib/templateParser'
+import { makeDailyTemplate } from '@/lib/dailyNotes'
 import {
-  makeDailyTemplate,
   makeWeeklyTemplate,
   makeMonthlyTemplate,
   makeQuarterlyTemplate,
@@ -98,6 +99,8 @@ export default function TemplatesTab() {
   const periodicBuiltinOverrides    = useSettingsStore(s => s.periodicBuiltinOverrides)
   const setPeriodicBuiltinOverride  = useSettingsStore(s => s.setPeriodicBuiltinOverride)
   const resetPeriodicBuiltinOverride = useSettingsStore(s => s.resetPeriodicBuiltinOverride)
+  const dailyCustomTemplateId = useVaultPreferencesStore(s => s.preferences.planner.dailyCustomTemplateId)
+  const setPlannerFeature = useVaultPreferencesStore(s => s.setPlannerFeature)
 
   // 도움말 모달 열림 여부 — Python으로 치면: self.help_open = False
   const [helpOpen, setHelpOpen] = useState(false)
@@ -274,6 +277,17 @@ export default function TemplatesTab() {
     try {
       await templateApi.delete(id)
       setTemplates(prev => prev.filter(tmpl => tmpl.id !== id))
+      for (const kind of ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'] as const) {
+        if (periodicNoteTemplates[kind] === id) setPeriodicNoteTemplate(kind, '')
+      }
+      if (dailyCustomTemplateId === id) {
+        try {
+          await setPlannerFeature('dailyCustomTemplateId', '')
+        } catch {
+          // 템플릿 삭제 자체는 완료됐다. 연결 설정 저장 실패는 별도로 알리고 목록 삭제는 유지한다.
+          toast.error(t.settings.templates.loadError)
+        }
+      }
       // 삭제된 항목을 편집 중이었으면 폼 닫기
       if (editingId === id) {
         setEditingId(null)
@@ -711,7 +725,9 @@ export default function TemplatesTab() {
             : kind === 'quarterly'         ? t.settings.templates.periodicQuarterly
             : t.settings.templates.periodicYearly
 
-          const currentId    = periodicNoteTemplates[kind]
+          const currentId    = kind === 'daily'
+            ? (dailyCustomTemplateId ?? periodicNoteTemplates.daily)
+            : periodicNoteTemplates[kind]
           const hasOverride  = !!periodicBuiltinOverrides[kind]
           const isEditing    = builtinEditKind === kind
 
@@ -723,7 +739,15 @@ export default function TemplatesTab() {
                 {/* 커스텀 템플릿 드롭다운 */}
                 <select
                   value={currentId}
-                  onChange={e => setPeriodicNoteTemplate(kind, e.target.value)}
+                  onChange={e => {
+                    if (kind === 'daily') {
+                      void setPlannerFeature('dailyCustomTemplateId', e.target.value).catch(() => {
+                        toast.error(t.settings.templates.loadError)
+                      })
+                    } else {
+                      setPeriodicNoteTemplate(kind, e.target.value)
+                    }
+                  }}
                   className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white outline-none focus:border-blue-400 text-gray-700"
                 >
                   <option value="">{t.settings.templates.periodicNone}</option>

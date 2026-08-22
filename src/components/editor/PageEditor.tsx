@@ -87,6 +87,12 @@ function blockToMarkdown(block: Block): string {
         return `## 📅 ${[data.date, data.kind, data.title].filter(Boolean).join(' · ')}`
       } catch { return '## 📅 기록' }
     }
+    case 'dailycapture': {
+      try {
+        const data = JSON.parse(c) as { date?: string; body?: string }
+        return `## 📌 ${data.date ?? ''}\n${data.body ?? ''}`.trim()
+      } catch { return c }
+    }
     case 'paragraph':
       return htmlToMdInline(c).trim()
 

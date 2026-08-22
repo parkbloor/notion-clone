@@ -12,10 +12,11 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { Block, createBlock } from '@/types/block'
+import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { ChevronLeft, ChevronRight, PenLine, X } from 'lucide-react'
 import { useLocale } from '@/locales'
+import { getDailyNoteDate, openOrCreateDailyNote } from '@/lib/dailyNotes'
 
 // ── 날짜 유틸 ─────────────────────────────────
 // Python으로 치면: def fmt_date(y, m, d): return f'{y:04d}-{m:02d}-{d:02d}'
@@ -52,11 +53,6 @@ export default function MonthlyCalendarBlock({ block, pageId }: Props) {
   const t = useLocale()
   const updateBlock    = usePageStore(s => s.updateBlock)
   const pages          = usePageStore(s => s.pages)
-  const addPage        = usePageStore(s => s.addPage)
-  const setCurrentPage = usePageStore(s => s.setCurrentPage)
-  const setPageBlocks  = usePageStore(s => s.setPageBlocks)
-  const updatePageIcon = usePageStore(s => s.updatePageIcon)
-  const categories     = usePageStore(s => s.categories)
 
   // ── content 파싱 ──────────────────────────────
   // Python으로 치면: data = json.loads(block.content) if block.content else default
@@ -132,17 +128,16 @@ export default function MonthlyCalendarBlock({ block, pageId }: Props) {
   }, [data.year, data.month])
 
   // ── 일간 노트 존재 여부 Set ──────────────────
-  // 제목 형식: '일간 노트 YYYY-MM-DD'
-  // Python으로 치면: daily_note_dates = {p.title.split()[-1] for p in pages if p.title.startswith('일간 노트')}
+  // 한·영 기존 일간 노트 제목을 모두 인식한다.
+  // Python으로 치면: daily_note_dates = {daily_note_date(p.title) for p in pages}
   const dailyNoteDates = useMemo(() => {
     const s = new Set<string>()
-    const re = new RegExp(`^${t.planner.monthly.dailyNotePrefix} (\\d{4}-\\d{2}-\\d{2})$`)
     pages.forEach(p => {
-      const m = p.title.match(re)
-      if (m) s.add(m[1])
+      const dateStr = getDailyNoteDate(p.title)
+      if (dateStr) s.add(dateStr)
     })
     return s
-  }, [pages, t.planner.monthly.dailyNotePrefix])
+  }, [pages])
 
   // ── 메모 편집 상태 ────────────────────────────
   // Python으로 치면: self.editing_memo: str | None = None
@@ -168,46 +163,7 @@ export default function MonthlyCalendarBlock({ block, pageId }: Props) {
     // 메모 편집 중이면 클릭 무시
     if (editingDate) return
 
-    const title    = `${t.planner.monthly.dailyNotePrefix} ${dateStr}`
-    const existing = pages.find(p => p.title === title)
-    if (existing) {
-      setCurrentPage(existing.id)
-      return
-    }
-
-    // 일간 노트 카테고리 찾기 (없으면 미분류)
-    const cat = categories.find(c => c.name === t.planner.monthly.dailyNoteCategoryName || c.name === t.planner.monthly.dailyNotePrefix)
-    await addPage(title, cat?.id ?? null)
-
-    const { currentPageId: newId } = usePageStore.getState()
-    if (!newId) return
-
-    // 기본 일간 노트 템플릿 적용
-    updatePageIcon(newId, '📅')
-    const dow = new Date(dateStr + 'T00:00:00').getDay()
-    const dayLabel = t.planner.monthly.dowLabels[dow]
-    const plannerContent = JSON.stringify({ date: dateStr, events: [], routines: [], autoApply: true })
-    setPageBlocks(newId, [
-      { ...createBlock('heading1'), content: t.planner.monthly.dailyNoteHeading.replace('{date}', dateStr).replace('{dow}', dayLabel) },
-      createBlock('divider'),
-      { ...createBlock('heading2'), content: t.planner.monthly.dailyNoteFocus },
-      createBlock('taskList'),
-      createBlock('divider'),
-      { ...createBlock('heading2'), content: t.planner.monthly.dailyNoteSchedule },
-      { ...createBlock('dayplanner'), content: plannerContent },
-      createBlock('divider'),
-      { ...createBlock('heading2'), content: `✅ ${t.planner.monthly.dailyTodo}` },
-      createBlock('taskList'),
-      createBlock('taskList'),
-      createBlock('taskList'),
-      { ...createBlock('heading2'), content: t.planner.monthly.dailyNoteMemo },
-      createBlock('paragraph'),
-      createBlock('divider'),
-      { ...createBlock('heading2'), content: t.planner.monthly.dailyNoteReview },
-      { ...createBlock('toggle'), content: t.planner.monthly.dailyNoteGood },
-      { ...createBlock('toggle'), content: t.planner.monthly.dailyNoteImprove },
-      { ...createBlock('toggle'), content: t.planner.monthly.dailyNoteTomorrow },
-    ])
+    await openOrCreateDailyNote(dateStr)
   }
 
   const today = todayStr()

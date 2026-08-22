@@ -1,5 +1,14 @@
 import { BASE_URL } from '@/lib/api'
 
+export const VAULT_LIST_CHANGED_EVENT = 'notion-clone:vault-list-changed'
+
+/** Tell mounted vault pickers that the folders under the vault root changed. */
+export function notifyVaultListChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(VAULT_LIST_CHANGED_EVENT))
+  }
+}
+
 export interface VaultEntry {
   name: string
   path: string

@@ -65,7 +65,9 @@ function parseRoutines(data: unknown): Routine[] {
       typeof item.end !== 'string' ||
       typeof item.color !== 'string' ||
       !Array.isArray(item.days) ||
-      !item.days.every((day: unknown) => typeof day === 'number')
+      !/^\d{2}:\d{2}$/.test(item.start) ||
+      !/^\d{2}:\d{2}$/.test(item.end) ||
+      !item.days.every((day: unknown) => typeof day === 'number' && Number.isInteger(day) && day >= 0 && day <= 6)
     ) {
       throw new Error(`루틴 응답 ${index + 1}번의 형식이 올바르지 않습니다.`)
     }
@@ -488,6 +490,10 @@ export const templateApi = {
 
 // ── 볼트별 기능 표시 설정 ────────────────────────
 export interface VaultPlannerFeatures {
+  mode: 'off' | 'daily'
+  homePageId: string | null
+  dailyNoteTemplate: 'standard' | 'postit'
+  dailyCustomTemplateId: string | null
   todayShortcut: boolean
   planMenu: boolean
   reviews: boolean

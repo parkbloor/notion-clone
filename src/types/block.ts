@@ -42,6 +42,7 @@ export type BlockType =
   | 'toc'          // 인라인 목차 블록 (페이지 내 헤딩 목록 자동 생성)
   | 'file'         // 파일 첨부 블록 (PDF / docx / zip 등 일반 파일)
   | 'record'           // 날짜 기록 헤더 — 뒤따르는 일반 블록의 기록 시작 위치
+  | 'dailycapture'     // 하루 기록 블록 — 날짜 + 줄바꿈 기반 포스트잇 마크다운
   | 'dayplanner'       // Day Planner 블록 — 인라인 타임라인 일정표
   | 'weekplanner'      // Week Planner 블록 — 멀티데이 주간 타임라인 그리드
   | 'weeklyplanner'   // Weekly Planner 블록 — 주간 캘린더 + 날씨 + 루틴 달성 매트릭스
@@ -154,6 +155,10 @@ export interface Page {
   updatedAt: string    // 마지막 수정 시각 (ISO 8601 문자열)
   /** 서버 저장 충돌을 감지하기 위한 낙관적 동시성 버전 */
   revision?: number
+  // 앱 내부 워크플로우 식별자 — 제목이 같은 일반 메모와 자동 생성 노트를 구분한다.
+  pageRole?: 'postit-month'
+  // pageRole이 담당하는 기간 키 (postit-month는 YYYY-MM)
+  periodKey?: string
   // 캔버스 모드 여부 — true이면 블록을 절대 좌표로 배치
   // Python으로 치면: canvas_mode: bool = False
   canvasMode?: boolean
@@ -338,6 +343,49 @@ export interface PlanEvent {
   routineId?: string  // source='routine'일 때 원본 Routine ID
 }
 
+// 하루 기록 블록은 내부 Block/항목 ID를 만들지 않고 본문 문자열 하나만 보관한다.
+export interface DailyCaptureData {
+  version: 1
+  date: string
+  body: string
+}
+
+export function isValidDailyCaptureDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!match) return false
+  const parsed = new Date(`${value}T00:00:00`)
+  return !Number.isNaN(parsed.getTime())
+    && parsed.getFullYear() === Number(match[1])
+    && parsed.getMonth() + 1 === Number(match[2])
+    && parsed.getDate() === Number(match[3])
+}
+
+export function createDailyCaptureContent(date?: string, body = ''): string {
+  const now = new Date()
+  const localDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  return JSON.stringify({
+    version: 1,
+    date: date === undefined ? localDate : isValidDailyCaptureDate(date) ? date : '',
+    body,
+  } satisfies DailyCaptureData)
+}
+
+export function parseDailyCaptureContent(content: string): DailyCaptureData {
+  try {
+    const parsed = JSON.parse(content) as Partial<DailyCaptureData>
+    if (parsed.version === 1 && typeof parsed.date === 'string' && typeof parsed.body === 'string') {
+      return {
+        version: 1,
+        date: isValidDailyCaptureDate(parsed.date) ? parsed.date : '',
+        body: parsed.body,
+      }
+    }
+  } catch {
+    // 구버전/직접 변환 데이터는 원문을 본문으로 보존한다.
+  }
+  return { version: 1, date: '', body: content }
+}
+
 // 반복 루틴 프리셋
 // days: 0=일 1=월 2=화 3=수 4=목 5=금 6=토, 빈 배열 = 매일
 // Python으로 치면: @dataclass class Routine: id, title, start, end, color, days
@@ -372,6 +420,7 @@ export function createBlock(type: BlockType = 'paragraph'): Block {
     const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
     block.content = JSON.stringify({ date, title: '', kind: '' })
   }
+  if (type === 'dailycapture') block.content = createDailyCaptureContent()
   return block
 }
 
