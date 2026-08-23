@@ -34,6 +34,7 @@ from backend.core import (
     inspect_vault_integrity,
     serialized_vault_write,
 )
+from backend.routers.planner_store import replace_planner_vault_name
 
 _log = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ router = APIRouter(prefix="/api", tags=["system"])
 _tk_executor = ThreadPoolExecutor(max_workers=1)
 
 VAULT_GROUPS_FILENAME = ".vault_groups.json"
+DIARY_CONFIG_FILENAME = ".diary_config.json"
 
 
 class VaultGroupPayload(BaseModel):
@@ -54,6 +56,10 @@ class VaultGroupPayload(BaseModel):
 
 class VaultGroupsBody(BaseModel):
     groups: list[VaultGroupPayload] = Field(default_factory=list)
+
+
+class DiarySettingsBody(BaseModel):
+    diaryVaultName: str | None = None
 
 
 def _vault_groups_path() -> Path:
@@ -139,6 +145,84 @@ def _replace_grouped_vault_name(old_name: str, new_name: str) -> None:
             changed = True
     if changed:
         _write_vault_groups(groups)
+
+
+def _diary_config_path() -> Path:
+    return get_vaults_root() / DIARY_CONFIG_FILENAME
+
+
+def _load_diary_vault_name() -> str | None:
+    path = _diary_config_path()
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        _log.warning("일기 볼트 설정 읽기 실패: %s", exc)
+        return None
+    if not isinstance(data, dict):
+        return None
+    name = data.get("diaryVaultName")
+    return name.strip() if isinstance(name, str) and name.strip() else None
+
+
+def _write_diary_vault_name(vault_name: str | None) -> None:
+    path = _diary_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(path.name + ".tmp")
+    try:
+        temp_path.write_text(
+            json.dumps({"version": 1, "diaryVaultName": vault_name}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+
+
+def _replace_diary_vault_name(old_name: str, new_name: str) -> None:
+    if _load_diary_vault_name() == old_name:
+        _write_diary_vault_name(new_name)
+
+
+def _diary_settings_response() -> dict:
+    vaults = list_vaults()
+    available_names = [vault["name"] for vault in vaults]
+    diary_vault_name = _load_diary_vault_name()
+    status = (
+        "unconfigured"
+        if diary_vault_name is None
+        else "ready"
+        if diary_vault_name in available_names
+        else "missing"
+    )
+    return {
+        "version": 1,
+        "diaryVaultName": diary_vault_name,
+        "status": status,
+        "availableVaults": available_names,
+    }
+
+
+@router.get("/settings/diary")
+def get_diary_settings():
+    return _diary_settings_response()
+
+
+@router.put("/settings/diary")
+@serialized_vault_write
+def put_diary_settings(body: DiarySettingsBody):
+    diary_vault_name = body.diaryVaultName
+    if diary_vault_name is not None:
+        diary_vault_name, vault_path = _resolve_vault_path(diary_vault_name)
+        if not vault_path.is_dir():
+            raise HTTPException(status_code=404, detail="일기 볼트를 찾을 수 없습니다")
+    try:
+        _write_diary_vault_name(diary_vault_name)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"일기 볼트 설정을 저장할 수 없습니다: {exc}") from exc
+    return _diary_settings_response()
 
 
 @router.get("/settings/vault-groups")
@@ -309,8 +393,10 @@ def rename_vault(vault_name: str, body: RenameVaultBody):
     # 전역 그룹은 실제 경로가 아닌 볼트 이름 참조만 보관하므로 함께 교체한다.
     try:
         _replace_grouped_vault_name(old_name, new_name)
+        _replace_diary_vault_name(old_name, new_name)
+        replace_planner_vault_name(old_name, new_name)
     except OSError as exc:
-        _log.warning("볼트 이름 변경 후 그룹 메타데이터 갱신 실패: %s", exc)
+        _log.warning("볼트 이름 변경 후 전역 메타데이터 갱신 실패: %s", exc)
 
     _log.info("rename_vault: %s → %s", old_path, new_path)
     return {

@@ -9,6 +9,8 @@ import {
 } from '@/lib/plannerSummary'
 import { usePageStore } from '@/store/pageStore'
 import type { Page, PlanEvent } from '@/types/block'
+import { PLANNER_EVENTS_CHANGED_EVENT, plannerStoreApi, type StoredPlannerEvent } from '@/lib/plannerStore'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
 import {
   collectRecordCalendarEntries,
   summarizeRecordCalendarPeriod,
@@ -53,15 +55,26 @@ export default function MonthlyRecordSummary({ pages, onOpenRecord }: MonthlyRec
   const [period, setPeriod] = useState<RecordSummaryPeriod>('month')
   const [open, setOpen] = useState(true)
   const [plannerArchive, setPlannerArchive] = useState<Record<string, PlanEvent[]>>({})
+  const [storedPlannerEvents, setStoredPlannerEvents] = useState<StoredPlannerEvent[]>([])
+  const plannerStoreMode = usePlannerStoreMode()
   const entries = useMemo(() => collectRecordCalendarEntries(pages), [pages])
   const summary = useMemo(
     () => summarizeRecordCalendarPeriod(entries, anchor.year, anchor.month, period),
     [anchor.month, anchor.year, entries, period],
   )
-  const plannerEntries = useMemo(
-    () => collectPlannerCalendarEntries(pages, plannerArchive),
-    [pages, plannerArchive],
-  )
+  const plannerEntries = useMemo(() => {
+    if (plannerStoreMode !== 'sqlite') return collectPlannerCalendarEntries(pages, plannerArchive)
+    return storedPlannerEvents.map(stored => ({
+      date: stored.date,
+      event: {
+        id: stored.id, title: stored.title, start: stored.start, end: stored.end,
+        color: stored.color, done: stored.done, scheduled: stored.scheduled ?? undefined,
+        elapsed: stored.elapsed ?? undefined,
+        source: stored.source === 'routine' ? 'routine' : stored.source === 'manual' ? 'manual' : undefined,
+        routineId: stored.routineId ?? undefined,
+      } as PlanEvent,
+    }))
+  }, [pages, plannerArchive, plannerStoreMode, storedPlannerEvents])
   const plannerSummary = useMemo(
     () => summarizePlannerPeriod(plannerEntries, summary.startDate, summary.endDate),
     [plannerEntries, summary.endDate, summary.startDate],
@@ -75,12 +88,31 @@ export default function MonthlyRecordSummary({ pages, onOpenRecord }: MonthlyRec
   useEffect(() => {
     let cancelled = false
     setPlannerArchive({})
-    if (!currentVaultName) return () => { cancelled = true }
+    if (!currentVaultName || plannerStoreMode === 'sqlite') return () => { cancelled = true }
     plannerApi.getArchive()
       .then(archive => { if (!cancelled) setPlannerArchive(archive) })
       .catch(() => { if (!cancelled) setPlannerArchive({}) })
     return () => { cancelled = true }
-  }, [currentVaultName])
+  }, [currentVaultName, plannerStoreMode])
+
+  useEffect(() => {
+    if (plannerStoreMode !== 'sqlite') {
+      setStoredPlannerEvents([])
+      return
+    }
+    let cancelled = false
+    const load = () => {
+      void plannerStoreApi.listEvents(summary.startDate, summary.endDate)
+        .then(events => { if (!cancelled) setStoredPlannerEvents(events) })
+        .catch(() => { if (!cancelled) setStoredPlannerEvents([]) })
+    }
+    load()
+    window.addEventListener(PLANNER_EVENTS_CHANGED_EVENT, load)
+    return () => {
+      cancelled = true
+      window.removeEventListener(PLANNER_EVENTS_CHANGED_EVENT, load)
+    }
+  }, [plannerStoreMode, summary.endDate, summary.startDate])
 
   const completedTime = formatMinutes(
     plannerSummary.completedMinutes,

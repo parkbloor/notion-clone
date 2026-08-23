@@ -17,6 +17,64 @@ export interface ImageUploadResult {
   mime: string
 }
 
+export interface PlannerRecoveryTotals {
+  vaultCount: number
+  sourceCount: number
+  liveEventOccurrences: number
+  archiveEventOccurrences: number
+  uniqueEventCount: number
+  duplicateOccurrences: number
+  errorCount: number
+}
+
+export interface PlannerRecoveryVault {
+  vaultName: string
+  plannerMode: string
+  scheduleHomeConfigured: boolean
+  scheduleHomeFound: boolean
+  scheduleHomePlannerBlocks: number
+  plannerBlockCount: number
+  dateCount: number
+  eventCount: number
+  archiveDateCount: number
+  archiveEventCount: number
+}
+
+export interface PlannerRecoverySource {
+  vaultName: string
+  pageId: string
+  pageTitle: string
+  blockId: string
+  sourceFile: string
+  location: 'active' | 'trash'
+  isScheduleHome: boolean
+  schema: 'current' | 'legacy' | 'mixed' | 'empty' | 'invalid'
+  dateCount: number
+  eventCount: number
+  duplicateEventCount: number
+  firstDate: string | null
+  lastDate: string | null
+  issues: string[]
+}
+
+export interface PlannerRecoveryAudit {
+  version: number
+  generatedAt: string
+  totals: PlannerRecoveryTotals
+  vaults: PlannerRecoveryVault[]
+  sources: PlannerRecoverySource[]
+  errors: Array<{ vaultName: string; sourceFile: string; message: string }>
+}
+
+export interface PlannerRecoveryBackupResult {
+  status: 'ok'
+  backupFile: string
+  fileCount: number
+  sizeBytes: number
+  sha256: string
+  auditTotals: PlannerRecoveryTotals
+}
+
 // -----------------------------------------------
 // Date 직렬화 헬퍼
 // Page/Block의 Date 객체를 ISO 문자열로 변환 (JSON 전송용)
@@ -489,10 +547,19 @@ export const templateApi = {
 }
 
 // ── 볼트별 기능 표시 설정 ────────────────────────
+export type CaptureDestinationKind = 'task' | 'note'
+
+// 포스트잇 분류함의 한 목적지다. 페이지 제목 대신 ID를 저장하므로 이름 변경에도 연결을 유지한다.
+export interface CaptureDestination {
+  id: string
+  pageId: string
+  kind: CaptureDestinationKind
+}
+
 export interface VaultPlannerFeatures {
   mode: 'off' | 'daily'
   homePageId: string | null
-  dailyNoteTemplate: 'standard' | 'postit'
+  dailyNoteTemplate: 'standard' | 'postit' | 'diary'
   dailyCustomTemplateId: string | null
   todayShortcut: boolean
   planMenu: boolean
@@ -501,10 +568,94 @@ export interface VaultPlannerFeatures {
   timeline: boolean
   routines: boolean
   slashPlannerBlocks: boolean
+  // 현재 볼트에서만 쓰는 포스트잇 분류함 목적지 목록이다.
+  captureDestinations: CaptureDestination[]
 }
 
 export interface VaultPreferences {
   planner: VaultPlannerFeatures
+}
+
+export interface CaptureTransferResult {
+  sourcePage: Page
+  destinationPage: Page
+  alreadyTransferred: boolean
+}
+
+export interface CrossVaultDestination {
+  id: string
+  pageId: string
+  kind: CaptureDestinationKind
+  pageTitle: string
+  pageIcon: string
+  revision: number
+}
+
+export interface CrossVaultDestinationGroup {
+  name: string
+  destinations: CrossVaultDestination[]
+}
+
+export const captureTransferApi = {
+  transfer: async (request: {
+    sourcePageId: string
+    sourceBlockId: string
+    sourceEntryId: string
+    destinationPageId: string
+    sourceRevision: number
+    destinationRevision: number
+    kind: CaptureDestinationKind
+  }): Promise<CaptureTransferResult> => {
+    const res = await fetch(`${BASE_URL}/api/capture-transfers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || '포스트잇 분류에 실패했습니다.')
+    }
+    const data = await res.json()
+    return {
+      sourcePage: parsePage(data.sourcePage as Page),
+      destinationPage: parsePage(data.destinationPage as Page),
+      alreadyTransferred: Boolean(data.alreadyTransferred),
+    }
+  },
+
+  getCrossVaultDestinations: async (): Promise<CrossVaultDestinationGroup[]> => {
+    const res = await fetch(`${BASE_URL}/api/capture-transfers/destinations`)
+    if (!res.ok) throw new Error('다른 볼트의 분류함을 불러오지 못했습니다.')
+    const data = await res.json()
+    return Array.isArray(data.vaults) ? data.vaults as CrossVaultDestinationGroup[] : []
+  },
+
+  transferAcrossVault: async (request: {
+    sourcePageId: string
+    sourceBlockId: string
+    sourceEntryId: string
+    destinationVaultName: string
+    destinationPageId: string
+    sourceRevision: number
+    destinationRevision: number
+    kind: CaptureDestinationKind
+  }): Promise<CaptureTransferResult> => {
+    const res = await fetch(`${BASE_URL}/api/capture-transfers/cross-vault`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.detail || '다른 볼트로 복사하지 못했습니다.')
+    }
+    const data = await res.json()
+    return {
+      sourcePage: parsePage(data.sourcePage as Page),
+      destinationPage: parsePage(data.destinationPage as Page),
+      alreadyTransferred: Boolean(data.alreadyTransferred),
+    }
+  },
 }
 
 export const vaultPreferencesApi = {
@@ -618,5 +769,19 @@ export const plannerApi = {
       body:    JSON.stringify(archive),
     })
     if (!res.ok) throw new Error('아카이브 저장 실패')
+  },
+
+  // 모든 볼트의 Day Planner 원본을 변경 없이 집계한다.
+  getRecoveryAudit: async (): Promise<PlannerRecoveryAudit> => {
+    const res = await fetch(`${BASE_URL}/api/planner/recovery/audit`)
+    if (!res.ok) throw new Error('일정 복구 진단 실패')
+    return res.json()
+  },
+
+  // 사용자가 명시적으로 요청할 때만 원본 보존 ZIP을 만든다.
+  createRecoveryBackup: async (): Promise<PlannerRecoveryBackupResult> => {
+    const res = await fetch(`${BASE_URL}/api/planner/recovery/backup`, { method: 'POST' })
+    if (!res.ok) throw new Error('일정 복구 백업 실패')
+    return res.json()
   },
 }

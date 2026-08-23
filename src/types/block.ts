@@ -156,8 +156,8 @@ export interface Page {
   /** 서버 저장 충돌을 감지하기 위한 낙관적 동시성 버전 */
   revision?: number
   // 앱 내부 워크플로우 식별자 — 제목이 같은 일반 메모와 자동 생성 노트를 구분한다.
-  pageRole?: 'postit-month'
-  // pageRole이 담당하는 기간 키 (postit-month는 YYYY-MM)
+  pageRole?: 'postit-month' | 'diary-day'
+  // pageRole이 담당하는 기간 키 (postit-month는 YYYY-MM, diary-day는 YYYY-MM-DD)
   periodKey?: string
   // 캔버스 모드 여부 — true이면 블록을 절대 좌표로 배치
   // Python으로 치면: canvas_mode: bool = False
@@ -341,13 +341,32 @@ export interface PlanEvent {
   energy?:   number   // 집중도/에너지 레벨 (1~5)
   source?:   'manual' | 'routine' // 일정 생성 출처. 없으면 구버전 일반 일정
   routineId?: string  // source='routine'일 때 원본 Routine ID
+  revision?: number   // SQLite 낙관적 잠금 버전. 기존 블록 데이터에는 없음
 }
 
-// 하루 기록 블록은 내부 Block/항목 ID를 만들지 않고 본문 문자열 하나만 보관한다.
+export interface DailyCaptureTransfer {
+  transferId: string
+  destinationVaultName?: string
+  destinationPageId: string
+  destinationPageTitle?: string
+  destinationBlockId: string
+  kind: 'task' | 'note'
+  classifiedDate?: string
+  transferredAt: string
+}
+
+export interface DailyCaptureEntry {
+  id: string
+  text: string
+  transfer?: DailyCaptureTransfer
+}
+
+// version 1은 기존 본문 문자열 형식, version 2는 줄마다 안정적인 ID와 전송 상태를 보관한다.
 export interface DailyCaptureData {
-  version: 1
+  version: 1 | 2
   date: string
   body: string
+  entries: DailyCaptureEntry[]
 }
 
 export function isValidDailyCaptureDate(value: string): boolean {
@@ -367,23 +386,77 @@ export function createDailyCaptureContent(date?: string, body = ''): string {
     version: 1,
     date: date === undefined ? localDate : isValidDailyCaptureDate(date) ? date : '',
     body,
-  } satisfies DailyCaptureData)
+  })
 }
 
-export function parseDailyCaptureContent(content: string): DailyCaptureData {
+export function createDailyCaptureEntriesContent(date: string, entries: DailyCaptureEntry[]): string {
+  return JSON.stringify({
+    version: 2,
+    date: isValidDailyCaptureDate(date) ? date : '',
+    entries: entries.map(entry => ({
+      id: entry.id,
+      text: entry.text,
+      ...(entry.transfer ? { transfer: entry.transfer } : {}),
+    })),
+  })
+}
+
+function legacyDailyCaptureEntries(body: string): DailyCaptureEntry[] {
+  return body.split('\n').map((text, index) => ({ id: `legacy-${index}`, text }))
+}
+
+function parseDailyCaptureTransfer(value: unknown): DailyCaptureTransfer | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const transfer = value as Partial<DailyCaptureTransfer>
+  if (
+    typeof transfer.transferId !== 'string'
+    || typeof transfer.destinationPageId !== 'string'
+    || typeof transfer.destinationBlockId !== 'string'
+    || (transfer.kind !== 'task' && transfer.kind !== 'note')
+    || typeof transfer.transferredAt !== 'string'
+  ) return undefined
+  return {
+    ...(transfer as DailyCaptureTransfer),
+    ...(typeof transfer.destinationVaultName === 'string' ? { destinationVaultName: transfer.destinationVaultName } : {}),
+    ...(typeof transfer.destinationPageTitle === 'string' ? { destinationPageTitle: transfer.destinationPageTitle } : {}),
+    ...(typeof transfer.classifiedDate === 'string' ? { classifiedDate: transfer.classifiedDate } : {}),
+  }
+}
+
+export function parseDailyCaptureContent(content: unknown): DailyCaptureData {
+  // 저장이 중단됐거나 오래된 데이터에는 content가 빠질 수 있다.
+  // 여기서 문자열로 정규화해 모든 편집기 소비자가 안전한 값을 받게 한다.
+  const fallbackBody = typeof content === 'string' ? content : ''
+
   try {
-    const parsed = JSON.parse(content) as Partial<DailyCaptureData>
+    const parsed = JSON.parse(fallbackBody) as Partial<DailyCaptureData> & { entries?: unknown }
     if (parsed.version === 1 && typeof parsed.date === 'string' && typeof parsed.body === 'string') {
       return {
         version: 1,
         date: isValidDailyCaptureDate(parsed.date) ? parsed.date : '',
         body: parsed.body,
+        entries: legacyDailyCaptureEntries(parsed.body),
+      }
+    }
+    if (parsed.version === 2 && typeof parsed.date === 'string' && Array.isArray(parsed.entries)) {
+      const entries = parsed.entries.flatMap((entry): DailyCaptureEntry[] => {
+        if (!entry || typeof entry !== 'object') return []
+        const item = entry as { id?: unknown; text?: unknown; transfer?: unknown }
+        if (typeof item.id !== 'string' || !item.id || typeof item.text !== 'string') return []
+        const transfer = parseDailyCaptureTransfer(item.transfer)
+        return [{ id: item.id, text: item.text, ...(transfer ? { transfer } : {}) }]
+      })
+      return {
+        version: 2,
+        date: isValidDailyCaptureDate(parsed.date) ? parsed.date : '',
+        body: entries.map(entry => entry.text).join('\n'),
+        entries,
       }
     }
   } catch {
     // 구버전/직접 변환 데이터는 원문을 본문으로 보존한다.
   }
-  return { version: 1, date: '', body: content }
+  return { version: 1, date: '', body: fallbackBody, entries: legacyDailyCaptureEntries(fallbackBody) }
 }
 
 // 반복 루틴 프리셋

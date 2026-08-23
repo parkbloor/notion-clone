@@ -64,3 +64,6 @@ vault/**
 !vault/시작하기_20260101-0000_a1b2c3d4/content.json
 !vault/샘플_노트_20260101-0000_b2c3d4e5/
 !vault/샘플_노트_20260101-0000_b2c3d4e5/content.json
+
+# 사용자별 로컬 볼트 경로 설정
+vault_config.json

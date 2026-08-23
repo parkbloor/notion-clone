@@ -17,6 +17,14 @@ def parse_daily_capture_content(content: object) -> dict[str, str]:
                 and isinstance(parsed.get("body"), str)
             ):
                 return {"date": parsed["date"], "body": parsed["body"]}
+            if (
+                isinstance(parsed, dict)
+                and parsed.get("version") == 2
+                and isinstance(parsed.get("date"), str)
+                and isinstance(parsed.get("entries"), list)
+            ):
+                lines = [item.get("text") for item in parsed["entries"] if isinstance(item, dict) and isinstance(item.get("text"), str)]
+                return {"date": parsed["date"], "body": "\n".join(lines)}
         except (json.JSONDecodeError, TypeError):
             pass
         return {"date": "", "body": content}

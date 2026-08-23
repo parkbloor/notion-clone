@@ -9,7 +9,7 @@ import os
 from typing import Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core import get_vault_dir
 
@@ -33,13 +33,21 @@ DEFAULT_PLANNER_FEATURES = {
     "timeline": True,
     "routines": True,
     "slashPlannerBlocks": True,
+    # 포스트잇 분류함은 현재 볼트의 페이지 ID만 보관한다. 비어 있으면 UI도 표시하지 않는다.
+    "captureDestinations": [],
 }
+
+
+class CaptureDestination(BaseModel):
+    id: str = Field(min_length=1, max_length=128)
+    pageId: str = Field(min_length=1, max_length=128)
+    kind: Literal["task", "note"]
 
 
 class PlannerFeatureUpdate(BaseModel):
     mode: Literal["off", "daily"] | None = None
     homePageId: str | None = None
-    dailyNoteTemplate: Literal["standard", "postit"] | None = None
+    dailyNoteTemplate: Literal["standard", "postit", "diary"] | None = None
     dailyCustomTemplateId: str | None = None
     todayShortcut: bool | None = None
     planMenu: bool | None = None
@@ -48,6 +56,8 @@ class PlannerFeatureUpdate(BaseModel):
     timeline: bool | None = None
     routines: bool | None = None
     slashPlannerBlocks: bool | None = None
+    # 빈 배열은 분류함을 비우는 명시적인 요청이다.
+    captureDestinations: list[CaptureDestination] | None = None
 
 
 class VaultPreferencesUpdate(BaseModel):
@@ -56,6 +66,46 @@ class VaultPreferencesUpdate(BaseModel):
 
 def _preferences_path():
     return get_vault_dir() / PREFERENCES_FILE
+
+
+def _normalized_capture_destinations(value: object) -> list[dict]:
+    """손상된 설정은 버리고, 같은 페이지를 두 번 목적지로 연결하지 않는다."""
+    if not isinstance(value, list):
+        return []
+
+    destinations: list[dict] = []
+    destination_ids: set[str] = set()
+    page_ids: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        destination_id = item.get("id")
+        page_id = item.get("pageId")
+        kind = item.get("kind")
+        if (
+            not isinstance(destination_id, str)
+            or not isinstance(page_id, str)
+            or kind not in {"task", "note"}
+        ):
+            continue
+        destination_id = destination_id.strip()
+        page_id = page_id.strip()
+        if (
+            not destination_id
+            or not page_id
+            or len(destination_id) > 128
+            or len(page_id) > 128
+            or destination_id in destination_ids
+            or page_id in page_ids
+        ):
+            continue
+        destinations.append({"id": destination_id, "pageId": page_id, "kind": kind})
+        destination_ids.add(destination_id)
+        page_ids.add(page_id)
+        # 작은 화면의 분류함이 너무 길어지지 않도록 목적지는 최대 12개만 유지한다.
+        if len(destinations) == 12:
+            break
+    return destinations
 
 
 def _normalized_preferences(raw: object) -> dict:
@@ -77,7 +127,7 @@ def _normalized_preferences(raw: object) -> dict:
     daily_note_template = planner_raw.get("dailyNoteTemplate")
     planner["dailyNoteTemplate"] = (
         daily_note_template
-        if daily_note_template in {"standard", "postit"}
+        if daily_note_template in {"standard", "postit", "diary"}
         else DEFAULT_PLANNER_FEATURES["dailyNoteTemplate"]
     )
     daily_custom_template_id = planner_raw.get("dailyCustomTemplateId")
@@ -85,6 +135,9 @@ def _normalized_preferences(raw: object) -> dict:
         daily_custom_template_id.strip()
         if isinstance(daily_custom_template_id, str)
         else None
+    )
+    planner["captureDestinations"] = _normalized_capture_destinations(
+        planner_raw.get("captureDestinations")
     )
     return {"planner": planner}
 

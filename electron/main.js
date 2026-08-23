@@ -18,7 +18,9 @@ const {
   dialog,
   ipcMain,
   nativeImage,
+  safeStorage,
   screen,
+  session,
   shell,
   utilityProcess,
 } = require('electron')
@@ -34,6 +36,45 @@ const fs = require('fs')
 // Python으로 치면: def load_window_state(): json.load(open(config_path))
 // -----------------------------------------------
 const WIN_STATE_FILE = () => path.join(app.getPath('userData'), 'window-state.json')
+const SECRETS_FILE = () => path.join(app.getPath('userData'), 'secure-secrets.json')
+const ALLOWED_SECRET_KEYS = new Set(['openai', 'anthropic'])
+
+function isTrustedRendererUrl(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || ''))
+    return parsed.protocol === 'http:'
+      && ['localhost', '127.0.0.1'].includes(parsed.hostname)
+      && parsed.port === String(NEXT_PORT)
+  } catch {
+    return false
+  }
+}
+
+function assertTrustedIpcSender(event) {
+  const senderUrl = event.senderFrame?.url || event.sender?.getURL?.() || ''
+  if (!isTrustedRendererUrl(senderUrl)) throw new Error('신뢰할 수 없는 IPC 호출입니다')
+}
+
+function readEncryptedSecrets() {
+  try {
+    return JSON.parse(fs.readFileSync(SECRETS_FILE(), 'utf-8'))
+  } catch {
+    return {}
+  }
+}
+
+function writeEncryptedSecrets(data) {
+  const target = SECRETS_FILE()
+  const temp = `${target}.tmp`
+  fs.writeFileSync(temp, JSON.stringify(data), { encoding: 'utf-8', mode: 0o600 })
+  fs.renameSync(temp, target)
+}
+
+function validateSecretKey(rawKey) {
+  const key = String(rawKey || '')
+  if (!ALLOWED_SECRET_KEYS.has(key)) throw new Error('허용되지 않은 보안 키입니다')
+  return key
+}
 
 /** 저장된 창 상태 읽기 (없으면 기본값 반환) */
 function loadWindowState() {
@@ -264,6 +305,20 @@ function createMainWindow() {
   // Next.js 서버로 이동
   mainWindow.loadURL(`http://localhost:${NEXT_PORT}`)
 
+  // 사용자 콘텐츠의 링크가 Electron 앱 자체를 외부 사이트로 이동시키지 못하게 한다.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!isTrustedRendererUrl(url)) event.preventDefault()
+  })
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(url)
+      if (['http:', 'https:'].includes(parsed.protocol)) void shell.openExternal(parsed.toString())
+    } catch {
+      // 잘못된 URL은 새 창을 만들지 않는다.
+    }
+    return { action: 'deny' }
+  })
+
   // ── Electron 기본 단축키 충돌 방지 ──────────────────────
   // before-input-event: 키 입력이 웹 페이지로 전달되기 전에 가로챔
   // Python으로 치면: def on_key_press(e): if e.ctrl and e.key == 'w': e.ignore()
@@ -423,9 +478,39 @@ function startNextJs() {
 // IPC 핸들러 등록
 // Python으로 치면: @app.on('ipc_message') def handle(msg): ...
 // -----------------------------------------------
-ipcMain.handle('get-version', () => app.getVersion())
+ipcMain.handle('get-version', (event) => {
+  assertTrustedIpcSender(event)
+  return app.getVersion()
+})
 
-ipcMain.handle('select-folder', async () => {
+ipcMain.handle('secret:get', (event, rawKey) => {
+  assertTrustedIpcSender(event)
+  const key = validateSecretKey(rawKey)
+  if (!safeStorage.isEncryptionAvailable()) return null
+  const stored = readEncryptedSecrets()[key]
+  if (typeof stored !== 'string' || !stored) return null
+  return safeStorage.decryptString(Buffer.from(stored, 'base64'))
+})
+
+ipcMain.handle('secret:set', (event, rawKey, rawValue) => {
+  assertTrustedIpcSender(event)
+  const key = validateSecretKey(rawKey)
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('운영체제 보안 저장소를 사용할 수 없습니다')
+  }
+  const data = readEncryptedSecrets()
+  const value = String(rawValue || '')
+  if (value) {
+    data[key] = safeStorage.encryptString(value).toString('base64')
+  } else {
+    delete data[key]
+  }
+  writeEncryptedSecrets(data)
+  return true
+})
+
+ipcMain.handle('select-folder', async (event) => {
+  assertTrustedIpcSender(event)
   const result = await dialog.showOpenDialog(mainWindow ?? undefined, {
     title: 'vault folder select',
     properties: ['openDirectory', 'createDirectory'],
@@ -439,6 +524,7 @@ ipcMain.handle('select-folder', async () => {
 })
 
 ipcMain.handle('open-external-url', async (_event, rawUrl) => {
+  assertTrustedIpcSender(_event)
   const parsed = new URL(String(rawUrl || ''))
   if (!['http:', 'https:'].includes(parsed.protocol)) {
     throw new Error('허용되지 않은 외부 링크 프로토콜입니다')
@@ -532,6 +618,7 @@ function createNamedDragCopy(sourcePath, requestedName) {
 
 ipcMain.on('start-image-drag', (event, payload) => {
   try {
+    assertTrustedIpcSender(event)
     const sourcePath = resolveVaultImageUrl(payload?.url)
     const dragPath = createNamedDragCopy(sourcePath, payload?.name)
     let icon = nativeImage.createFromPath(sourcePath)
@@ -548,6 +635,12 @@ ipcMain.on('start-image-drag', (event, payload) => {
 // Python으로 치면: if __name__ == '__main__': main()
 // -----------------------------------------------
 app.whenReady().then(async () => {
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => (
+    permission === 'notifications' && isTrustedRendererUrl(webContents?.getURL())
+  ))
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'notifications' && isTrustedRendererUrl(webContents?.getURL()))
+  })
   // 이전 비정상 종료에서 남은 원본 드래그 임시 복사본을 먼저 정리한다.
   cleanupImageDragTemp()
   // ── 1단계: 포트 사용 가능 여부 확인 ─────────────────────

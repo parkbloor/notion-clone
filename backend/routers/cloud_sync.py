@@ -17,6 +17,7 @@ import io
 import json
 import secrets
 import shutil
+import stat
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from backend.core import get_vault_dir, _APP_BASE
+from backend.secure_storage import read_secret_json, write_secret_json
 
 # Python으로 치면: blueprint = Blueprint('cloud_sync', __name__, url_prefix='/api/cloud')
 router = APIRouter(prefix="/api/cloud", tags=["cloud_sync"])
@@ -36,6 +38,9 @@ router = APIRouter(prefix="/api/cloud", tags=["cloud_sync"])
 # Python으로 치면: CONFIG_FILE = _APP_BASE / 'cloud_config.json'
 CLOUD_CONFIG_FILE = _APP_BASE / "cloud_config.json"
 CLOUD_TOKENS_FILE = _APP_BASE / "cloud_tokens.json"
+MAX_CLOUD_ARCHIVE_ENTRIES = 100_000
+MAX_CLOUD_UNCOMPRESSED_BYTES = 5 * 1024 * 1024 * 1024
+MAX_CLOUD_COMPRESSION_RATIO = 1_000
 
 # ── Google Drive OAuth 상수 ──────────────────────
 GOOGLE_AUTH_URL   = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -72,25 +77,31 @@ def _load_config() -> dict:
     """cloud_config.json 로드 (CLIENT_ID / CLIENT_SECRET 저장)"""
     if CLOUD_CONFIG_FILE.exists():
         try:
-            return json.loads(CLOUD_CONFIG_FILE.read_text(encoding="utf-8"))
+            data, legacy = read_secret_json(CLOUD_CONFIG_FILE)
+            if legacy:
+                _save_config(data)
+            return data
         except Exception:
             pass
     return {}
 
 def _save_config(data: dict) -> None:
-    CLOUD_CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_secret_json(CLOUD_CONFIG_FILE, data)
 
 def _load_tokens() -> dict:
     """cloud_tokens.json 로드 (access_token / refresh_token 저장)"""
     if CLOUD_TOKENS_FILE.exists():
         try:
-            return json.loads(CLOUD_TOKENS_FILE.read_text(encoding="utf-8"))
+            data, legacy = read_secret_json(CLOUD_TOKENS_FILE)
+            if legacy:
+                _save_tokens(data)
+            return data
         except Exception:
             pass
     return {}
 
 def _save_tokens(data: dict) -> None:
-    CLOUD_TOKENS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    write_secret_json(CLOUD_TOKENS_FILE, data)
 
 
 # ═══════════════════════════════════════════════════
@@ -136,6 +147,7 @@ def _extract_zip_to_vault(zip_bytes: bytes) -> None:
         shutil.copytree(str(get_vault_dir()), str(backup_dir))
         buf = io.BytesIO(zip_bytes)
         with zipfile.ZipFile(buf, "r") as zf:
+            _validate_cloud_archive(zf, get_vault_dir())
             zf.extractall(get_vault_dir())
         shutil.rmtree(str(backup_dir))
     except Exception as exc:
@@ -144,6 +156,36 @@ def _extract_zip_to_vault(zip_bytes: bytes) -> None:
             shutil.copytree(str(backup_dir), str(get_vault_dir()))
             shutil.rmtree(str(backup_dir))
         raise exc
+
+
+def _validate_cloud_archive(zf: zipfile.ZipFile, target_dir: Path) -> None:
+    """Reject path escapes, links, and archives that expand beyond safe limits."""
+    members = zf.infolist()
+    if len(members) > MAX_CLOUD_ARCHIVE_ENTRIES:
+        raise ValueError("클라우드 백업 파일 항목 수가 허용 범위를 초과합니다")
+
+    target_root = target_dir.resolve()
+    total_size = 0
+    for member in members:
+        member_path = Path(member.filename.replace("\\", "/"))
+        if member_path.is_absolute() or member_path.drive or ".." in member_path.parts:
+            raise ValueError("클라우드 백업에 안전하지 않은 경로가 포함되어 있습니다")
+
+        resolved = (target_root / member_path).resolve()
+        try:
+            resolved.relative_to(target_root)
+        except ValueError as exc:
+            raise ValueError("클라우드 백업 경로가 볼트 밖을 가리킵니다") from exc
+
+        unix_mode = member.external_attr >> 16
+        if stat.S_ISLNK(unix_mode):
+            raise ValueError("클라우드 백업에는 심볼릭 링크를 포함할 수 없습니다")
+
+        total_size += member.file_size
+        if total_size > MAX_CLOUD_UNCOMPRESSED_BYTES:
+            raise ValueError("클라우드 백업 압축 해제 크기가 허용 범위를 초과합니다")
+        if member.compress_size and member.file_size / member.compress_size > MAX_CLOUD_COMPRESSION_RATIO:
+            raise ValueError("클라우드 백업의 압축률이 비정상적으로 높습니다")
 
 
 # ═══════════════════════════════════════════════════

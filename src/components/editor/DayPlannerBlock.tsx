@@ -32,6 +32,9 @@ import { usePlannerEventDrag } from '@/components/editor/planner/usePlannerEvent
 import { Plus, Trash2, ChevronLeft, ChevronRight, Check, X, Bot, Timer, TimerOff, Eye, EyeOff, Archive, Pencil, Zap, Download, Upload } from 'lucide-react'
 import AIChatPanel, { ChatMsg } from '@/components/ai/AIChatPanel'
 import { useLocale } from '@/locales'
+import { toast } from 'sonner'
+import { parsePlannerData, type PlannerData } from '@/lib/plannerData'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
 
 // ── 모듈 레벨: 마지막 활성 DayPlannerBlock ID ─────
 // GlobalAIChatButton의 'ai-apply-schedule' 이벤트를 처리할 블록 결정
@@ -79,14 +82,7 @@ const ZOOM_STEPS = [32, 48, 64, 96] as const  // 줌 단계 (px/hour)
 // date별 이벤트 맵 — 날짜 이동해도 각 날짜 데이터 독립 보존
 // 루틴·autoApply는 settingsStore로 이동 (block.content와 분리)
 // Python으로 치면: @dataclass class PlannerData: events_by_date: dict[str, list[PlanEvent]]
-export interface PlannerData {
-  eventsByDate:  Record<string, PlanEvent[]>  // 'YYYY-MM-DD' → PlanEvent[]
-  reviewByDate?: Record<string, string>        // 'YYYY-MM-DD' → 일일 회고 텍스트
-}
-
-// 90일 초과 이벤트를 아카이브로 이동할 기준
-// Python으로 치면: HISTORY_DAYS = 90
-const HISTORY_DAYS = 90
+export type { PlannerData } from '@/lib/plannerData'
 
 // ── WMO 날씨 코드 → 이모지 (Open-Meteo 공통) ──
 // Python으로 치면: WMO_ICON: dict[int, str] = { 0: '☀️', ... }
@@ -707,7 +703,31 @@ interface DayPlannerBlockProps {
   pageId: string
 }
 
-export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps) {
+export default function DayPlannerBlock(props: DayPlannerBlockProps) {
+  const mode = usePlannerStoreMode()
+  const t = useLocale()
+  if (mode === 'loading') {
+    return <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-400">{t.settings.vaultFeatures.plannerStoreChecking}</div>
+  }
+  if (mode === 'unavailable') {
+    return <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">{t.settings.vaultFeatures.plannerStoreUnavailable}</div>
+  }
+  if (mode === 'sqlite') {
+    const parsed = parsePlannerData(props.block.content)
+    const originalCount = Object.values(parsed.data.eventsByDate).reduce((sum, events) => sum + events.length, 0)
+    return (
+      <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+        <p className="text-sm font-semibold text-violet-800">🗄️ {t.settings.vaultFeatures.plannerMigratedBlock}</p>
+        <p className="mt-1 text-xs leading-5 text-violet-700">
+          {t.settings.vaultFeatures.plannerMigratedBlockDesc.replace('{events}', String(originalCount))}
+        </p>
+      </div>
+    )
+  }
+  return <LegacyDayPlannerBlock {...props} />
+}
+
+function LegacyDayPlannerBlock({ block, pageId }: DayPlannerBlockProps) {
   // ── 로케일 ────────────────────────────────
   // Python으로 치면: t = use_locale()
   const t = useLocale()
@@ -750,18 +770,8 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // ── 콘텐츠 파싱 ──────────────────────────────
   // eventsByDate: 날짜별 이벤트 맵 (최근 90일)
   // Python으로 치면: data = json.loads(block.content) if block.content else default
-  const data: PlannerData = useMemo(() => {
-    try {
-      const parsed = JSON.parse(block.content || '{}')
-      // 구버전 데이터(date/events/routines 구조)는 무시하고 빈 맵으로 초기화
-      return {
-        eventsByDate:  parsed.eventsByDate  ?? {},
-        reviewByDate:  parsed.reviewByDate  ?? {},
-      }
-    } catch {
-      return { eventsByDate: {}, reviewByDate: {} }
-    }
-  }, [block.content])
+  const parsedPlanner = useMemo(() => parsePlannerData(block.content), [block.content])
+  const data = parsedPlanner.data
 
   // 현재 날짜의 이벤트 배열 (편의상 변수화)
   // Python으로 치면: events = data.events_by_date.get(current_date, [])
@@ -774,60 +784,55 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
   // 이벤트·회고·루틴 자동 적용이 같은 block.content를 갱신하므로,
   // 항상 스토어의 최신 JSON을 기준으로 수정한 뒤 한 번에 커밋한다.
   // Python으로 치면: def update_planner(mutator): latest = load(); save(mutator(latest))
-  const readLatestPlannerData = useCallback((): PlannerData => {
-    try {
-      const page = usePageStore.getState().pages.find(p => p.id === pageId)
-      const content = findBlockById(page?.blocks, block.id)?.content ?? '{}'
-      const parsed = JSON.parse(content) as Partial<PlannerData>
-      return {
-        eventsByDate: parsed.eventsByDate ?? {},
-        reviewByDate: parsed.reviewByDate ?? {},
-      }
-    } catch {
-      return { eventsByDate: {}, reviewByDate: {} }
-    }
+  const readLatestPlannerData = useCallback(() => {
+    const page = usePageStore.getState().pages.find(p => p.id === pageId)
+    const content = findBlockById(page?.blocks, block.id)?.content ?? '{}'
+    return parsePlannerData(content)
   }, [pageId, block.id])
 
-  // archiveOld=true이면 90일이 지난 이벤트를 아카이브로 분리한다.
-  // Python으로 치면: def commit(mutator, archive_old=False): ...
+  const persistPlannerPage = useCallback(async function persist(): Promise<void> {
+    const toastId = `planner-save-${pageId}`
+    const saved = await savePageNow(pageId)
+    if (saved) {
+      toast.dismiss(toastId)
+      return
+    }
+    toast.error('일정을 서버에 저장하지 못했습니다.', {
+      id: toastId,
+      duration: Infinity,
+      description: '현재 화면의 변경은 아직 미저장 상태입니다.',
+      action: { label: '다시 시도', onClick: () => { void persist() } },
+    })
+  }, [pageId, savePageNow])
+
   const commitPlannerData = useCallback((
     mutator: (latest: PlannerData) => PlannerData,
-    archiveOld = false,
-  ): PlannerData => {
-    const next = mutator(readLatestPlannerData())
-    let eventsByDate = next.eventsByDate
-
-    if (archiveOld) {
-      const cutoff = new Date()
-      cutoff.setDate(cutoff.getDate() - HISTORY_DAYS)
-      const cutoffDate = cutoff.toISOString().slice(0, 10)
-      const toArchive: Record<string, PlanEvent[]> = {}
-      const toKeep: Record<string, PlanEvent[]> = {}
-      for (const [date, dayEvents] of Object.entries(eventsByDate)) {
-        if (date < cutoffDate) toArchive[date] = dayEvents
-        else toKeep[date] = dayEvents
-      }
-      if (Object.keys(toArchive).length > 0) plannerApi.appendArchive(toArchive).catch(() => {})
-      eventsByDate = toKeep
+  ): PlannerData | null => {
+    const latest = readLatestPlannerData()
+    if (!latest.writable) {
+      toast.error('손상되거나 호환되지 않는 일정 원본은 덮어쓸 수 없습니다.', {
+        id: `planner-invalid-${pageId}-${block.id}`,
+        duration: Infinity,
+        description: '설정의 일정 복구 센터에서 원본을 먼저 백업해 주세요.',
+      })
+      return null
     }
-
-    const committed = { eventsByDate, reviewByDate: next.reviewByDate ?? {} }
+    const next = mutator(latest.data)
+    const committed = { eventsByDate: next.eventsByDate, reviewByDate: next.reviewByDate ?? {} }
     // Keep schedule changes in page undo history so Ctrl+Z restores the
     // previous schedule instead of undoing the creation of this block.
     updateBlock(pageId, block.id, JSON.stringify(committed), true)
     return committed
   }, [readLatestPlannerData, updateBlock, pageId, block.id])
 
-  // ── 콘텐츠 저장 — 90일 초과 데이터 아카이브 처리 포함 ──
-  // 1) 현재 날짜 이벤트 업데이트
-  // 2) 90일 초과 날짜 분리 → 백엔드 아카이브 API에 fire-and-forget
-  // 3) block.content는 90일 이내 데이터만 저장
-  // Python으로 치면: def save_events(date, evs): archive_old(); block.content = json.dumps(recent)
+  // ── 콘텐츠 저장 ──────────────────────────────
+  // P1에서는 아카이브 성공 전에 원본이 제거되는 위험을 막기 위해 모든 날짜를 유지한다.
+  // Python으로 치면: def save_events(date, evs): update(); await save_page()
   const save = useCallback((
     date: string,
     update: PlanEvent[] | ((latestEvents: PlanEvent[]) => PlanEvent[]),
   ) => {
-    commitPlannerData(latest => {
+    const committed = commitPlannerData(latest => {
       const latestEvents = latest.eventsByDate[date] ?? []
       return {
         eventsByDate: {
@@ -836,11 +841,9 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         },
         reviewByDate: latest.reviewByDate ?? {},
       }
-    }, true)
-    // 이벤트 변경은 즉시 서버에 flush — 500ms 디바운스 대기 중 HMR/탭닫기로 유실 방지
-    // Python으로 치면: await save_page_now(page_id)  # fire-and-forget
-    savePageNow(pageId).catch(() => {})
-  }, [commitPlannerData, savePageNow, pageId])
+    })
+    if (committed) void persistPlannerPage()
+  }, [commitPlannerData, persistPlannerPage])
 
   // ── 이벤트 배열 시간순 정렬 헬퍼 ─────────────
   // Python으로 치면: def sort_events(evs): return sorted(evs, key=lambda e: e.start)
@@ -1241,7 +1244,7 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
 
     // 이동 날짜에 autoApply=true 이면 누락된 루틴만 보충 적용
     const latestData = readLatestPlannerData()
-    const destEvents = latestData.eventsByDate[ds] ?? []
+    const destEvents = latestData.data.eventsByDate[ds] ?? []
     if (plannerAutoApply) {
       const routineEvs = routineEventsForDate(ds)
       const existing = new Set(destEvents.map(e => `${e.title}|${e.start}`))
@@ -1270,12 +1273,13 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
     if (reviewTimerRef.current) clearTimeout(reviewTimerRef.current)
     reviewTimerRef.current = setTimeout(() => {
       reviewTimerRef.current = null
-      commitPlannerData(latest => ({
+      const committed = commitPlannerData(latest => ({
         eventsByDate: latest.eventsByDate,
         reviewByDate: { ...(latest.reviewByDate ?? {}), [date]: text },
       }))
+      if (committed) void persistPlannerPage()
     }, 300)
-  }, [commitPlannerData])
+  }, [commitPlannerData, persistPlannerPage])
 
   // ── 이벤트 단일 필드 업데이트 헬퍼 ──────────
   // immediate=true: 에너지 클릭 등 즉각 반응 필요한 경우 디바운스 없이 저장
@@ -1361,11 +1365,11 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         }
         // 이벤트: 기존 eventsByDate와 병합 (날짜 기준, 중복 시 가져온 것 우선)
         if (json.eventsByDate && typeof json.eventsByDate === 'object') {
-          commitPlannerData(latest => ({
+          const committed = commitPlannerData(latest => ({
             eventsByDate: { ...latest.eventsByDate, ...json.eventsByDate },
             reviewByDate: latest.reviewByDate ?? {},
           }))
-          savePageNow(pageId).catch(() => {})
+          if (committed) void persistPlannerPage()
         }
         alert(routinesImported
           ? '가져오기 완료! 루틴과 이벤트가 복원됐습니다.'
@@ -1547,6 +1551,12 @@ export default function DayPlannerBlock({ block, pageId }: DayPlannerBlockProps)
         <span className="absolute top-1.5 right-1.5 z-10 text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full pointer-events-none select-none">
           🤖 AI 대상
         </span>
+      )}
+
+      {!parsedPlanner.writable && (
+        <div className="border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          일정 원본 형식을 안전하게 읽을 수 없어 편집을 잠갔습니다. 일정 복구 센터에서 먼저 백업해 주세요.
+        </div>
       )}
 
       {/* ── 헤더 ─────────────────────────────── */}

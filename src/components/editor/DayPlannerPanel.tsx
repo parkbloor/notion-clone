@@ -11,15 +11,19 @@
 
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
 import { X, ChevronLeft, ChevronRight, Plus, Check, Clock } from 'lucide-react'
 import { PlanEvent } from '@/types/block'
-import { PlannerData } from './DayPlannerBlock'
+import type { PlannerData } from '@/lib/plannerData'
 import { useLocale } from '@/locales'
 import { findBlockById, findBlocksByType } from '@/lib/blockTree'
 import { revealBlockAncestors } from '@/lib/blockReveal'
+import { parsePlannerData } from '@/lib/plannerData'
+import { toast } from 'sonner'
+import { plannerStoreApi, type StoredPlannerEvent } from '@/lib/plannerStore'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
 
 // ── 오늘 날짜 문자열 ─────────────────────────
 function todayStr(): string {
@@ -88,6 +92,8 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
     () => pages.find(page => page.id === plannerHomePageId) ?? null,
     [pages, plannerHomePageId],
   )
+  const plannerStoreMode = usePlannerStoreMode()
+  const [sqliteEvents, setSqliteEvents] = useState<StoredPlannerEvent[]>([])
 
   // ── 현재 날짜 ────────────────────────────────
   const [date, setDate] = useState(todayStr())
@@ -99,18 +105,62 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
   const [formEnd,   setFormEnd]   = useState('10:00')
   const [formColor, setFormColor] = useState('blue')
 
+  const loadSqliteEvents = useCallback(async (targetDate: string) => {
+    try {
+      setSqliteEvents(await plannerStoreApi.listEvents(targetDate, targetDate))
+    } catch {
+      toast.error('전용 일정 저장소에서 일정을 불러오지 못했습니다.')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (plannerStoreMode === 'sqlite') void loadSqliteEvents(date)
+  }, [date, loadSqliteEvents, plannerStoreMode])
+
+  const persistPage = useCallback(async function persist(targetPageId: string): Promise<void> {
+    const toastId = `planner-panel-save-${targetPageId}`
+    const saved = await savePageNow(targetPageId)
+    if (saved) {
+      toast.dismiss(toastId)
+      return
+    }
+    toast.error('일정을 서버에 저장하지 못했습니다.', {
+      id: toastId,
+      duration: Infinity,
+      description: '입력한 일정은 아직 미저장 상태입니다.',
+      action: { label: '다시 시도', onClick: () => { void persist(targetPageId) } },
+    })
+  }, [savePageNow])
+
   // ── 일정 홈 메모에서 해당 날짜의 dayplanner 이벤트 수집 ──
   // Python으로 치면: events = [e for page in [planner_home] for block in page.blocks if block.type=='dayplanner'
   //                              for e in json.loads(block.content).events if data.date == target_date]
   const eventsForDate = useMemo(() => {
     const result: { event: PlanEvent; pageId: string; blockId: string; pageTitle: string; pageIcon: string }[] = []
+    if (plannerStoreMode === 'loading' || plannerStoreMode === 'unavailable') return result
+    if (plannerStoreMode === 'sqlite') {
+      for (const event of sqliteEvents) {
+        result.push({
+          event: {
+            id: event.id, title: event.title, start: event.start, end: event.end,
+            color: event.color, done: event.done, scheduled: event.scheduled ?? undefined,
+            clockIn: event.clockIn ?? undefined, clockOut: event.clockOut ?? undefined,
+            elapsed: event.elapsed ?? undefined, log: event.log ?? undefined,
+            subtasks: event.subtasks as PlanEvent['subtasks'], energy: event.energy ?? undefined,
+            source: event.source === 'routine' ? 'routine' : event.source === 'manual' ? 'manual' : undefined,
+            routineId: event.routineId ?? undefined, revision: event.revision,
+          },
+          pageId: '', blockId: '', pageTitle: '전용 일정 저장소', pageIcon: '🗄️',
+        })
+      }
+      return result.sort((a, b) => a.event.start.localeCompare(b.event.start))
+    }
     if (!plannerHomePage) return result
     for (const page of [plannerHomePage]) {
       for (const block of findBlocksByType(page.blocks, 'dayplanner')) {
         try {
-          const data: PlannerData = JSON.parse(block.content || '{}')
-          // 새 구조(eventsByDate)와 구버전(date+events) 모두 대응
-          const dayEvents: PlanEvent[] = data.eventsByDate?.[date] ?? []
+          const data = parsePlannerData(block.content).data
+          const dayEvents: PlanEvent[] = data.eventsByDate[date] ?? []
           for (const ev of dayEvents) {
             result.push({
               event: ev,
@@ -125,26 +175,49 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
     }
     // start 시간순 정렬
     return result.sort((a, b) => a.event.start.localeCompare(b.event.start))
-  }, [plannerHomePage, date])
+  }, [plannerHomePage, date, plannerStoreMode, sqliteEvents])
 
   // ── 완료 토글 ────────────────────────────────
   // Python으로 치면: def toggle_done(page_id, block_id, event_id): ...
-  const toggleDone = useCallback((pageId: string, blockId: string, eventId: string) => {
+  const toggleDone = useCallback(async (pageId: string, blockId: string, eventId: string) => {
+    if (plannerStoreMode === 'sqlite') {
+      const event = sqliteEvents.find(item => item.id === eventId)
+      if (!event) return
+      try {
+        const updated = await plannerStoreApi.updateEvent({
+          id: event.id, date: event.date, title: event.title, start: event.start, end: event.end,
+          color: event.color, done: !event.done, scheduled: event.scheduled,
+          clockIn: event.clockIn, clockOut: event.clockOut, elapsed: event.elapsed,
+          log: event.log, subtasks: event.subtasks, energy: event.energy,
+          source: event.source, routineId: event.routineId,
+        }, event.revision)
+        setSqliteEvents(current => current.map(item => item.id === updated.id ? updated : item))
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '일정 완료 상태를 저장하지 못했습니다.')
+        void loadSqliteEvents(date)
+      }
+      return
+    }
     const page  = usePageStore.getState().pages.find(p => p.id === pageId)
     const block = findBlockById(page?.blocks, blockId)
     if (!block) return
     try {
-      const data: PlannerData = JSON.parse(block.content || '{}')
-      const dayEvents = (data.eventsByDate?.[date] ?? []).map(
+      const parsed = parsePlannerData(block.content)
+      if (!parsed.writable) {
+        toast.error('손상된 일정 원본은 덮어쓸 수 없습니다. 복구 센터에서 먼저 백업해 주세요.')
+        return
+      }
+      const data: PlannerData = parsed.data
+      const dayEvents = (data.eventsByDate[date] ?? []).map(
         e => e.id === eventId ? { ...e, done: !e.done } : e
       )
       updateBlock(pageId, blockId, JSON.stringify({
         eventsByDate: { ...(data.eventsByDate ?? {}), [date]: dayEvents },
         reviewByDate: data.reviewByDate ?? {},
       }), true)
-      void savePageNow(pageId)
+      void persistPage(pageId)
     } catch { /* 무시 */ }
-  }, [date, updateBlock, savePageNow])
+  }, [date, updateBlock, persistPage, plannerStoreMode, sqliteEvents, loadSqliteEvents])
 
   const revealPlanner = useCallback((pageId: string, blockId: string) => {
     const page = usePageStore.getState().pages.find(p => p.id === pageId)
@@ -158,8 +231,9 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
   // ── 빠른 추가: 일정 홈 메모의 dayplanner 블록에 이벤트 추가 ──
   // 일정 홈 안에 블록이 없으면 사용자가 빠른 추가를 누른 시점에만 생성한다.
   // Python으로 치면: def quick_add(title, start, end, color): ...
-  const handleQuickAdd = useCallback(() => {
-    if (!formTitle.trim() || !plannerHomePage) return
+  const handleQuickAdd = useCallback(async () => {
+    if (!formTitle.trim()) return
+    if (plannerStoreMode === 'loading' || plannerStoreMode === 'unavailable') return
     const newEvent: PlanEvent = {
       id:    crypto.randomUUID(),
       title: formTitle.trim(),
@@ -170,6 +244,19 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       source: 'manual',
     }
 
+    if (plannerStoreMode === 'sqlite') {
+      try {
+        const created = await plannerStoreApi.createEvent({ ...newEvent, date })
+        setSqliteEvents(current => [...current, created].sort((a, b) => a.start.localeCompare(b.start)))
+        setFormTitle('')
+        setShowForm(false)
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '일정을 저장하지 못했습니다.')
+      }
+      return
+    }
+    if (!plannerHomePage) return
+
     // 일정 홈에서 dayplanner 블록 찾기 (날짜 무관 — 블록 타입으로 검색)
     const targetPageId = plannerHomePage.id
     const page = usePageStore.getState().pages.find(p => p.id === targetPageId)
@@ -178,13 +265,18 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
     if (existingBlock) {
       // 기존 블록에 이벤트 추가 (새 eventsByDate 구조)
       try {
-        const data: PlannerData = JSON.parse(existingBlock.content || '{}')
-        const dayEvs = data.eventsByDate?.[date] ?? []
+        const parsed = parsePlannerData(existingBlock.content)
+        if (!parsed.writable) {
+          toast.error('손상된 일정 원본은 덮어쓸 수 없습니다. 복구 센터에서 먼저 백업해 주세요.')
+          return
+        }
+        const data: PlannerData = parsed.data
+        const dayEvs = data.eventsByDate[date] ?? []
         updateBlock(targetPageId, existingBlock.id, JSON.stringify({
           eventsByDate: { ...(data.eventsByDate ?? {}), [date]: [...dayEvs, newEvent] },
           reviewByDate: data.reviewByDate ?? {},
         }), true)
-        void savePageNow(targetPageId)
+        void persistPage(targetPageId)
       } catch { /* 무시 */ }
     } else {
       // 새 dayplanner 블록 추가
@@ -194,13 +286,13 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       if (newBlockId) {
         updateBlockType(targetPageId, newBlockId, 'dayplanner')
         updateBlock(targetPageId, newBlockId, JSON.stringify({ eventsByDate: { [date]: [newEvent] } }), true)
-        void savePageNow(targetPageId)
+        void persistPage(targetPageId)
       }
     }
 
     setFormTitle('')
     setShowForm(false)
-  }, [formTitle, formStart, formEnd, formColor, date, plannerHomePage, updateBlock, updateBlockType, addBlock, savePageNow])
+  }, [formTitle, formStart, formEnd, formColor, date, plannerHomePage, updateBlock, updateBlockType, addBlock, persistPage, plannerStoreMode])
 
   // ── 현재 시각 기준 진행 중 이벤트 판별 ──────
   // Python으로 치면: def is_ongoing(event): return start <= now <= end
@@ -229,9 +321,14 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
         </button>
       </div>
 
-      {!plannerHomePage && (
+      {plannerStoreMode === 'legacy' && !plannerHomePage && (
         <div className="px-3 py-2 border-b border-amber-100 bg-amber-50 text-[10px] leading-4 text-amber-700">
           {t.settings.vaultFeatures.homePageNotSet}
+        </div>
+      )}
+      {plannerStoreMode === 'unavailable' && (
+        <div className="px-3 py-2 border-b border-red-100 bg-red-50 text-[10px] leading-4 text-red-700">
+          {t.settings.vaultFeatures.plannerStoreUnavailable}
         </div>
       )}
 
@@ -273,7 +370,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
             <p className="text-xs text-gray-400 mb-3">
               {isToday ? t.planner.day.noEventsToday : t.planner.day.noEventsDay}
             </p>
-            <button type="button" onClick={() => setShowForm(true)} disabled={!plannerHomePage}
+            <button type="button" onClick={() => setShowForm(true)} disabled={plannerStoreMode === 'loading' || plannerStoreMode === 'unavailable' || (plannerStoreMode !== 'sqlite' && !plannerHomePage)}
               className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1 mx-auto transition-colors">
               <Plus size={12} /> {t.planner.day.addEvent}
             </button>
@@ -293,12 +390,12 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
                     barCls,
                     ongoing ? 'ring-2 ring-blue-300 ring-offset-1' : '',
                   ].join(' ')}
-                  onClick={() => { revealPlanner(pageId, blockId); pushRecentPage(pageId) }}
+                  onClick={() => { if (pageId && blockId) { revealPlanner(pageId, blockId); pushRecentPage(pageId) } }}
                 >
                   <div className="flex items-start gap-2">
                     {/* 완료 토글 */}
                     <button type="button"
-                      onClick={e => { e.stopPropagation(); toggleDone(pageId, blockId, event.id) }}
+                      onClick={e => { e.stopPropagation(); void toggleDone(pageId, blockId, event.id) }}
                       className={[
                         'shrink-0 w-3.5 h-3.5 rounded border mt-0.5 flex items-center justify-center transition-all',
                         event.done ? `${dotCls} border-transparent` : 'border-gray-300',
@@ -344,7 +441,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
               placeholder={t.planner.day.eventNamePlaceholder}
               value={formTitle}
               onChange={e => setFormTitle(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') handleQuickAdd(); if (e.key === 'Escape') setShowForm(false) }}
+              onKeyDown={e => { if (e.key === 'Enter') void handleQuickAdd(); if (e.key === 'Escape') setShowForm(false) }}
               className="text-xs border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-400 bg-white w-full"
             />
             <div className="flex items-center gap-1">
@@ -362,7 +459,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
               ))}
             </div>
             <div className="flex gap-1.5">
-              <button type="button" onClick={handleQuickAdd} disabled={!plannerHomePage}
+              <button type="button" onClick={() => void handleQuickAdd()} disabled={plannerStoreMode === 'loading' || plannerStoreMode === 'unavailable' || (plannerStoreMode !== 'sqlite' && !plannerHomePage)}
                 className="flex-1 text-[11px] bg-blue-500 hover:bg-blue-600 text-white px-2 py-1.5 rounded transition-colors">
                 {t.planner.day.addBtn}
               </button>
@@ -371,7 +468,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
                 {t.planner.day.cancelBtn}
               </button>
             </div>
-            {!plannerHomePage && (
+            {plannerStoreMode !== 'sqlite' && !plannerHomePage && (
               <p className="text-[10px] text-amber-500">{t.settings.vaultFeatures.homePageNotSet}</p>
             )}
           </div>
@@ -381,7 +478,7 @@ export default function DayPlannerPanel({ onClose }: DayPlannerPanelProps) {
       {/* ── 하단 빠른 추가 버튼 ─────────────── */}
       {!showForm && eventsForDate.length > 0 && (
         <div className="px-3 py-2.5 border-t border-gray-100 shrink-0">
-          <button type="button" onClick={() => setShowForm(true)} disabled={!plannerHomePage}
+          <button type="button" onClick={() => setShowForm(true)} disabled={plannerStoreMode === 'loading' || plannerStoreMode === 'unavailable' || (plannerStoreMode !== 'sqlite' && !plannerHomePage)}
             className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-500 hover:text-blue-600 py-1.5 rounded-lg hover:bg-blue-50 border border-gray-200 hover:border-blue-300 transition-colors">
             <Plus size={13} /> {t.planner.day.addEvent}
           </button>

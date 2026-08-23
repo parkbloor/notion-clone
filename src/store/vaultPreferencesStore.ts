@@ -19,6 +19,7 @@ export const DEFAULT_VAULT_PREFERENCES: VaultPreferences = {
     timeline: true,
     routines: true,
     slashPlannerBlocks: true,
+    captureDestinations: [],
   },
 }
 

@@ -7,8 +7,8 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { toast } from 'sonner'
-import { Block, Page, createBlock, createPage } from '@/types/block'
-import { api } from '@/lib/api'
+import { Block, Page, createBlock, createDailyCaptureEntriesContent, createPage, parseDailyCaptureContent } from '@/types/block'
+import { api, captureTransferApi } from '@/lib/api'
 import { parseTemplateContent } from '@/lib/templateParser'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
@@ -32,6 +32,58 @@ function cloneBlock(block: Block, now: string = new Date().toISOString()): Block
     updatedAt: now,
     children: block.children?.map(c => cloneBlock(c, now)),
   }
+}
+
+// 분류 응답을 기다리는 동안 원본 포스트잇을 편집했으면 현재 본문은 유지하고,
+// 서버가 확정한 분류 정보만 아직 존재하는 같은 항목 ID에 합친다.
+// Python으로 치면: local_entry.transfer = server_entry.transfer if ids_match else local_entry.transfer
+function mergeCaptureTransferIntoLocalBlocks(localBlocks: Block[], serverBlocks: Block[], sourceBlockId: string): Block[] {
+  const serverBlock = findBlockById(serverBlocks, sourceBlockId)
+  if (!serverBlock) return localBlocks
+  const serverCapture = parseDailyCaptureContent(serverBlock.content)
+  const serverEntries = new Map(serverCapture.entries.map(entry => [entry.id, entry]))
+
+  return localBlocks.map(block => {
+    if (block.id === sourceBlockId && block.type === 'dailycapture') {
+      const localCapture = parseDailyCaptureContent(block.content)
+      const mergedEntries = localCapture.entries.map(entry => {
+        const serverEntry = serverEntries.get(entry.id)
+        return serverEntry?.transfer ? { ...entry, transfer: serverEntry.transfer } : entry
+      })
+      return {
+        ...block,
+        content: createDailyCaptureEntriesContent(localCapture.date, mergedEntries),
+        updatedAt: serverBlock.updatedAt,
+      }
+    }
+    return block.children?.length
+      ? { ...block, children: mergeCaptureTransferIntoLocalBlocks(block.children, serverBlocks, sourceBlockId) }
+      : block
+  })
+}
+
+// 분류 응답 중 대상 메모가 편집되었으면 기존 로컬 블록은 그대로 두고,
+// 서버에서 새로 생긴 날짜 제목과 분류 항목만 서버 순서에 맞춰 끼워 넣는다.
+// Python으로 치면: merged.insert(after_previous_server_block, added_block)
+function mergeAddedTransferBlocks(localBlocks: Block[], sentBlocks: Block[], serverBlocks: Block[]): Block[] {
+  const sentIds = new Set(sentBlocks.map(block => block.id))
+  const merged = [...localBlocks]
+  const serverOrder = serverBlocks.map(block => block.id)
+
+  serverBlocks.forEach(serverBlock => {
+    if (sentIds.has(serverBlock.id) || merged.some(block => block.id === serverBlock.id)) return
+    const serverIndex = serverOrder.indexOf(serverBlock.id)
+    let insertIndex = 0
+    for (let index = serverIndex - 1; index >= 0; index -= 1) {
+      const previousIndex = merged.findIndex(block => block.id === serverOrder[index])
+      if (previousIndex !== -1) {
+        insertIndex = previousIndex + 1
+        break
+      }
+    }
+    merged.splice(insertIndex, 0, serverBlock)
+  })
+  return merged
 }
 
 // -----------------------------------------------
@@ -726,6 +778,90 @@ export const usePageStore = create<PageStore>()(
     // 이미지/비디오 업로드 완료 후 디바운스 없이 즉시 서버 저장
     // Python으로 치면: async def save_page_now(page_id): await api.save(page_id)
     savePageNow: (pageId) => saveNow(pageId, get, set),
+
+    // 포스트잇 한 줄을 같은 볼트의 목적지 메모에 서버 측으로 복사한다.
+    // 두 페이지를 먼저 즉시 저장해 stale revision으로 다른 창의 변경을 덮지 않는다.
+    transferDailyCaptureEntry: async ({ sourcePageId, sourceBlockId, sourceEntryId, destinationPageId, kind, destinationVaultName, destinationRevision }) => {
+      const sourcePage = get().pages.find(page => page.id === sourcePageId)
+      const destinationPage = destinationVaultName ? null : get().pages.find(page => page.id === destinationPageId)
+      if (!sourcePage || (!destinationVaultName && !destinationPage)) throw new Error('원본 또는 대상 메모를 찾을 수 없습니다.')
+      if (!destinationVaultName && sourcePageId === destinationPageId) throw new Error('포스트잇이 있는 메모에는 다시 분류할 수 없습니다.')
+
+      const sourceBlock = findBlockById(sourcePage.blocks, sourceBlockId)
+      if (!sourceBlock || sourceBlock.type !== 'dailycapture') throw new Error('원본 포스트잇 기록을 찾을 수 없습니다.')
+      const capture = parseDailyCaptureContent(sourceBlock.content)
+      if (!capture.entries.some(entry => entry.id === sourceEntryId)) throw new Error('포스트잇 항목을 찾을 수 없습니다.')
+
+      // 기존 version 1 기록은 사용자가 실제로 분류하는 이 블록에서만 version 2로 승격한다.
+      if (capture.version === 1) {
+        get().updateBlock(
+          sourcePageId,
+          sourceBlockId,
+          createDailyCaptureEntriesContent(capture.date, capture.entries),
+          true,
+        )
+      }
+      if (!await get().savePageNow(sourcePageId)) throw new Error('원본 포스트잇을 먼저 저장하지 못했습니다.')
+      if (destinationPage && !await get().savePageNow(destinationPageId)) throw new Error('대상 메모를 먼저 저장하지 못했습니다.')
+
+      const currentSource = get().pages.find(page => page.id === sourcePageId)
+      const currentDestination = destinationVaultName ? null : get().pages.find(page => page.id === destinationPageId)
+      if (!currentSource || (!destinationVaultName && !currentDestination)) throw new Error('전송 준비 중 메모 상태가 변경되었습니다.')
+      // API 대기 중 편집 여부를 판단할 불변 스냅샷을 남긴다.
+      // Python으로 치면: sent_source = deepcopy(current_source)
+      const sentSource = structuredClone(currentSource)
+      const sentDestination = currentDestination ? structuredClone(currentDestination) : null
+      const request = {
+        sourcePageId,
+        sourceBlockId,
+        sourceEntryId,
+        destinationPageId,
+        sourceRevision: currentSource.revision ?? 0,
+        destinationRevision: destinationVaultName ? destinationRevision ?? 0 : currentDestination?.revision ?? 0,
+        kind,
+      }
+      const result = destinationVaultName
+        ? await captureTransferApi.transferAcrossVault({ ...request, destinationVaultName })
+        : await captureTransferApi.transfer(request)
+
+      const latestSource = get().pages.find(page => page.id === sourcePageId)
+      const latestDestination = destinationVaultName ? null : get().pages.find(page => page.id === destinationPageId)
+      const sourceChangedDuringTransfer = Boolean(latestSource && JSON.stringify(latestSource) !== JSON.stringify(sentSource))
+      const destinationChangedDuringTransfer = Boolean(
+        latestDestination && sentDestination && JSON.stringify(latestDestination) !== JSON.stringify(sentDestination),
+      )
+      set((state) => {
+        const sourceIndex = state.pages.findIndex(page => page.id === sourcePageId)
+        const destinationIndex = destinationVaultName ? -1 : state.pages.findIndex(page => page.id === destinationPageId)
+        if (sourceIndex !== -1) {
+          const local = state.pages[sourceIndex]
+          state.pages[sourceIndex] = sourceChangedDuringTransfer
+            ? {
+              ...local,
+              revision: result.sourcePage.revision,
+              updatedAt: result.sourcePage.updatedAt,
+              blocks: mergeCaptureTransferIntoLocalBlocks(local.blocks, result.sourcePage.blocks, sourceBlockId),
+            }
+            : result.sourcePage
+        }
+        if (destinationIndex !== -1) {
+          const local = state.pages[destinationIndex]
+          state.pages[destinationIndex] = destinationChangedDuringTransfer && sentDestination
+            ? {
+              ...local,
+              revision: result.destinationPage.revision,
+              updatedAt: result.destinationPage.updatedAt,
+              blocks: mergeAddedTransferBlocks(local.blocks, sentDestination.blocks, result.destinationPage.blocks),
+            }
+            : result.destinationPage
+        }
+        state.saveStatus = sourceChangedDuringTransfer || destinationChangedDuringTransfer ? 'unsaved' : 'saved'
+      })
+      // 합쳐 둔 로컬 편집은 서버가 올려 준 새 revision 위에서 다시 저장한다.
+      if (sourceChangedDuringTransfer) scheduleSave(sourcePageId, get, set)
+      if (destinationChangedDuringTransfer && !destinationVaultName) scheduleSave(destinationPageId, get, set)
+      return result
+    },
 
     updateBlockType: (pageId, blockId, type) => {
       const typePage = get().pages.find(p => p.id === pageId)

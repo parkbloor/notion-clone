@@ -20,6 +20,14 @@ import { plannerApi } from '@/lib/api'
 let routineLoadGeneration = 0
 let routineDataIsInvalid = false
 
+function persistAiSecret(provider: 'openai' | 'anthropic', value: string): void {
+  if (typeof window === 'undefined') return
+  const request = window.electronAPI?.setSecret?.(provider, value)
+  // Keep the in-memory setting usable even if the OS key store is temporarily
+  // unavailable, but always observe the rejection to avoid an unhandled promise.
+  if (request) void request.catch(() => undefined)
+}
+
 function isInvalidRoutineDataError(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   return error.message.startsWith('루틴 응답') || /^루틴 \d+번/.test(error.message)
@@ -681,9 +689,18 @@ export const useSettingsStore = create<SettingsStore>()(
       // Python으로 치면: def set_ai_provider(self, p): self.ai_provider = p
       setAiProvider:      (provider) => { set((state) => { state.aiProvider = provider }) },
       setAiModel:         (model)    => { set((state) => { state.aiModel = model }) },
-      setAiApiKey:        (key)      => { set((state) => { state.aiApiKey = key }) },
-      setOpenaiApiKey:    (key)      => { set((state) => { state.openaiApiKey = key }) },
-      setAnthropicApiKey: (key)      => { set((state) => { state.anthropicApiKey = key }) },
+      setAiApiKey:        (key)      => {
+        set((state) => { state.aiApiKey = key })
+        persistAiSecret('openai', key)
+      },
+      setOpenaiApiKey:    (key)      => {
+        set((state) => { state.openaiApiKey = key })
+        persistAiSecret('openai', key)
+      },
+      setAnthropicApiKey: (key)      => {
+        set((state) => { state.anthropicApiKey = key })
+        persistAiSecret('anthropic', key)
+      },
       setOllamaUrl:       (url)      => { set((state) => { state.ollamaUrl = url }) },
     })),
     {
@@ -695,7 +712,14 @@ export const useSettingsStore = create<SettingsStore>()(
       // Routines are backed by the active vault, not app-wide localStorage.
       // Persisting them here can leak one vault's routines into another while
       // the backend is unavailable.
-      partialize: (state) => ({ ...state, isFocusMode: false, plannerRoutines: [] }),
+      partialize: (state) => ({
+        ...state,
+        isFocusMode: false,
+        plannerRoutines: [],
+        aiApiKey: undefined,
+        openaiApiKey: undefined,
+        anthropicApiKey: undefined,
+      }),
 
       // SSR 환경에서 localStorage 접근 방지 — 클라이언트에서 명시적으로 rehydrate() 호출
       // Python으로 치면: if not is_server: load_from_storage()
@@ -715,7 +739,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // ── 스토어 버전 관리 ────────────────────────
       // 새 키 추가 시: version 증가 + migrate에 해당 버전 블록 추가
       // Python으로 치면: SCHEMA_VERSION = 1; def migrate(old, from_ver): ...
-      version: 1,
+      version: 2,
 
       // migrate: 구버전 저장값 → 현재 구조로 안전하게 업그레이드
       // 전략: "덮어쓰기 금지" — 기존 사용자 설정은 반드시 보존하고 누락된 키만 채움
@@ -761,6 +785,12 @@ export const useSettingsStore = create<SettingsStore>()(
 
           // customLayoutTemplates 누락 시 빈 배열
           if (!Array.isArray(state.customLayoutTemplates)) state.customLayoutTemplates = []
+        }
+
+        if (fromVersion < 2) {
+          delete state.aiApiKey
+          delete state.openaiApiKey
+          delete state.anthropicApiKey
         }
 
         return state

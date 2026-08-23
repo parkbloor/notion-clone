@@ -305,7 +305,44 @@ export default function Home() {
   // Python으로 치면: def on_mount(self): self.settings.load(); self.apply_settings()
   // -----------------------------------------------
   useEffect(() => {
-    useSettingsStore.persist.rehydrate()
+    async function hydrateSettings() {
+      // v1까지 localStorage에 저장되던 AI 키를 Electron의 OS 암호화 저장소로
+      // 먼저 옮긴 뒤 v2 설정 마이그레이션이 평문 값을 제거하도록 한다.
+      try {
+        const raw = localStorage.getItem('notion-clone-settings')
+        const legacyState = raw ? JSON.parse(raw)?.state : undefined
+        const setSecret = window.electronAPI?.setSecret
+        if (legacyState && setSecret) {
+          const legacyOpenai = String(legacyState.openaiApiKey || legacyState.aiApiKey || '')
+          const legacyAnthropic = String(legacyState.anthropicApiKey || '')
+          if (legacyOpenai) await setSecret('openai', legacyOpenai)
+          if (legacyAnthropic) await setSecret('anthropic', legacyAnthropic)
+        }
+      } catch {
+        // 손상된 구 설정이나 사용할 수 없는 OS 저장소가 앱 시작을 막지 않게 한다.
+      }
+
+      await useSettingsStore.persist.rehydrate()
+
+      const getSecret = window.electronAPI?.getSecret
+      if (getSecret) {
+        try {
+          const [openaiApiKey, anthropicApiKey] = await Promise.all([
+            getSecret('openai'),
+            getSecret('anthropic'),
+          ])
+          useSettingsStore.setState({
+            openaiApiKey: openaiApiKey ?? '',
+            anthropicApiKey: anthropicApiKey ?? '',
+            aiApiKey: '',
+          })
+        } catch {
+          // 키 읽기 실패 시 빈 메모리 값으로 유지한다.
+        }
+      }
+    }
+
+    void hydrateSettings()
     // vault 파일에서 루틴 로드 (localStorage보다 파일 우선)
     // 백엔드 미실행 시 기존 localStorage 값 유지 (내부에서 catch 처리됨)
     // Python으로 치면: self.settings.load_routines_from_file()

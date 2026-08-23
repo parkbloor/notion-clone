@@ -42,6 +42,9 @@ export default function FootnoteView({ node, editor, getPos }: NodeViewProps) {
   }
 
   const text = (node.attrs.text as string) || ''
+  // 분류 출처는 블록마다 번호가 다시 시작되는 일반 각주와 구분해 고정 라벨로 표시한다.
+  // Python으로 치면: label = '출처' if is_capture_source else str(footnote_number)
+  const label = text.startsWith('작성 ') && text.includes(' · 출처:') ? '출처' : String(footnoteNumber)
 
   return (
     // NodeViewWrapper: Tiptap이 노드 경계를 인식하는 래퍼 (inline 배치)
@@ -53,7 +56,7 @@ export default function FootnoteView({ node, editor, getPos }: NodeViewProps) {
         onMouseLeave={() => setShowTooltip(false)}
         title={text}
       >
-        [{footnoteNumber}]
+        [{label}]
 
         {/* 호버 툴팁 — 각주 본문 표시 */}
         {showTooltip && text && (

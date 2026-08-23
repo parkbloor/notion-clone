@@ -17,17 +17,6 @@ import { notifyVaultListChanged } from '@/lib/vaultGroups'
 // Windows에서 localhost가 IPv6(::1)로 해석되는 문제 방지 — api.ts와 동일하게 127.0.0.1 사용
 const BASE_URL = 'http://127.0.0.1:8000'
 
-declare global {
-  interface Window {
-    electronAPI?: {
-      getVersion?: () => Promise<string>
-      selectFolder?: () => Promise<string | null>
-      openExternalUrl?: (url: string) => Promise<boolean>
-      startImageDrag?: (payload: { url: string; name: string }) => void
-    }
-  }
-}
-
 // 볼트 정보 타입
 // Python으로 치면: @dataclass class VaultInfo: name, path, page_count, initialized, is_current
 interface VaultEntry {
@@ -204,6 +193,7 @@ export default function StorageTab({ onClose }: { onClose?: () => void }) {
       setRenamingVault(null)
       setRenameVaultName('')
       await loadInfo()
+      notifyVaultListChanged()
       setRenameVaultMsg({ type: 'ok', text: s.renameVaultSuccess })
     } catch {
       setRenameVaultMsg({ type: 'error', text: s.errorServer })

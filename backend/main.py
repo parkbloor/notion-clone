@@ -26,7 +26,7 @@ from backend.core import (
     resolve_trash_name, save_index, save_trash_index, now_iso,
     inspect_vault_integrity, recover_pending_moves,
 )
-from backend.routers import categories, cloud_sync, export_import, history, pages, planner, search, system, templates, vault_preferences, ai, trash
+from backend.routers import ai, capture_transfer, categories, cloud_sync, export_import, history, pages, planner, planner_migration, planner_recovery, planner_store, search, system, templates, trash, vault_preferences
 
 # ── 로깅 설정 ──────────────────────────────────
 # Python으로 치면: logging.basicConfig(); handler = MemoryLogHandler()
@@ -179,21 +179,13 @@ app = FastAPI(title="노션 클론 백엔드", version="2.0.0", lifespan=lifespa
 
 # ── CORS 설정 ──────────────────────────────────
 # Next.js 개발 서버 요청을 허용
-# localhost, loopback, 사설망 개발 주소의 3000 포트를 허용
-# 브라우저에서 PC의 LAN 주소(예: 172.30.1.57)로 열어도 API 요청이 CORS에 막히지 않게 함
+# 데스크톱 앱과 로컬 개발 서버의 loopback origin만 허용한다.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_origin_regex=(
-        r"^http://(?:"
-        r"10(?:\.\d{1,3}){3}|"
-        r"192\.168(?:\.\d{1,3}){2}|"
-        r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}"
-        r"):3000$"
-    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -225,7 +217,11 @@ app.include_router(trash.router)
 app.include_router(history.router)
 app.include_router(cloud_sync.router)
 app.include_router(planner.router)
+app.include_router(planner_recovery.router)
+app.include_router(planner_store.router)
+app.include_router(planner_migration.router)
 app.include_router(vault_preferences.router)
+app.include_router(capture_transfer.router)
 
 
 # ── PyInstaller 번들 진입점 ─────────────────────────

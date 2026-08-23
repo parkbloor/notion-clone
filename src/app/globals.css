@@ -1271,8 +1271,12 @@ html.dark .dot-grid-bg::before {
   font-weight: 400;
   padding: 6px 10px;
   border-radius: 6px;
-  white-space: pre-wrap;
-  max-width: 280px;
+  /* 짧은 각주 기준 요소의 폭에 눌려 글자가 세로로 쌓이지 않게 한다. */
+  /* Python으로 치면: tooltip_width = min(content_width, viewport_width - 32) */
+  width: max-content;
+  max-width: min(640px, calc(100vw - 32px));
+  white-space: normal;
+  overflow-wrap: anywhere;
   box-shadow: 0 4px 12px rgba(0,0,0,0.25);
   pointer-events: none;
   vertical-align: baseline;

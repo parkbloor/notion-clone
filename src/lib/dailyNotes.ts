@@ -125,6 +125,17 @@ export function makePostitDailyTemplate(_title: string, dateStr: string): Block[
   return [block]
 }
 
+// 질문이나 체크 항목을 넣지 않고, 생각나는 대로 쓸 수 있는 일기 본문만 연다.
+// Python으로 치면: return [heading(date), blank_paragraph()]
+export function makeDiaryTemplate(_title: string, dateStr: string): Block[] {
+  const date = new Date(`${dateStr}T00:00:00`)
+  const weekday = ['일', '월', '화', '수', '목', '금', '토'][date.getDay()]
+  return [
+    { ...createBlock('heading1'), content: `${dateStr} (${weekday}) 일기` },
+    createBlock('paragraph'),
+  ]
+}
+
 function usesMonthlyPostitWorkflow(): boolean {
   const planner = useVaultPreferencesStore.getState().preferences.planner
   return planner.mode === 'daily'
@@ -295,6 +306,11 @@ async function buildDailyNoteBlocks(title: string, dateStr: string): Promise<Dai
   if (vaultPlanner.mode === 'daily' && vaultPlanner.dailyNoteTemplate === 'postit') {
     const blocks = makePostitDailyTemplate(title, dateStr)
     return { blocks, focusBlockId: blocks[0]?.id ?? null }
+  }
+
+  if (vaultPlanner.mode === 'daily' && vaultPlanner.dailyNoteTemplate === 'diary') {
+    const blocks = makeDiaryTemplate(title, dateStr)
+    return { blocks, focusBlockId: blocks[1]?.id ?? null }
   }
 
   const override = settings.periodicBuiltinOverrides.daily

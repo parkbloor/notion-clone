@@ -5,6 +5,7 @@
 // =============================================
 
 import { Block, BlockType, Category, Page, PageProperty, TrashItem, CanvasBox, LayoutDescriptor, LayoutCell, LayoutTheme } from '@/types/block'
+import type { CaptureDestinationKind, CaptureTransferResult } from '@/lib/api'
 
 // -----------------------------------------------
 // PageStore: Zustand 스토어 전체 타입
@@ -124,6 +125,15 @@ export interface PageStore {
   // 이미지/비디오 업로드 직후 디바운스 없이 즉시 저장
   // Python으로 치면: def save_page_now(page_id): api.save(page_id)
   savePageNow: (pageId: string) => Promise<boolean>
+  transferDailyCaptureEntry: (args: {
+    sourcePageId: string
+    sourceBlockId: string
+    sourceEntryId: string
+    destinationPageId: string
+    kind: CaptureDestinationKind
+    destinationVaultName?: string
+    destinationRevision?: number
+  }) => Promise<CaptureTransferResult>
   updateBlockType: (pageId: string, blockId: string, type: BlockType) => void
   deleteBlock: (pageId: string, blockId: string) => void
   moveBlock: (pageId: string, fromIndex: number, toIndex: number) => void

@@ -56,8 +56,7 @@ win:
       arch:
         - x64
   # 코드 서명 비활성화 (개인용 빌드, 인증서 없음)
-  # → winCodeSign 다운로드 및 심볼릭 링크 오류 방지
-  signingHashAlgorithms: []
+  # → scripts/build-electron.js의 CSC_IDENTITY_AUTO_DISCOVERY=false로 처리
   # 아이콘 파일 (없으면 Electron 기본 아이콘 사용)
   # icon: electron/assets/icon.ico
 

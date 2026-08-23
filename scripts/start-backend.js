@@ -10,7 +10,8 @@ const python = process.platform === 'win32'
   ? path.join(root, '.venv', 'Scripts', 'python.exe')
   : path.join(root, '.venv', 'bin', 'python')
 
-const proc = spawn(python, ['-m', 'uvicorn', 'backend.main:app', '--host', '0.0.0.0', '--port', '8000'], {
+// 로컬 데스크톱 앱의 데이터 API이므로 외부 LAN 인터페이스에 노출하지 않는다.
+const proc = spawn(python, ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', '8000'], {
   stdio: 'inherit',
   cwd: root,
 })

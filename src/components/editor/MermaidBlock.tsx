@@ -8,6 +8,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useId, useCallback } from 'react'
+import DOMPurify from 'dompurify'
 import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { useLocale } from '@/locales'
@@ -83,11 +84,15 @@ export default function MermaidBlock({ block, pageId }: MermaidBlockProps) {
         mermaid.initialize({
           startOnLoad: false,
           theme: 'default',
-          securityLevel: 'loose',
+          securityLevel: 'strict',
         })
         const { svg } = await mermaid.render(currentRenderId, code.trim())
         if (!cancelled) {
-          setSvgHtml(svg)
+          const safeSvg = DOMPurify.sanitize(svg, {
+            USE_PROFILES: { svg: true, svgFilters: true },
+            FORBID_TAGS: ['script', 'foreignObject'],
+          })
+          setSvgHtml(safeSvg)
           setError('')
         }
       } catch (e) {

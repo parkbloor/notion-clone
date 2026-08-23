@@ -14,11 +14,14 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { usePageStore } from '@/store/pageStore'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useVaultPreferencesStore } from '@/store/vaultPreferencesStore'
+import { useDiaryStore } from '@/store/diaryStore'
 import { useLocale } from '@/locales'
 import { Category, Page } from '@/types/block'
 import CalendarWidget from './CalendarWidget'
 import type { RecordCalendarEntry } from '@/lib/recordCalendar'
 import PeriodicNotesPanel from './PeriodicNotesPanel'
+import DiaryPanel from '@/components/diary/DiaryPanel'
+import { VAULT_LIST_CHANGED_EVENT } from '@/lib/vaultGroups'
 import NewPageDialog from './NewPageDialog'
 import { GUIDE_COLORS, getPageSearchText } from '@/components/sidebar/sidebarUtils'
 import { SortableCategoryRow, DroppableCategoryRow, CollapsedFolderIcon } from '@/components/sidebar/CategoryRow'
@@ -121,13 +124,34 @@ export default function CategorySidebar({
   const t = useLocale()
   const plannerFeatures = useVaultPreferencesStore(state => state.preferences.planner)
   const loadVaultPreferences = useVaultPreferencesStore(state => state.loadForVault)
+  const diaryVaultName = useDiaryStore(state => state.diaryVaultName)
+  const diaryStatus = useDiaryStore(state => state.status)
+  const loadDiarySettings = useDiaryStore(state => state.load)
   const isDailyPlannerVault = plannerFeatures.mode === 'daily'
   const isPostitRecordVault = isDailyPlannerVault && plannerFeatures.dailyNoteTemplate === 'postit'
-  const hubLabel = isPostitRecordVault ? t.sidebar.tabRecord : t.sidebar.tabPlan
+  const isDiaryVault = diaryStatus === 'ready' && !!currentVaultName && currentVaultName === diaryVaultName
+  const isLegacyDiaryVault = !isDiaryVault
+    && isDailyPlannerVault
+    && plannerFeatures.dailyNoteTemplate === 'diary'
+  const isDiaryExperience = isDiaryVault || isLegacyDiaryVault
+  const showPlannerEntries = isDailyPlannerVault && !isDiaryExperience
+  const hubLabel = isPostitRecordVault
+    ? t.sidebar.tabRecord
+    : t.sidebar.tabPlan
 
   useEffect(() => {
     if (currentVaultName) void loadVaultPreferences(currentVaultName)
   }, [currentVaultName, loadVaultPreferences])
+
+  useEffect(() => {
+    void loadDiarySettings()
+  }, [loadDiarySettings])
+
+  useEffect(() => {
+    const refreshDiarySettings = () => { void loadDiarySettings(true) }
+    window.addEventListener(VAULT_LIST_CHANGED_EVENT, refreshDiarySettings)
+    return () => window.removeEventListener(VAULT_LIST_CHANGED_EVENT, refreshDiarySettings)
+  }, [loadDiarySettings])
 
   // ── 컴포넌트 상태 ────────────────────────────
   // 펼쳐진 폴더 ID 집합 — localStorage에서 복원, 변경 시 자동 저장
@@ -192,13 +216,40 @@ export default function CategorySidebar({
   const [bulkMoveMessage, setBulkMoveMessage] = useState('')
   const selectedPageIdList = useMemo(() => [...selectedPageIds], [selectedPageIds])
 
-  // 사이드바 상단 탭: 노트 / 계획
+  // 사이드바 상단 탭: 노트 / 계획 / 일기
   // Python으로 치면: self.sidebar_tab = 'notes'
-  const [sidebarTab, setSidebarTab] = useState<'notes' | 'plan'>('notes')
+  const [sidebarTab, setSidebarTab] = useState<'notes' | 'plan' | 'diary'>('notes')
 
   useEffect(() => {
-    if ((!isDailyPlannerVault || !plannerFeatures.planMenu) && sidebarTab === 'plan') setSidebarTab('notes')
-  }, [isDailyPlannerVault, plannerFeatures.planMenu, sidebarTab])
+    if (isDiaryExperience) {
+      if (sidebarTab !== 'diary') setSidebarTab('diary')
+      return
+    }
+    if ((!showPlannerEntries || !plannerFeatures.planMenu) && sidebarTab === 'plan') setSidebarTab('notes')
+    if (!isDiaryExperience && sidebarTab === 'diary') setSidebarTab('notes')
+  }, [isDiaryExperience, plannerFeatures.planMenu, showPlannerEntries, sidebarTab])
+
+  useEffect(() => {
+    if (!isDiaryExperience || pages.length === 0) return
+    const currentPage = pages.find(page => page.id === currentPageId)
+    const isCurrentDiary = isDiaryVault
+      ? currentPage?.pageRole === 'diary-day'
+      : !!currentPage && /^일간 노트 \d{4}-\d{2}-\d{2}$|^Daily Note \d{4}-\d{2}-\d{2}$/.test(currentPage.title)
+    if (isCurrentDiary) return
+
+    const datedDiaryPages = pages
+      .map(page => ({
+        page,
+        date: isDiaryVault
+          ? (page.pageRole === 'diary-day' ? page.periodKey ?? '' : '')
+          : (/^(?:일간 노트|Daily Note) (\d{4}-\d{2}-\d{2})$/.exec(page.title)?.[1] ?? ''),
+      }))
+      .filter(entry => /^\d{4}-\d{2}-\d{2}$/.test(entry.date))
+      .sort((left, right) => right.date.localeCompare(left.date))
+    const today = toLocalDateKey(new Date())
+    const target = datedDiaryPages.find(entry => entry.date === today) ?? datedDiaryPages[0]
+    if (target) setCurrentPage(target.page.id)
+  }, [currentPageId, isDiaryExperience, isDiaryVault, pages, setCurrentPage])
 
   // SSR hydration 안전 마운트 플래그 (최근 파일 섹션용)
   // Python으로 치면: self.mounted = False; def on_mount(self): self.mounted = True
@@ -760,7 +811,7 @@ export default function CategorySidebar({
         {/* 계획 탭 — 캘린더 + PeriodicNotesPanel                   */}
         {/* Python으로 치면: if sidebar_tab == 'plan': render_plan() */}
         {/* ===================================================== */}
-        {isDailyPlannerVault && sidebarTab === 'plan' && (
+        {showPlannerEntries && sidebarTab === 'plan' && (
           <div className="flex-1 min-h-0 flex flex-col">
             <div className="flex items-center gap-2 border-b hairline px-2 py-1.5 shrink-0">
               <button
@@ -797,6 +848,19 @@ export default function CategorySidebar({
           </div>
         )}
 
+        {isDiaryExperience && sidebarTab === 'diary' && (
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="flex items-center gap-2 border-b hairline px-2 py-1.5 shrink-0">
+              <span className="text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>
+                📔 {t.sidebar.tabDiary}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <DiaryPanel legacyDailyNotes={isLegacyDiaryVault} />
+            </div>
+          </div>
+        )}
+
         {/* ===================================================== */}
         {/* 노트 탭 — 검색 + 태그 + 파일 트리 + 최근파일 + 하단바    */}
         {/* Python으로 치면: if sidebar_tab == 'notes': render_notes() */}
@@ -804,7 +868,7 @@ export default function CategorySidebar({
         {sidebarTab === 'notes' && (
           <>
         {/* 오늘 일정 빠른 진입점 — 메모 흐름을 벗어나지 않고 Day Planner 열기 */}
-        {isDailyPlannerVault && !isPostitRecordVault && plannerFeatures.todayShortcut && <div className="px-3 pt-2 shrink-0">
+        {showPlannerEntries && !isPostitRecordVault && plannerFeatures.todayShortcut && <div className="px-3 pt-2 shrink-0">
           <button
             type="button"
             onClick={onOpenDayPlanner}
@@ -1252,7 +1316,7 @@ export default function CategorySidebar({
             </div>
           </div>
           {/* 계획 — 주 화면에서 제외하고 하단 보조 메뉴에 유지 */}
-          {isDailyPlannerVault && plannerFeatures.planMenu && <button
+          {showPlannerEntries && plannerFeatures.planMenu && <button
             type="button"
             onClick={() => { setSidebarTab('plan'); setSelectedDate(null) }}
             title={hubLabel}
@@ -1262,6 +1326,17 @@ export default function CategorySidebar({
             style={sidebarTab === 'plan' ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
           >
             {isPostitRecordVault ? '📌' : '📅'}
+          </button>}
+          {isDiaryExperience && <button
+            type="button"
+            onClick={() => { setSidebarTab('diary'); setSelectedDate(null) }}
+            title={t.sidebar.tabDiary}
+            aria-label={t.sidebar.tabDiary}
+            aria-pressed={sidebarTab === 'diary'}
+            className="icon-btn shrink-0"
+            style={sidebarTab === 'diary' ? { color: "var(--color-accent)", background: "var(--color-accent-soft)" } : {}}
+          >
+            📔
           </button>}
           {/* 그래프 뷰 */}
           <button type="button" onClick={onOpenGraphView} title={`${t.sidebar.graphView} (Ctrl+G)`} className="icon-btn shrink-0">

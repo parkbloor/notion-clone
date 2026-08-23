@@ -16,7 +16,7 @@ class VaultPreferencesTests(unittest.TestCase):
             "get_vault_dir",
             return_value=self.vault_dir,
         )
-        self.vault_patch.start()
+        self.get_vault_dir = self.vault_patch.start()
 
     def tearDown(self):
         self.vault_patch.stop()
@@ -38,6 +38,7 @@ class VaultPreferencesTests(unittest.TestCase):
                     "timeline": True,
                     "routines": True,
                     "slashPlannerBlocks": True,
+                    "captureDestinations": [],
                 }
             },
         )
@@ -60,6 +61,13 @@ class VaultPreferencesTests(unittest.TestCase):
                     dailyCustomTemplateId="daily-template-1",
                     todayShortcut=False,
                     reviews=False,
+                    captureDestinations=[
+                        vault_preferences.CaptureDestination(
+                            id="stock-ideas",
+                            pageId="stock-ideas-page",
+                            kind="note",
+                        )
+                    ],
                 )
             )
         )
@@ -78,6 +86,9 @@ class VaultPreferencesTests(unittest.TestCase):
                 "timeline": True,
                 "routines": True,
                 "slashPlannerBlocks": True,
+                "captureDestinations": [
+                    {"id": "stock-ideas", "pageId": "stock-ideas-page", "kind": "note"}
+                ],
             },
         )
         persisted = json.loads(
@@ -105,6 +116,80 @@ class VaultPreferencesTests(unittest.TestCase):
             )
         )
         self.assertEqual(without_custom["planner"]["dailyCustomTemplateId"], "")
+
+        cleared_destinations = vault_preferences.update_vault_preferences(
+            vault_preferences.VaultPreferencesUpdate(
+                planner=vault_preferences.PlannerFeatureUpdate(captureDestinations=[])
+            )
+        )
+        self.assertEqual(cleared_destinations["planner"]["captureDestinations"], [])
+
+    def test_capture_destinations_are_normalized_without_touching_other_preferences(self):
+        (self.vault_dir / vault_preferences.PREFERENCES_FILE).write_text(
+            json.dumps({
+                "planner": {
+                    "mode": "daily",
+                    "captureDestinations": [
+                        {"id": " task ", "pageId": " task-page ", "kind": "task"},
+                        {"id": "same-id", "pageId": "notes-page", "kind": "note"},
+                        {"id": "same-id", "pageId": "other-page", "kind": "note"},
+                        {"id": "other", "pageId": "notes-page", "kind": "note"},
+                        {"id": "invalid", "pageId": "bad", "kind": "unknown"},
+                    ],
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        preferences = vault_preferences.get_vault_preferences()["planner"]
+        self.assertEqual(preferences["mode"], "daily")
+        self.assertEqual(
+            preferences["captureDestinations"],
+            [
+                {"id": "task", "pageId": "task-page", "kind": "task"},
+                {"id": "same-id", "pageId": "notes-page", "kind": "note"},
+            ],
+        )
+
+    def test_diary_template_is_preserved_for_the_current_vault(self):
+        saved = vault_preferences.update_vault_preferences(
+            vault_preferences.VaultPreferencesUpdate(
+                planner=vault_preferences.PlannerFeatureUpdate(
+                    dailyNoteTemplate="diary"
+                )
+            )
+        )
+
+        self.assertEqual(saved["planner"]["dailyNoteTemplate"], "diary")
+        self.assertEqual(
+            vault_preferences.get_vault_preferences()["planner"]["dailyNoteTemplate"],
+            "diary",
+        )
+
+    def test_capture_destinations_do_not_cross_vaults(self):
+        vault_preferences.update_vault_preferences(
+            vault_preferences.VaultPreferencesUpdate(
+                planner=vault_preferences.PlannerFeatureUpdate(
+                    captureDestinations=[
+                        vault_preferences.CaptureDestination(
+                            id="current-only",
+                            pageId="current-page",
+                            kind="note",
+                        )
+                    ]
+                )
+            )
+        )
+
+        other_vault = tempfile.TemporaryDirectory()
+        try:
+            self.get_vault_dir.return_value = Path(other_vault.name)
+            self.assertEqual(
+                vault_preferences.get_vault_preferences()["planner"]["captureDestinations"],
+                [],
+            )
+        finally:
+            other_vault.cleanup()
 
 
 if __name__ == "__main__":
