@@ -69,10 +69,15 @@ export default function DebugTab() {
     const text = logs
       .map(l => `[${l.time}] [${l.level}] ${l.logger}: ${l.message}`)
       .join('\n')
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+      // Clipboard permission is browser-controlled.  Consume a denial so it
+      // does not surface as an unhandled console error.
+      // Python으로 치면: try: clipboard.write(text) except PermissionError: pass
+      .catch(() => {})
   }
 
   return (

@@ -16,6 +16,9 @@ import { Block } from '@/types/block'
 import { usePageStore } from '@/store/pageStore'
 import { ChevronLeft, ChevronRight, PenLine, X } from 'lucide-react'
 import { useLocale } from '@/locales'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import { SqliteMonthSchedule } from './SqliteScheduleRange'
+import { PlannerStoreModeNotice } from './PlannerStoreModeNotice'
 import { getDailyNoteDate, openOrCreateDailyNote } from '@/lib/dailyNotes'
 
 // ── 날짜 유틸 ─────────────────────────────────
@@ -49,7 +52,14 @@ interface CalCell {
 // =============================================
 interface Props { block: Block; pageId: string }
 
-export default function MonthlyCalendarBlock({ block, pageId }: Props) {
+export default function MonthlyCalendarBlock(props: Props) {
+  const mode = usePlannerStoreMode()
+  if (mode === 'sqlite') return <SqliteMonthSchedule />
+  if (mode !== 'legacy') return <PlannerStoreModeNotice mode={mode} />
+  return <LegacyMonthlyCalendarBlock {...props} />
+}
+
+function LegacyMonthlyCalendarBlock({ block, pageId }: Props) {
   const t = useLocale()
   const updateBlock    = usePageStore(s => s.updateBlock)
   const pages          = usePageStore(s => s.pages)

@@ -17,6 +17,10 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { ChevronLeft, ChevronRight, Plus, Trash2, CheckSquare, Square } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import { sqliteRoutineRatioForDate, usePlannerDates, useSqlitePlannerRange } from '@/lib/sqlitePlannerRange'
+import SqlitePlannerStats from './SqlitePlannerStats'
+import { PlannerStoreModeNotice } from './PlannerStoreModeNotice'
 
 // ── 타입 정의 ─────────────────────────────────
 // Python으로 치면: @dataclass class YearlyGoal / YearlyData
@@ -61,6 +65,12 @@ interface Props {
 
 // =============================================
 export default function YearlyPlannerBlock({ block, pageId, readMode, onUpdate }: Props) {
+  const plannerStoreMode = usePlannerStoreMode()
+  if (plannerStoreMode !== 'legacy' && plannerStoreMode !== 'sqlite') return <PlannerStoreModeNotice mode={plannerStoreMode} />
+  return <YearlyPlannerContent block={block} pageId={pageId} readMode={readMode} onUpdate={onUpdate} plannerStoreMode={plannerStoreMode} />
+}
+
+function YearlyPlannerContent({ block, pageId, readMode, onUpdate, plannerStoreMode }: Props & { plannerStoreMode: 'legacy' | 'sqlite' }) {
   const t = useLocale()
 
   // ── content 파싱 ───────────────────────────
@@ -88,6 +98,16 @@ export default function YearlyPlannerBlock({ block, pageId, readMode, onUpdate }
   // 루틴 프리셋 — settingsStore에서 직접 읽음
   const plannerRoutines = useSettingsStore(s => s.plannerRoutines)
   const { pages, setCurrentPage } = usePageStore()
+  const sqliteRange = useMemo(() => ({
+    start: `${data.year}-01-01`,
+    end: `${data.year}-12-31`,
+  }), [data.year])
+  // SQLite 활성 시 연간 통계는 저장된 일정·루틴 범위만 집계한다.
+  // Python으로 치면: events, routines = load_range_if_sqlite(year_start, year_end)
+  const { events: sqliteEvents, routines: sqliteRoutines } = useSqlitePlannerRange(
+    plannerStoreMode === 'sqlite', sqliteRange.start, sqliteRange.end,
+  )
+  const sqliteDates = usePlannerDates(sqliteRange.start, data.year % 4 === 0 && (data.year % 100 !== 0 || data.year % 400 === 0) ? 366 : 365)
 
   // ── 연도 네비게이션 ────────────────────────
   function goYear(delta: number) { save({ year: data.year + delta }) }
@@ -158,21 +178,25 @@ export default function YearlyPlannerBlock({ block, pageId, readMode, onUpdate }
         const inYear = cur.getFullYear() === data.year
         let ratio = -1
         if (inYear) {
-          outer: for (const page of pages) {
-            for (const b of page.blocks) {
-              if (b.type !== 'dayplanner') continue
-              try {
-                const pd: PlannerData = JSON.parse(b.content || '{}')
-                const dayEvents = pd.eventsByDate?.[dateStr] ?? []
-                if (!pd.eventsByDate?.[dateStr]) continue
-                const routineCount = plannerRoutines.length
-                if (routineCount === 0) { ratio = 0; break outer }
-                const doneCount = dayEvents.filter(ev =>
-                  plannerRoutines.some(r => r.title === ev.title && r.start === ev.start) && ev.done
-                ).length
-                ratio = doneCount / routineCount
-                break outer
-              } catch { /* skip */ }
+          if (plannerStoreMode === 'sqlite') {
+            ratio = sqliteRoutineRatioForDate(sqliteEvents, sqliteRoutines, dateStr)
+          } else {
+            outer: for (const page of pages) {
+              for (const b of page.blocks) {
+                if (b.type !== 'dayplanner') continue
+                try {
+                  const pd: PlannerData = JSON.parse(b.content || '{}')
+                  const dayEvents = pd.eventsByDate?.[dateStr] ?? []
+                  if (!pd.eventsByDate?.[dateStr]) continue
+                  const routineCount = plannerRoutines.length
+                  if (routineCount === 0) { ratio = 0; break outer }
+                  const doneCount = dayEvents.filter(ev =>
+                    plannerRoutines.some(r => r.title === ev.title && r.start === ev.start) && ev.done
+                  ).length
+                  ratio = doneCount / routineCount
+                  break outer
+                } catch { /* skip */ }
+              }
             }
           }
         }
@@ -182,7 +206,7 @@ export default function YearlyPlannerBlock({ block, pageId, readMode, onUpdate }
       weeks.push(week)
     }
     return weeks
-  }, [data.year, pages, plannerRoutines])
+  }, [data.year, pages, plannerRoutines, plannerStoreMode, sqliteEvents, sqliteRoutines])
 
   // =============================================
   return (
@@ -335,6 +359,7 @@ export default function YearlyPlannerBlock({ block, pageId, readMode, onUpdate }
           <div className="w-2 h-2 rounded-sm bg-emerald-200 ml-1" /> {t.planner.yearly.partial}
           <div className="w-2 h-2 rounded-sm bg-emerald-600 ml-1" /> {t.planner.yearly.done}
         </div>
+        {plannerStoreMode === 'sqlite' && <SqlitePlannerStats dates={sqliteDates} events={sqliteEvents} routines={sqliteRoutines} />}
       </div>
 
     </div>

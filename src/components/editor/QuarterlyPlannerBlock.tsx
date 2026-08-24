@@ -17,6 +17,10 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import { sqliteRoutineRatioForDate, usePlannerDates, useSqlitePlannerRange } from '@/lib/sqlitePlannerRange'
+import SqlitePlannerStats from './SqlitePlannerStats'
+import { PlannerStoreModeNotice } from './PlannerStoreModeNotice'
 
 
 // ── 분기별 월 목록 ─────────────────────────────
@@ -80,6 +84,12 @@ interface Props {
 
 // =============================================
 export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdate }: Props) {
+  const plannerStoreMode = usePlannerStoreMode()
+  if (plannerStoreMode !== 'legacy' && plannerStoreMode !== 'sqlite') return <PlannerStoreModeNotice mode={plannerStoreMode} />
+  return <QuarterlyPlannerContent block={block} pageId={pageId} readMode={readMode} onUpdate={onUpdate} plannerStoreMode={plannerStoreMode} />
+}
+
+function QuarterlyPlannerContent({ block, pageId, readMode, onUpdate, plannerStoreMode }: Props & { plannerStoreMode: 'legacy' | 'sqlite' }) {
   const t = useLocale()
 
   // ── content 파싱 ───────────────────────────
@@ -116,6 +126,16 @@ export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdat
   // 루틴 프리셋 — settingsStore에서 직접 읽음
   const plannerRoutines = useSettingsStore(s => s.plannerRoutines)
   const { pages, setCurrentPage } = usePageStore()
+  const sqliteRange = useMemo(() => {
+    const monday = getMondayOf(new Date(data.year, (data.quarter - 1) * 3, 1))
+    return { start: fmtDate(monday), end: fmtDate(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 90)) }
+  }, [data.quarter, data.year])
+  // SQLite 활성 시 분기 통계는 페이지 블록을 읽지 않고 13주 범위 API만 사용한다.
+  // Python으로 치면: events, routines = load_range_if_sqlite(range_start, range_end)
+  const { events: sqliteEvents, routines: sqliteRoutines } = useSqlitePlannerRange(
+    plannerStoreMode === 'sqlite', sqliteRange.start, sqliteRange.end,
+  )
+  const sqliteDates = usePlannerDates(sqliteRange.start, 91)
 
   // ── 분기 네비게이션 ────────────────────────
   // Python으로 치면: def go_quarter(delta): ...
@@ -179,24 +199,28 @@ export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdat
       for (let d = 0; d < 7; d++) {
         const dateStr = fmtDate(cur)
         let ratio = -1
-        for (const page of pages) {
-          for (const b of page.blocks) {
-            if (b.type !== 'dayplanner') continue
-            try {
-              const pd: PlannerData = JSON.parse(b.content || '{}')
-              const dayEvents = pd.eventsByDate?.[dateStr] ?? []
-              if (!dayEvents.length && !pd.eventsByDate?.[dateStr]) continue
-              const routineCount = plannerRoutines.length
-              if (routineCount === 0) { ratio = 0; break }
-              // 루틴과 제목+시작시간이 일치하는 이벤트 중 done인 것 카운트
-              const doneCount = dayEvents.filter(ev =>
-                plannerRoutines.some(r => r.title === ev.title && r.start === ev.start) && ev.done
-              ).length
-              ratio = doneCount / routineCount
-              break
-            } catch { /* skip */ }
+        if (plannerStoreMode === 'sqlite') {
+          ratio = sqliteRoutineRatioForDate(sqliteEvents, sqliteRoutines, dateStr)
+        } else {
+          for (const page of pages) {
+            for (const b of page.blocks) {
+              if (b.type !== 'dayplanner') continue
+              try {
+                const pd: PlannerData = JSON.parse(b.content || '{}')
+                const dayEvents = pd.eventsByDate?.[dateStr] ?? []
+                if (!dayEvents.length && !pd.eventsByDate?.[dateStr]) continue
+                const routineCount = plannerRoutines.length
+                if (routineCount === 0) { ratio = 0; break }
+                // 루틴과 제목+시작시간이 일치하는 이벤트 중 done인 것 카운트
+                const doneCount = dayEvents.filter(ev =>
+                  plannerRoutines.some(r => r.title === ev.title && r.start === ev.start) && ev.done
+                ).length
+                ratio = doneCount / routineCount
+                break
+              } catch { /* skip */ }
+            }
+            if (ratio >= 0) break
           }
-          if (ratio >= 0) break
         }
         week.push({ date: dateStr, ratio })
         cur.setDate(cur.getDate() + 1)
@@ -204,7 +228,7 @@ export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdat
       weeks.push(week)
     }
     return weeks
-  }, [data.year, data.quarter, pages, plannerRoutines])
+  }, [data.year, data.quarter, pages, plannerRoutines, plannerStoreMode, sqliteEvents, sqliteRoutines])
 
   const todayStr = fmtDate(new Date())
   const quarterMonths = QUARTER_MONTHS[data.quarter]
@@ -368,6 +392,7 @@ export default function QuarterlyPlannerBlock({ block, pageId, readMode, onUpdat
           <div className="w-2 h-2 rounded-sm bg-emerald-200 ml-1" /> {t.planner.quarterly.partial}
           <div className="w-2 h-2 rounded-sm bg-emerald-600 ml-1" /> {t.planner.quarterly.done}
         </div>
+        {plannerStoreMode === 'sqlite' && <SqlitePlannerStats dates={sqliteDates} events={sqliteEvents} routines={sqliteRoutines} />}
       </div>
 
     </div>

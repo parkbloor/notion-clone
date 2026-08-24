@@ -276,6 +276,10 @@ def execute_migration(body: MigrationExecuteBody):
             "INSERT INTO meta(key,value) VALUES('migration_complete','1') "
             "ON CONFLICT(key) DO UPDATE SET value='1'"
         )
+        connection.execute(
+            "INSERT INTO meta(key,value) VALUES('activation_mode','migration') "
+            "ON CONFLICT(key) DO UPDATE SET value='migration'"
+        )
     return {
         "status": "ok", "backupFile": backup["backupFile"],
         "importedEvents": imported_events, "importedReviews": imported_reviews,

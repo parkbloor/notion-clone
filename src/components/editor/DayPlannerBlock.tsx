@@ -35,6 +35,7 @@ import { useLocale } from '@/locales'
 import { toast } from 'sonner'
 import { parsePlannerData, type PlannerData } from '@/lib/plannerData'
 import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import SqliteDayPlannerTimeline from './SqliteDayPlannerTimeline'
 
 // ── 모듈 레벨: 마지막 활성 DayPlannerBlock ID ─────
 // GlobalAIChatButton의 'ai-apply-schedule' 이벤트를 처리할 블록 결정
@@ -716,11 +717,14 @@ export default function DayPlannerBlock(props: DayPlannerBlockProps) {
     const parsed = parsePlannerData(props.block.content)
     const originalCount = Object.values(parsed.data.eventsByDate).reduce((sum, events) => sum + events.length, 0)
     return (
-      <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
-        <p className="text-sm font-semibold text-violet-800">🗄️ {t.settings.vaultFeatures.plannerMigratedBlock}</p>
-        <p className="mt-1 text-xs leading-5 text-violet-700">
-          {t.settings.vaultFeatures.plannerMigratedBlockDesc.replace('{events}', String(originalCount))}
-        </p>
+      <div className="space-y-3">
+        <SqliteDayPlannerTimeline blockId={props.block.id} />
+        <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3">
+          <p className="text-sm font-semibold text-violet-800">🗄️ {t.settings.vaultFeatures.plannerMigratedBlock}</p>
+          <p className="mt-1 text-xs leading-5 text-violet-700">
+            {t.settings.vaultFeatures.plannerMigratedBlockDesc.replace('{events}', String(originalCount))}
+          </p>
+        </div>
       </div>
     )
   }

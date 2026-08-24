@@ -561,7 +561,15 @@ export default function Editor({ block, pageId, isLast, isSectionCollapsed, hasS
 
   useEffect(() => {
     if (!editor) return
-    applyBlockTypeRef.current(editor, block.type)
+    // Tiptap dispatches synchronously, and its React node views can call
+    // flushSync while that dispatch is running.  Defer the initial type
+    // conversion until React has fully completed this effect lifecycle.
+    // Python으로 치면: queue_microtask(lambda: apply_block_type(editor, block.type))
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) applyBlockTypeRef.current(editor, block.type)
+    })
+    return () => { cancelled = true }
   }, [block.type, editor])
 
   // ── 새 블록 생성(엔터) 시 자동 포커스 ──────────────────────────────

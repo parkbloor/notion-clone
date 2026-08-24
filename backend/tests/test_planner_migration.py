@@ -128,6 +128,7 @@ class PlannerMigrationTests(unittest.TestCase):
         self.assertEqual(second["importedReviews"], 0)
         self.assertEqual(len(planner_store.list_events()), 1)
         self.assertTrue(planner_store.get_store_status()["migrationComplete"])
+        self.assertEqual(planner_store.get_store_status()["activationMode"], "migration")
         self.assertEqual(planner_store.get_store_status()["writeMode"], "sqlite")
         self.assertEqual(source.read_bytes(), original)
 

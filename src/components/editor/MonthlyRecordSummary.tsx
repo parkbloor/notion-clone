@@ -63,7 +63,8 @@ export default function MonthlyRecordSummary({ pages, onOpenRecord }: MonthlyRec
     [anchor.month, anchor.year, entries, period],
   )
   const plannerEntries = useMemo(() => {
-    if (plannerStoreMode !== 'sqlite') return collectPlannerCalendarEntries(pages, plannerArchive)
+    if (plannerStoreMode === 'legacy') return collectPlannerCalendarEntries(pages, plannerArchive)
+    if (plannerStoreMode !== 'sqlite') return []
     return storedPlannerEvents.map(stored => ({
       date: stored.date,
       event: {
@@ -88,7 +89,7 @@ export default function MonthlyRecordSummary({ pages, onOpenRecord }: MonthlyRec
   useEffect(() => {
     let cancelled = false
     setPlannerArchive({})
-    if (!currentVaultName || plannerStoreMode === 'sqlite') return () => { cancelled = true }
+    if (!currentVaultName || plannerStoreMode !== 'legacy') return () => { cancelled = true }
     plannerApi.getArchive()
       .then(archive => { if (!cancelled) setPlannerArchive(archive) })
       .catch(() => { if (!cancelled) setPlannerArchive({}) })

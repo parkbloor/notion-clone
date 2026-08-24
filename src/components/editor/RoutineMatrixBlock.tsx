@@ -16,6 +16,9 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
 import { useSettingsStore } from '@/store/settingsStore'
 import { useLocale } from '@/locales'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import SqliteRoutineMatrix from './SqliteRoutineMatrix'
+import { PlannerStoreModeNotice } from './PlannerStoreModeNotice'
 
 // ── 날짜 유틸 ─────────────────────────────────
 // Python으로 치면: def format_date(d): return d.strftime('%Y-%m-%d')
@@ -51,7 +54,14 @@ interface RoutineMatrixData {
 // =============================================
 interface Props { block: Block; pageId: string }
 
-export default function RoutineMatrixBlock({ block, pageId }: Props) {
+export default function RoutineMatrixBlock(props: Props) {
+  const mode = usePlannerStoreMode()
+  if (mode === 'sqlite') return <SqliteRoutineMatrix />
+  if (mode !== 'legacy') return <PlannerStoreModeNotice mode={mode} />
+  return <LegacyRoutineMatrixBlock {...props} />
+}
+
+function LegacyRoutineMatrixBlock({ block, pageId }: Props) {
   const t = useLocale()
   const updateBlock    = usePageStore(s => s.updateBlock)
   const pages          = usePageStore(s => s.pages)

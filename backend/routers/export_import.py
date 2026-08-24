@@ -32,6 +32,7 @@ from backend.core import (
     validate_uuid,
 )
 from backend.daily_capture import daily_capture_to_html, daily_capture_to_markdown
+from backend.routers import planner_store
 
 # Python으로 치면: blueprint = Blueprint('export_import', __name__, url_prefix='/api')
 router = APIRouter(prefix="/api", tags=["export_import"])
@@ -1009,22 +1010,42 @@ def export_planner_period(start_date: str, end_date: str, label: str = ''):
     if end < start or (end - start).days > 30:
         raise HTTPException(status_code=400, detail="출력 범위는 1일부터 31일까지 가능합니다")
 
-    pages = _load_all_export_pages()
-    events_by_date, records = _collect_period_export_items(pages, start_date, end_date)
+    # SQLite is the schedule source after activation. Page records remain a separate export-only header stream.
+    # Python으로 치면: sqlite_items or legacy_block_items; never merge schedule sources
+    sqlite_items = planner_store.get_sqlite_period_export_items(start_date, end_date)
+    if sqlite_items is None:
+        pages = _load_all_export_pages()
+        events_by_date, records = _collect_period_export_items(pages, start_date, end_date)
+        sqlite_reviews: list[dict] = []
+    else:
+        sqlite_events, sqlite_reviews = sqlite_items
+        events_by_date: dict[str, list[dict]] = {}
+        for event in sqlite_events:
+            events_by_date.setdefault(event["date"], []).append(event)
+        # Record headers still come from normal pages, but their old Day Planner events are not read in SQLite mode.
+        records = _collect_period_export_items(_load_all_export_pages(), start_date, end_date)[1]
     records_by_date: dict[str, list[dict]] = {}
     for record in records:
         records_by_date.setdefault(record["date"], []).append(record)
 
-    dates = sorted(set(events_by_date) | set(records_by_date))
+    reviews_by_date: dict[str, list[dict]] = {}
+    for review in sqlite_reviews:
+        reviews_by_date.setdefault(review["date"], []).append(review)
+
+    dates = sorted(set(events_by_date) | set(records_by_date) | set(reviews_by_date))
     body_parts = [
         f'<div class="period-summary"><strong>{_html_mod.escape(start_date)} – {_html_mod.escape(end_date)}</strong>',
-        f'<span>일정 {sum(len(events) for events in events_by_date.values())}개 · 기록 {len(records)}개</span></div>',
+        f'<span>일정 {sum(len(events) for events in events_by_date.values())}개 · 회고 {len(sqlite_reviews)}개 · 기록 {len(records)}개</span></div>',
     ]
     for date_key in dates:
         body_parts.append(f'<section class="period-day"><h2>{_html_mod.escape(date_key)}</h2>')
         if events_by_date.get(date_key):
             planner_content = json.dumps({"eventsByDate": {date_key: events_by_date[date_key]}}, ensure_ascii=False)
             body_parts.append(_dayplanner_to_html(planner_content, target_date=date_key))
+        for review in reviews_by_date.get(date_key, []):
+            body_parts.append(
+                f'<section class="record-source"><h3>🧾 SQLite 회고</h3><pre>{_html_mod.escape(review["content"])}</pre></section>'
+            )
         for record in records_by_date.get(date_key, []):
             source = f'{record["pageIcon"]} {record["pageTitle"]}'
             body_parts.append(

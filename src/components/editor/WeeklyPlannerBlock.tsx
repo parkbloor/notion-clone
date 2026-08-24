@@ -16,6 +16,10 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { ChevronLeft, ChevronRight, MapPin, RefreshCw, X, Check } from 'lucide-react'
 import type { PlannerData } from './DayPlannerBlock'
 import { useLocale } from '@/locales'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import { isRoutineApplicable, useSqlitePlannerRange } from '@/lib/sqlitePlannerRange'
+import SqlitePlannerStats from './SqlitePlannerStats'
+import { PlannerStoreModeNotice } from './PlannerStoreModeNotice'
 
 // ── WMO 날씨 코드 → 이모지 ────────────────────
 // Python으로 치면: WMO_ICON: dict[int, str] = { 0: '☀️', ... }
@@ -75,6 +79,12 @@ export interface WeeklyPlannerData {
 interface Props { block: Block; pageId: string }
 
 export default function WeeklyPlannerBlock({ block, pageId }: Props) {
+  const plannerStoreMode = usePlannerStoreMode()
+  if (plannerStoreMode !== 'legacy' && plannerStoreMode !== 'sqlite') return <PlannerStoreModeNotice mode={plannerStoreMode} />
+  return <WeeklyPlannerContent block={block} pageId={pageId} plannerStoreMode={plannerStoreMode} />
+}
+
+function WeeklyPlannerContent({ block, pageId, plannerStoreMode }: Props & { plannerStoreMode: 'legacy' | 'sqlite' }) {
   const t = useLocale()
   const updateBlock      = usePageStore(s => s.updateBlock)
   const pages            = usePageStore(s => s.pages)
@@ -107,6 +117,11 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
   const weekDates = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(data.weekStart, i)),
     [data.weekStart]
+  )
+  // SQLite 모드에서는 범위 API만 읽어 레거시 페이지 통계와 섞지 않는다.
+  // Python으로 치면: sqlite_events, sqlite_routines = load_range_if_sqlite(week_start, week_end)
+  const { events: sqliteEvents, routines: sqliteRoutines } = useSqlitePlannerRange(
+    plannerStoreMode === 'sqlite', data.weekStart, addDays(data.weekStart, 6),
   )
 
   // ── 주차 이동 ─────────────────────────────────
@@ -212,6 +227,22 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
   // 모든 페이지의 DayPlannerBlock을 스캔해 이번 주 루틴 완료 여부 집계
   // Python으로 치면: def build_routine_matrix(pages, week_dates): ...
   const routineMatrix = useMemo(() => {
+    if (plannerStoreMode === 'sqlite') {
+      const map: Record<string, Record<string, boolean | null>> = {}
+      const labels: Record<string, string> = {}
+      const titles = sqliteRoutines.filter(routine => routine.active).map(routine => {
+        labels[routine.id] = routine.title
+        map[routine.id] = {}
+        weekDates.forEach(date => {
+          if (isRoutineApplicable(routine, date)) map[routine.id][date] = null
+        })
+        sqliteEvents.filter(event => event.routineId === routine.id).forEach(event => {
+          if (map[routine.id][event.date] !== undefined) map[routine.id][event.date] = event.done
+        })
+        return routine.id
+      })
+      return { titles, labels, map }
+    }
     // 루틴 목록: settingsStore에서 직접 읽음
     // 이벤트: eventsByDate에서 이번 주 날짜 데이터 수집
     const map: Record<string, Record<string, boolean | null>> = {}
@@ -234,8 +265,8 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
       })
     })
     const titles = plannerRoutines.map(r => r.title)
-    return { titles, map }
-  }, [pages, weekDates, plannerRoutines])
+    return { titles, labels: Object.fromEntries(titles.map(title => [title, title])), map }
+  }, [pages, plannerRoutines, plannerStoreMode, sqliteEvents, sqliteRoutines, weekDates])
 
   // ── 인라인 입력 상태 ──────────────────────────
   const [addingDay,    setAddingDay]    = useState<string | null>(null)
@@ -481,6 +512,8 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
         </div>
       )}
 
+      {plannerStoreMode === 'sqlite' && <div className="px-4 pb-1"><SqlitePlannerStats dates={weekDates} events={sqliteEvents} routines={sqliteRoutines} /></div>}
+
       {/* ── 루틴 달성 매트릭스 ─────────────────── */}
       {routineMatrix.titles.length > 0 && (
         <div className="px-4 py-3">
@@ -505,14 +538,14 @@ export default function WeeklyPlannerBlock({ block, pageId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {routineMatrix.titles.map(title => {
-                  const doneCount = weekDates.filter(d => routineMatrix.map[title]?.[d] === true).length
-                  const totalSet  = weekDates.filter(d => routineMatrix.map[title]?.[d] !== undefined).length
+                {routineMatrix.titles.map(routineKey => {
+                  const doneCount = weekDates.filter(d => routineMatrix.map[routineKey]?.[d] === true).length
+                  const totalSet  = weekDates.filter(d => routineMatrix.map[routineKey]?.[d] !== undefined).length
                   return (
-                    <tr key={title} className="border-t border-gray-50">
-                      <td className="text-[10px] text-gray-600 pr-4 py-1.5 truncate max-w-24">{title}</td>
+                    <tr key={routineKey} className="border-t border-gray-50">
+                      <td className="text-[10px] text-gray-600 pr-4 py-1.5 truncate max-w-24">{routineMatrix.labels[routineKey]}</td>
                       {weekDates.map(date => {
-                        const status = routineMatrix.map[title]?.[date]
+                        const status = routineMatrix.map[routineKey]?.[date]
                         return (
                           <td key={date} className="text-center py-1.5">
                             {status === true  ? <span className="text-emerald-400 text-sm">✅</span>

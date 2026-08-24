@@ -18,6 +18,9 @@ import { useSettingsStore } from '@/store/settingsStore'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { PlanEvent } from '@/types/block'
 import { PlannerData } from './DayPlannerBlock'
+import { usePlannerStoreMode } from '@/lib/usePlannerStoreMode'
+import { SqliteWeekSchedule } from './SqliteScheduleRange'
+import { PlannerStoreModeNotice } from './PlannerStoreModeNotice'
 
 // ── 시간 유틸 (DayPlannerBlock과 동일 로직, 상수만 다름) ──
 // Python으로 치면: def time_to_min(t): return int(t[:2])*60 + int(t[3:])
@@ -142,7 +145,14 @@ interface WeekPlannerBlockProps {
   pageId: string
 }
 
-export default function WeekPlannerBlock({ block, pageId }: WeekPlannerBlockProps) {
+export default function WeekPlannerBlock(props: WeekPlannerBlockProps) {
+  const mode = usePlannerStoreMode()
+  if (mode === 'sqlite') return <SqliteWeekSchedule />
+  if (mode !== 'legacy') return <PlannerStoreModeNotice mode={mode} />
+  return <LegacyWeekPlannerBlock {...props} />
+}
+
+function LegacyWeekPlannerBlock({ block, pageId }: WeekPlannerBlockProps) {
   const { pages, updateBlock } = usePageStore()
   // 주간 시작 요일 — settingsStore.weekStartDay (0=일, 1=월, 6=토)
   // Python으로 치면: self.week_start_day = settings.week_start_day
